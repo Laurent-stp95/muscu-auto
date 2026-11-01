@@ -454,7 +454,7 @@ function dayCard(s, d, focused, done, nextWeek) {
     : focused && !finished ? [button('Commencer la séance', () => start(d), { variant: 'primary', size: 'large', icon: 'play' })]
     : [button(finished ? 'Refaire' : 'Commencer', () => start(d), { variant: finished ? 'gray' : undefined, size: 'compact' })];
   const details = h('details', { className: 'more', open: ui.open?.[s.day] ?? focused },
-    h('summary', {}, `${s.items.length} exercices`, icon('chevron', 'chev')),
+    h('summary', {}, plural(s.items.length, 'exercice'), icon('chevron', 'chev')),
     h('div', { className: 'list' }, s.items.map((item, i) => {
       const e = byId.get(item.ex);
       return h('details', { className: 'ex' },
@@ -628,8 +628,8 @@ function sessionSummary() {
   const skipped = s.items.filter((it) => ![...sets.values()].some((x) => x.ex === it.ex)).map((it) => byId.get(it.ex).name);
   const stat = (value, label) => h('div', { className: 'stat' }, h('strong', {}, value), h('span', { className: 'caption' }, label));
   return h('div', { className: 'stack' },
-    h('div', { className: 'stats' }, stat(`${sets.size}/${planned}`, 'séries'), stat(`${activeMinutes(sid)} min`, 'effort'), stat(kgText(volume), 'volume')),
-    skipped.length > 0 && h('p', { className: 'caption' }, `Pas commencés : ${skipped.join(', ')}.`));
+    h('div', { className: 'stats' }, stat(`${sets.size}/${planned}`, planned > 1 ? 'séries' : 'série'), stat(`${activeMinutes(sid)} min`, 'effort'), stat(kgText(volume), 'volume')),
+    skipped.length > 0 && h('p', { className: 'caption' }, `${skipped.length > 1 ? 'Pas commencés' : 'Pas commencé'} : ${skipped.join(', ')}.`));
 }
 
 // Pause : minuteur coupé, écran libre de s'éteindre, temps de pause hors durée. Réversible, donc sans confirmation.
@@ -704,16 +704,19 @@ function pausedScreen(s) {
 function session() {
   const s = state.plan[state.active.day];
   if (state.active.paused) return pausedScreen(s);
+  // Barre collante : Pause et Arrêter restent à portée pendant tout le défilement.
   return h('div', { className: 'screen' },
-    h('header', { className: 'stack' }, h('h1', {}, `${DAYS[s.day]} · ${s.name}`),
-      h('div', { className: 'row' },
-        button('Pause', pause, { variant: 'gray', size: 'compact', icon: 'pause' }),
-        button('Arrêter', stopSession, { variant: 'gray', size: 'compact', icon: 'stop' }))),
+    h('header', { className: 'navbar' },
+      button('Pause', pause, { variant: 'plain', icon: 'pause', className: 'btn plain start' }),
+      h('h1', {}, `${DAYS[s.day]} · ${s.name}`),
+      button('Arrêter', stopSession, { variant: 'plain', className: 'btn plain end' })),
     cycle().deload && h('p', { className: 'note' }, icon('leaf'), 'Semaine allégée : moitié moins de séries, charges −10 %.'),
     banner('flame', 'Échauffement · 5 à 8 min',
       h('p', {}, "5 min de cardio léger et quelques rotations des articulations. Les séries d'approche sont indiquées sur chaque mouvement lourd."),
       h('p', { className: 'caption' }, "Le minuteur de repos démarre à chaque série validée et sonne à la fin : garde le son de l'iPhone activé.")),
-    s.items.map((item, i) => block(item, state.active.day, i)));
+    s.items.map((item, i) => block(item, state.active.day, i)),
+    // Fin de liste = fin de séance : le bouton est là où on en a besoin, sans remonter.
+    button('Terminer la séance', stopSession, { variant: 'primary', size: 'large' }));
 }
 
 function block(item, d, i) {
@@ -751,6 +754,8 @@ function block(item, d, i) {
     h('div', { className: 'group' }, h('span', { className: 'label' }, 'Ressenti'), h('div', { className: 'chips' }, feelButtons)));
 }
 
+// « 0 série », « 1 série », « 2 séries » : en français, 0 et 1 restent au singulier.
+const plural = (n, one, many = `${one}s`) => `${n} ${n > 1 ? many : one}`;
 const kgText = (kg) => `${kg.toLocaleString('fr-FR')}\u00a0kg`; // espace insécable : « kg » ne part jamais seul à la ligne
 const clock = (iso) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
@@ -793,7 +798,7 @@ async function onFeel(e, value, d, i, buttons) {
   const before = { ...item };
   state.config.avoid = [...state.config.avoid, e.id];
   if (!swap(EXOS, state.plan, state.config, d, i)) toast("Aucun exercice de remplacement : saute-le aujourd'hui.");
-  else toast(`${e.name} écarté`, () => { state.config.avoid = state.config.avoid.filter((x) => x !== e.id); Object.assign(item, before); save(); render(); });
+  else toast(`Exercice écarté : ${e.name}`, () => { state.config.avoid = state.config.avoid.filter((x) => x !== e.id); Object.assign(item, before); save(); render(); });
   save();
   render();
 }
@@ -865,7 +870,7 @@ function progress() {
   const capped = cards.filter(({ e, past }) => tipFor(e, past)?.plafond).map(({ e }) => e.name);
   return h('div', { className: 'screen' },
     h('header', { className: 'stack tight' }, h('div', { className: 'top' }, h('h1', {}, 'Progrès')),
-      sessions > 0 && h('p', { className: 'meta' }, `${sessions} séance${sessions > 1 ? 's' : ''} · ${sets.length} séries enregistrées`)),
+      sessions > 0 && h('p', { className: 'meta' }, `${plural(sessions, 'séance')} · ${plural(sets.length, 'série enregistrée', 'séries enregistrées')}`)),
     !cards.length && h('section', { className: 'card empty' }, icon('chart'), h('h2', { className: 'title' }, 'Pas encore de séance'),
       h('p', { className: 'meta' }, 'Après ta première séance, tu verras ici tes charges, tes répétitions et la prochaine étape pour chaque exercice.'),
       button('Voir ma semaine', () => show('week'), { variant: 'primary' })),
@@ -967,7 +972,7 @@ function importButton() {
       const data = JSON.parse(await input.files[0].text());
       const entries = Array.isArray(data) ? data : data.log;
       if (!Array.isArray(entries) || !entries.every((x) => typeof x?.t === 'string' && typeof x?.type === 'string')) throw new Error();
-      if (await ask({ title: 'Remplacer ton historique ?', text: `Tes ${log.length} saisies seront remplacées par les ${entries.length} du fichier.`, confirm: 'Remplacer', danger: true })) {
+      if (await ask({ title: 'Remplacer ton historique ?', text: `Ton historique (${plural(log.length, 'saisie')}) sera remplacé par celui du fichier (${plural(entries.length, 'saisie')}).`, confirm: 'Remplacer', danger: true })) {
         log = entries;
         save();
         render();

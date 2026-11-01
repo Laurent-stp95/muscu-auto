@@ -268,7 +268,7 @@ function suggest(e, item, past, { loads, learned: done = past.length, deload = f
   const missed = (s) => s.sets.some((x) => x.reps < lo);
   if (missed(last) && past.length > 1 && missed(past.at(-2))) return same(lighter(0.9), "Deux séances sous l'objectif : charge allégée.");
   if (missed(last) || last.feel === 'hard') return same(kg, `Même charge, vise ${item.reps} ${unit} propres.`);
-  if (last.sets.length < item.sets) return same(kg, `Même charge : termine les ${item.sets} séries avant d'augmenter.`);
+  if (last.sets.length < item.sets) return same(kg, `Même charge : termine ${item.sets > 1 ? `les ${item.sets} séries` : 'ta série'} avant d'augmenter.`);
 
   const all = (n) => last.sets.every((x) => x.reps >= n);
   const next = kg == null ? null : list.find((x) => x > kg);
