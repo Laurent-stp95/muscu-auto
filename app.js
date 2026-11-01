@@ -853,7 +853,7 @@ async function onFeel(e, value, d, i, buttons) {
 // --- Minuteur de repos et écran allumé ---
 // Une appli web iPhone ne peut ni vibrer ni notifier sans serveur : le son ne joue que si l'écran reste allumé.
 
-let audio = null, rest = null, restEnd = 0, restPushed = false, wakeLock = null;
+let audio = null, rest = null, restPushed = false, wakeLock = null;
 const restBar = h('div', { className: 'rest', hidden: true, role: 'timer' });
 
 function beep() {
@@ -873,13 +873,20 @@ function startRest(seconds) {
   // Créé au premier ✓ : iOS n'autorise le son qu'après un geste.
   audio ||= new (window.AudioContext || window.webkitAudioContext)();
   audio.resume?.();
+  restPushed = false; // le nouvel envoi remplace l'ancien côté serveur : pas d'annulation qui pourrait arriver après lui
   stopRest();
   const end = Date.now() + seconds * 1000;
-  restEnd = end;
+  // Prévenu tout de suite, appli active : au verrouillage de l'écran, iOS la suspend avant qu'une requête parte.
+  if (pushOn() && state.config.notify?.rest !== false) {
+    restPushed = true;
+    pushCall('POST', '/rest', { at: end }).catch(() => { restPushed = false; });
+  }
   const time = h('span', {});
   restBar.replaceChildren(time, button('Passer', stopRest, { size: 'compact' }));
   const tick = () => {
     const left = Math.ceil((end - Date.now()) / 1000);
+    // Appli toujours à l'écran juste avant la fin : le bip suffit, on annule la notification.
+    if (restPushed && left <= 3 && document.visibilityState === 'visible') { restPushed = false; pushCall('DELETE', '/rest').catch(() => {}); }
     if (left > 0) { time.textContent = `Repos ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; return; }
     stopRest();
     beep();
@@ -904,17 +911,7 @@ async function keepAwake() {
     wakeLock.addEventListener('release', () => { wakeLock = null; });
   } catch { /* refusé (batterie faible) : l'écran s'éteindra normalement */ }
 }
-// Écran verrouillé ou appli quittée pendant un repos : le serveur enverra « Repos terminé » ; de retour, on annule.
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden' && rest && pushOn() && state.config.notify?.rest !== false) {
-    restPushed = true;
-    pushCall('POST', '/rest', { at: restEnd }).catch(() => {});
-  }
-  if (document.visibilityState === 'visible') {
-    if (restPushed) { restPushed = false; pushCall('DELETE', '/rest').catch(() => {}); }
-    if (ui.view === 'session') keepAwake();
-  }
-});
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && ui.view === 'session') keepAwake(); });
 
 // --- Progrès ---
 
@@ -1051,7 +1048,7 @@ function importButton() {
 const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 const pushOn = () => !!state.push?.on && pushSupported() && Notification.permission === 'granted';
 const pushCall = (method, path, body) => fetch(`${PUSH.url}${path}?id=${state.push.id}`, {
-  method, keepalive: true, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body && JSON.stringify(body),
+  method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body && JSON.stringify(body),
 });
 const keyBytes = (b64url) => Uint8Array.from(atob(b64url.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
 const reminderPayload = (c) => {
