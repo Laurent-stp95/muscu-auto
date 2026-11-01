@@ -1,0 +1,16 @@
+# Serveur de notifications de Muscu auto. Déployer : npx wrangler@4 deploy (depuis ce dossier).
+# Clé privée VAPID : secret du Worker (npx wrangler@4 secret put VAPID_PRIVATE_JWK), jamais dans le dépôt.
+name = "muscu-auto-push"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+
+[vars]
+VAPID_PUBLIC = "BMHQQZb51_wO96yAlf32lOcSgk5GNZrfrCGsq0EC-FuhjX8LOs4m4IxR8ot1t1DOGkxsnKRzlSUfUpYeFH9SRCs"
+
+[[durable_objects.bindings]]
+name = "SUBSCRIBERS"
+class_name = "Subscriber"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Subscriber"]

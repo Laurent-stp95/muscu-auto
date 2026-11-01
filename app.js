@@ -12,6 +12,7 @@ const DEFAULTS = {
   equipment: ['smith', 'halteres', 'kettlebell', 'banc', 'banc-incline', 'traction', 'elastique', 'tapis'],
   loads: { bar: 19, plates: { 1.25: 2, 2.5: 2, 5: 2, 10: 2, 20: 4 }, halteres: [10], kettlebell: [16], elastiques: [30, 20, 10] },
 };
+const NOTIFY = { reminders: true, time: '18:00', before: 30, rest: true }; // réglages par défaut des notifications
 const VERSION = 2; // v1 = matériel et exercices wger bruts : on refait l'onboarding, le journal est gardé
 const BACKUP_DAYS = 14;
 const KEY = 'muscu-auto';
@@ -45,6 +46,7 @@ const ICONS = {
   offline: '<path d="M2 8.5a15 15 0 0 1 20 0M5.5 12a10 10 0 0 1 13 0M9 15.5a5 5 0 0 1 6 0M12 19h.01M3 3l18 18"/>',
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   pause: '<path d="M9 5v14M15 5v14"/>',
+  bell: '<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
   checkCircle: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.8 2.8 5.2-5.8"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.8v.01"/>',
   xCircle: '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',
@@ -380,10 +382,37 @@ function settings() {
     section('Matériel', chips(d, 'equipment', Object.entries(TAGS)), loadsEditor(d)),
     section('Planning', planningEditor(d)),
     section('Zones fragiles', zonesEditor(d)),
+    section('Notifications', notifyEditor(d)),
     section('Appli',
       h('div', { className: 'line' },
         h('span', { className: 'meta' }, `Version du ${new Date(document.lastModified).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`),
         button('Mettre à jour', forceUpdate, { size: 'compact' }))));
+}
+
+// Interrupteur iOS : toute la ligne se touche.
+function toggle(label, checked, onchange) {
+  return h('label', { className: 'line' }, h('span', {}, label),
+    h('input', { type: 'checkbox', className: 'switch', role: 'switch', checked, onchange: (ev) => onchange(ev.target.checked) }));
+}
+
+function notifyEditor(d) {
+  const n = (d.notify ||= { ...NOTIFY });
+  if (!pushSupported() || (iphone() && !standalone())) return h('p', { className: 'note' }, icon('info'), "Installe l'appli sur l'écran d'accueil pour recevoir des notifications.");
+  if (Notification.permission === 'denied') return h('p', { className: 'note' }, icon('warning'), "Notifications refusées. Pour les autoriser : Réglages de l'iPhone, Notifications, Muscu auto.");
+  if (!pushOn()) {
+    return [h('p', { className: 'meta' }, "Un rappel avant chaque séance, et la fin du repos quand l'écran est verrouillé."),
+      h('div', {}, button('Activer les notifications', () => enablePush(d), { variant: 'primary', icon: 'bell' }))];
+  }
+  return [
+    h('div', { className: 'list' },
+      toggle('Rappel avant chaque séance', n.reminders, (v) => { n.reminders = v; render(); }),
+      n.reminders && h('label', { className: 'line' }, h('span', {}, 'Heure de la séance'),
+        h('input', { type: 'time', className: 'input time', value: n.time, onchange: (ev) => { n.time = ev.target.value; } })),
+      toggle('Fin du repos, écran verrouillé', n.rest, (v) => { n.rest = v; })),
+    n.reminders && h('div', { className: 'group' }, h('span', { className: 'label' }, 'Me prévenir'),
+      pills(n, 'before', [[15, '15 min avant'], [30, '30 min avant'], [60, '1 h avant']])),
+    h('div', {}, button('Désactiver les notifications', disablePush, { variant: 'plain', className: 'btn plain destructive' })),
+  ];
 }
 
 function applyConfig() {
@@ -402,6 +431,7 @@ function applyConfig() {
   save();
   render();
   scrollTo(0, 0);
+  syncPush();
   if (prev) toast('Réglages enregistrés', 'success');
 }
 
@@ -823,7 +853,7 @@ async function onFeel(e, value, d, i, buttons) {
 // --- Minuteur de repos et écran allumé ---
 // Une appli web iPhone ne peut ni vibrer ni notifier sans serveur : le son ne joue que si l'écran reste allumé.
 
-let audio = null, rest = null, wakeLock = null;
+let audio = null, rest = null, restEnd = 0, restPushed = false, wakeLock = null;
 const restBar = h('div', { className: 'rest', hidden: true, role: 'timer' });
 
 function beep() {
@@ -845,6 +875,7 @@ function startRest(seconds) {
   audio.resume?.();
   stopRest();
   const end = Date.now() + seconds * 1000;
+  restEnd = end;
   const time = h('span', {});
   restBar.replaceChildren(time, button('Passer', stopRest, { size: 'compact' }));
   const tick = () => {
@@ -863,6 +894,7 @@ function stopRest() {
   clearInterval(rest);
   rest = null;
   restBar.hidden = true;
+  if (restPushed) { restPushed = false; pushCall('DELETE', '/rest').catch(() => {}); }
 }
 
 async function keepAwake() {
@@ -872,7 +904,17 @@ async function keepAwake() {
     wakeLock.addEventListener('release', () => { wakeLock = null; });
   } catch { /* refusé (batterie faible) : l'écran s'éteindra normalement */ }
 }
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && ui.view === 'session') keepAwake(); });
+// Écran verrouillé ou appli quittée pendant un repos : le serveur enverra « Repos terminé » ; de retour, on annule.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && rest && pushOn() && state.config.notify?.rest !== false) {
+    restPushed = true;
+    pushCall('POST', '/rest', { at: restEnd }).catch(() => {});
+  }
+  if (document.visibilityState === 'visible') {
+    if (restPushed) { restPushed = false; pushCall('DELETE', '/rest').catch(() => {}); }
+    if (ui.view === 'session') keepAwake();
+  }
+});
 
 // --- Progrès ---
 
@@ -1001,6 +1043,60 @@ function importButton() {
     input.value = '';
   };
   return h('label', { className: 'btn' }, 'Importer', input);
+}
+
+// --- Notifications ---
+// Web Push (iOS 16.4+, appli installée) via push/worker.js : rappels de séance, fin du repos quand l'écran est verrouillé.
+
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const pushOn = () => !!state.push?.on && pushSupported() && Notification.permission === 'granted';
+const pushCall = (method, path, body) => fetch(`${PUSH.url}${path}?id=${state.push.id}`, {
+  method, keepalive: true, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body && JSON.stringify(body),
+});
+const keyBytes = (b64url) => Uint8Array.from(atob(b64url.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+const reminderPayload = (c) => {
+  const n = c.notify || NOTIFY;
+  return { on: n.reminders, days: c.days, time: n.time, before: n.before, sessions: Object.fromEntries((state.plan || []).map((s) => [s.day, s.name])) };
+};
+
+async function subscribePush(c) {
+  const reg = await navigator.serviceWorker.ready;
+  const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(PUSH.key) });
+  const res = await pushCall('POST', '/subscribe', { subscription: sub.toJSON(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone, reminders: reminderPayload(c) });
+  if (!res.ok) throw new Error(`serveur ${res.status}`);
+}
+
+async function enablePush(d) {
+  try {
+    if (await Notification.requestPermission() !== 'granted') return render();
+    state.push = { id: state.push?.id || crypto.randomUUID(), on: true };
+    // Le service worker lit l'identifiant ici pour demander le texte d'une notification.
+    await (await caches.open('muscu-auto-push')).put('id', new Response(state.push.id));
+    await subscribePush({ ...state.config, notify: d.notify });
+    await pushCall('POST', '/test');
+    save();
+    render();
+    toast('Notifications activées', 'success');
+  } catch {
+    state.push = { ...state.push, on: false };
+    toast("Activation impossible : vérifie ta connexion et réessaie.", 'error');
+  }
+}
+
+async function disablePush() {
+  try {
+    await pushCall('DELETE', '/subscribe');
+    await (await (await navigator.serviceWorker.ready).pushManager.getSubscription())?.unsubscribe();
+  } catch { /* hors ligne : l'abonnement expirera côté serveur */ }
+  state.push.on = false;
+  save();
+  render();
+  toast('Notifications désactivées', 'info');
+}
+
+// Réglages enregistrés : le serveur reçoit les nouveaux jours, horaires et noms de séance.
+function syncPush() {
+  if (pushOn()) subscribePush(state.config).catch(() => toast('Rappels non mis à jour : hors ligne.', 'offline'));
 }
 
 // --- Mises à jour ---
