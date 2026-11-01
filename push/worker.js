@@ -1,4 +1,5 @@
-// Notifications de Muscu auto : rappels de séance et fin du repos écran verrouillé (Web Push, iOS 16.4+).
+// Serveur de Muscu auto : notifications (rappels de séance, fin du repos écran verrouillé, Web Push iOS 16.4+)
+// et sauvegarde automatique du journal.
 // Un Durable Object par iPhone (id aléatoire tiré par l'appli) : abonnement, réglages, prochaine échéance en alarme.
 // Les push partent sans contenu : le service worker de l'appli demande ensuite le message (GET /message), pas de chiffrement à gérer.
 import { nextReminder } from './schedule.js';
@@ -21,6 +22,7 @@ function cors(res) {
   out.headers.set('Access-Control-Allow-Origin', ORIGIN);
   out.headers.set('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   out.headers.set('Access-Control-Allow-Headers', 'Content-Type');
+  out.headers.set('Access-Control-Expose-Headers', 'X-Backup-Time');
   return out;
 }
 
@@ -69,8 +71,33 @@ export class Subscriber {
       await this.send({ title: 'Notifications activées', body: 'Tu recevras tes rappels de séance et la fin du repos.' });
       return json({ ok: true });
     }
+    // Sauvegarde du journal : JSON découpé en morceaux de 50 000 caractères (une valeur de Durable Object est limitée à 128 Kio).
+    if (route === 'POST /backup') {
+      const data = await req.text();
+      if (data.length > 5e6) return json({ error: 'sauvegarde trop lourde' }, 413);
+      try { JSON.parse(data); } catch { return json({ error: 'JSON invalide' }, 400); }
+      const parts = Math.ceil(data.length / 5e4) || 1;
+      const old = (await this.storage.get('backup'))?.parts || 0;
+      const chunks = Object.fromEntries(Array.from({ length: parts }, (_, i) => [`backup:${i}`, data.slice(i * 5e4, (i + 1) * 5e4)]));
+      await this.storage.put({ ...chunks, backup: { parts, t: Date.now(), size: data.length } });
+      if (old > parts) await this.storage.delete(Array.from({ length: old - parts }, (_, i) => `backup:${parts + i}`));
+      return json({ ok: true, t: Date.now() });
+    }
+    if (route === 'GET /backup') {
+      const meta = await this.storage.get('backup');
+      if (!meta) return json({ error: 'aucune sauvegarde' }, 404);
+      const chunks = await this.storage.get(Array.from({ length: meta.parts }, (_, i) => `backup:${i}`));
+      const data = Array.from({ length: meta.parts }, (_, i) => chunks.get(`backup:${i}`)).join('');
+      return new Response(data, { headers: { 'Content-Type': 'application/json', 'X-Backup-Time': String(meta.t) } });
+    }
+    if (route === 'DELETE /backup') {
+      const meta = await this.storage.get('backup');
+      if (meta) await this.storage.delete(['backup', ...Array.from({ length: meta.parts }, (_, i) => `backup:${i}`)]);
+      return json({ ok: true });
+    }
     if (route === 'DELETE /subscribe') {
-      await this.storage.deleteAll();
+      // Notifications coupées : on oublie l'abonnement et les horaires, la sauvegarde reste.
+      await this.storage.delete(['sub', 'reminders', 'tz', 'rest', 'restNotice', 'restLabel', 'message', 'lastReminder']);
       await this.storage.deleteAlarm();
       return json({ ok: true });
     }
@@ -123,7 +150,7 @@ export class Subscriber {
       method: 'POST',
       headers: { TTL: '600', Urgency: 'high', 'Content-Length': '0', Authorization: `vapid t=${await vapidJwt(new URL(sub.endpoint).origin, this.env)}, k=${this.env.VAPID_PUBLIC}` },
     });
-    if (res.status === 404 || res.status === 410) await this.storage.deleteAll();
+    if (res.status === 404 || res.status === 410) await this.storage.delete(['sub', 'reminders', 'rest', 'restNotice']);
   }
 }
 

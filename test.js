@@ -128,6 +128,23 @@ const pull = byId.get(158);
 const band = [...sess(pull, 10, [10, 10, 10]), ...sess(pull, 10, [10, 10, 10]), ...sess(pull, 10, [12, 12, 12])];
 assert.strictEqual(tip(pull, band).kg, 20);
 
+// Disques par côté : le moins de disques possible, barre seule, charge impossible.
+assert.deepStrictEqual(P.plates(41.5, LOADS), [10, 1.25]);
+assert.deepStrictEqual(P.plates(136.5, LOADS), [20, 20, 10, 5, 2.5, 1.25]);
+assert.deepStrictEqual(P.plates(19, LOADS), []);
+assert.strictEqual(P.plates(20, LOADS), null);
+assert.deepStrictEqual(P.plates(59, LOADS), [20]);
+
+// Répétitions prévues : 1re fois = bas de fourchette, puis +1 à charge égale, jamais au-delà du haut.
+const it2 = { sets: 3, reps: '8-10' };
+assert.strictEqual(P.targetReps(it2, [], 40, 1), 8);
+assert.strictEqual(P.targetReps(it2, [{ sets: [{ set: 1, kg: 40, reps: 9 }] }], 40, 1), 10);
+assert.strictEqual(P.targetReps(it2, [{ sets: [{ set: 1, kg: 40, reps: 10 }] }], 40, 1), 10);
+assert.strictEqual(P.targetReps(it2, [{ sets: [{ set: 1, kg: 40, reps: 10 }] }], 41.5, 1), 8);
+
+// Forme moyenne : l'augmentation attendra.
+assert.strictEqual(tip(squat, log, { hold: true }).kg, 40);
+
 // Séance abandonnée : ignorée dans le suivi ; restaurée (Annuler) : comptée à nouveau.
 const ab = sess(squat, 40, [10, 10, 10]);
 const sid = ab[0].session;

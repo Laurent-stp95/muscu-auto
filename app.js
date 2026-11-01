@@ -317,7 +317,8 @@ function welcome() {
       [['calendar', 'Programme automatique', 'Renouvelé par cycles, adapté à tes jours.'],
         ['eye', 'Chaque geste montré', 'Visuels, muscles et consignes de sécurité.'],
         ['chart', 'La technique avant la charge', 'Les charges montent seulement quand le geste est propre.']]
-        .map(([name, title, text]) => h('li', {}, icon(name), h('div', { className: 'stack tight' }, h('strong', {}, title), h('span', { className: 'meta' }, text))))));
+        .map(([name, title, text]) => h('li', {}, icon(name), h('div', { className: 'stack tight' }, h('strong', {}, title), h('span', { className: 'meta' }, text))))),
+    h('div', {}, button("J'ai un code de récupération", restoreFlow, { variant: 'plain' })));
 }
 
 // Sur iPhone, l'appli installée a son propre stockage : on installe avant de régler, sinon tout est à refaire.
@@ -382,6 +383,7 @@ function settings() {
     section('Matériel', chips(d, 'equipment', Object.entries(TAGS)), loadsEditor(d)),
     section('Planning', planningEditor(d)),
     section('Zones fragiles', zonesEditor(d)),
+    section('Sauvegarde', cloudEditor()),
     section('Notifications', notifyEditor(d)),
     section('Appli',
       h('div', { className: 'line' },
@@ -440,7 +442,8 @@ function applyConfig() {
 const restText = (s) => (s >= 120 ? `${s / 60} min` : `${s} s`);
 const unitText = (e) => (e.unit === 's' ? 's' : 'rép.');
 const cycle = () => cycleWeek(state.cycle);
-const effective = (item) => ({ ...item, sets: cycle().deload ? Math.ceil(item.sets / 2) : item.sets });
+// live = séance en cours : un point de forme « basse » l'allège comme une semaine allégée.
+const effective = (item, live = false) => ({ ...item, sets: cycle().deload || (live && state.active?.readiness === 'light') ? Math.ceil(item.sets / 2) : item.sets });
 const prescriptionText = (e, item) => `${item.sets} × ${item.reps}${e.unit === 's' ? ' s' : ''} · repos ${restText(item.rest)}`;
 const muscles = (e) => e.mus.map((m) => MUSCLES[m]).join(', ');
 const daysAgo = (iso) => Math.floor((Date.now() - Date.parse(iso)) / 864e5);
@@ -522,7 +525,8 @@ function week() {
   const { week: n, deload, ended } = cycle();
   const done = doneThisWeek();
   const focus = focusOf(plan, done);
-  const backupDue = log.length > 0 && (!state.lastExport || daysAgo(state.lastExport) >= BACKUP_DAYS);
+  const lastCopy = [state.lastExport, cloudOn() && state.cloud?.t].filter(Boolean).sort().at(-1);
+  const backupDue = log.length > 0 && (!lastCopy || daysAgo(lastCopy) >= BACKUP_DAYS);
   return h('div', { className: 'screen' },
     h('header', { className: 'stack tight' },
       h('div', { className: 'top' }, h('h1', {}, 'Ma semaine'), button('Réglages', openSettings, { variant: 'plain' })),
@@ -537,7 +541,7 @@ function week() {
     backupDue && h('button', { type: 'button', className: 'card notice', onclick: backup },
       h('span', { className: 'notice-icon' }, icon('save')),
       h('span', { className: 'stack tight' }, h('strong', {}, 'Sauvegarde ton journal'),
-        h('span', { className: 'caption' }, state.lastExport ? `Dernière copie il y a ${plural(daysAgo(state.lastExport), 'jour')}` : "Ton suivi n'existe que sur cet iPhone")),
+        h('span', { className: 'caption' }, lastCopy ? `Dernière copie il y a ${plural(daysAgo(lastCopy), 'jour')}` : "Ton suivi n'existe que sur cet iPhone")),
       icon('chevron', 'chev')),
     plan.map((s, d) => dayCard(s, d, d === focus.index, done, focus.nextWeek)),
     !state.active && (freshCycle() || ended) && button('Générer une autre variante', reroll, { variant: 'gray', size: 'large' }),
@@ -642,10 +646,33 @@ async function start(d) {
     closeSession();
   }
   if (!state.active) {
-    state.active = { session: new Date().toISOString(), day: d };
+    const fit = await fitnessCheck();
+    if (!fit) return;
+    state.active = { session: new Date().toISOString(), day: d, readiness: fit.level };
     record({ type: 'start', day: state.plan[d].day, name: state.plan[d].name });
+    record({ type: 'readiness', sleep: fit.sleep, soreness: fit.soreness, energy: fit.energy, level: fit.level });
   } else if (state.active.paused) resume();
   show('session');
+}
+
+// Point de forme : 3 questions, réponses « tout va bien » déjà cochées. 0-1 = normal, 2-3 = pas d'augmentation, 4+ = séance allégée.
+const FITNESS = [['sleep', 'Sommeil', ['Bien', 'Moyen', 'Mal']], ['soreness', 'Courbatures', ['Aucune', 'Légères', 'Fortes']], ['energy', 'Énergie', ['Bonne', 'Moyenne', 'Faible']]];
+async function fitnessCheck() {
+  const answers = { sleep: 0, soreness: 0, energy: 0 };
+  const groups = FITNESS.map(([key, label, options]) => {
+    const buttons = options.map((option, i) => chip(option, i === 0, () => {
+      answers[key] = i;
+      buttons.forEach((b, n) => { b.ariaPressed = String(n === i); });
+    }));
+    return h('div', { className: 'group' }, h('span', { className: 'label' }, label), h('div', { className: 'chips' }, buttons));
+  });
+  const go = await choose({
+    title: 'Comment tu te sens ?', text: "La séance s'adapte si ça va moins bien.", extra: h('div', { className: 'stack' }, groups),
+    actions: [{ label: 'Commencer la séance', value: true, variant: 'primary' }, { label: 'Annuler', value: null }],
+  });
+  if (!go) return null;
+  const score = answers.sleep + answers.soreness + answers.energy;
+  return { ...answers, level: score >= 4 ? 'light' : score >= 2 ? 'hold' : 'normal' };
 }
 
 const sessionSets = (sid) => {
@@ -670,7 +697,7 @@ function sessionSummary() {
   const sid = state.active.session;
   const s = state.plan[state.active.day];
   const sets = sessionSets(sid);
-  const planned = s.items.reduce((n, it) => n + effective(it).sets, 0);
+  const planned = s.items.reduce((n, it) => n + effective(it, true).sets, 0);
   const volume = Math.round([...sets.values()].reduce((v, x) => v + (x.kg || 0) * x.reps, 0));
   const skipped = s.items.filter((it) => ![...sets.values()].some((x) => x.ex === it.ex)).map((it) => byId.get(it.ex).name);
   const stat = (value, label) => h('div', { className: 'stat' }, h('strong', {}, value), h('span', { className: 'caption' }, label));
@@ -734,6 +761,7 @@ function closeSession() {
   wakeLock?.release().catch(() => {});
   wakeLock = null;
   save();
+  cloudBackup();
 }
 
 function pausedScreen(s) {
@@ -758,6 +786,8 @@ function session() {
       h('h1', {}, `${DAYS[s.day]} · ${s.name}`),
       button('Arrêter', stopSession, { variant: 'plain', className: 'btn plain end' })),
     cycle().deload && h('p', { className: 'note' }, icon('leaf'), 'Semaine allégée : moitié moins de séries, charges −10 %.'),
+    state.active.readiness === 'hold' && h('p', { className: 'note' }, icon('info'), "Forme moyenne : pas d'augmentation de charge aujourd'hui."),
+    state.active.readiness === 'light' && h('p', { className: 'note' }, icon('leaf'), 'Forme basse : séance allégée, moitié moins de séries et charges −10 %. Écoute ton corps.'),
     banner('flame', 'Échauffement · 5 à 8 min',
       h('p', {}, "5 min de cardio léger et quelques rotations des articulations. Les séries d'approche sont indiquées sur chaque mouvement lourd."),
       h('p', { className: 'caption' }, "Le minuteur de repos démarre à chaque série validée et sonne à la fin : garde le son de l'iPhone activé.")),
@@ -769,10 +799,12 @@ function session() {
 function block(item, d, i) {
   const e = byId.get(item.ex);
   const sid = state.active.session;
-  const it = effective(item);
+  const it = effective(item, true);
   const all = exerciseHistory(log, e.id);
   const past = all.filter((x) => x.session !== sid);
-  const tip = suggest(e, it, past, { loads: state.config.loads, learned: learned(log, e.id, past), deload: cycle().deload });
+  const fit = state.active.readiness;
+  const tip = suggest(e, it, past, { loads: state.config.loads, learned: learned(log, e.id, past), deload: cycle().deload || fit === 'light', hold: fit === 'hold' });
+  const side = e.load === 'smith' && tip.kg != null ? plates(tip.kg, state.config.loads) : null;
   const done = new Map((all.find((x) => x.session === sid)?.sets || []).map((x) => [x.set, x]));
   const mine = (type) => log.findLast((x) => x.session === sid && x.ex === e.id && x.type === type);
   const approach = warmup(e, tip.kg, state.config.loads);
@@ -785,17 +817,18 @@ function block(item, d, i) {
     techButtons.forEach((b, n) => { b.ariaPressed = String(n === (ok ? 0 : 1)); });
     if (!ok) toast("Noté : la charge n'augmentera pas la prochaine fois.", 'info');
   }));
-  const hint = h('p', { className: 'caption', hidden: done.size === 0 }, 'Pour corriger une série, change la valeur puis valide à nouveau.');
+  const hint = h('p', { className: 'caption' }, 'Répétitions en gris = prévues : touche ✓ si la série est faite comme prévu. Pour corriger, change la valeur et valide à nouveau.');
   return h('section', { className: 'card' },
     h('div', { className: 'card-head' }, h('h2', { className: 'title' }, e.name), tip.learning && h('span', { className: 'badge' }, `Apprentissage ${tip.learning}/${LEARNING}`)),
     h('p', { className: 'meta' }, `${prescriptionText(e, it)} · garde ${rir(e, state.config.level)} rép. en réserve`),
     h('p', { className: 'tip' }, tip.kg != null && h('strong', {}, `${kgLabel(e, tip.kg)} · `), note),
-    approach.length > 0 && h('p', { className: 'meta' }, `Approche : ${approach.map(([kg, reps]) => `${kgText(kg)} × ${reps}`).join(' · ')}`),
+    side && h('p', { className: 'meta' }, side.length ? `De chaque côté : ${side.map((w) => w.toLocaleString('fr-FR')).join(' + ')}\u00a0kg` : 'Barre seule, sans disque'),
+    approach.length > 0 && h('p', { className: 'meta' }, `Approche : ${approach.map(([kg, reps]) => `${kgText(kg)}\u00a0×\u00a0${reps}`).join(' · ')}`),
     e.main && h('p', { className: 'note' }, icon('video'), e.load === 'smith' ? 'Avant la première série lourde : règle les butées et filme-toi.' : 'Filme ta première série pour vérifier le geste.'),
     h('details', { className: 'more' }, h('summary', {}, "Voir l'exercice et les consignes", icon('chevron', 'chev')), exerciseInfo(e)),
     h('div', { className: 'sets' },
       h('span', { className: 'caption head n' }, 'Série'), h('span', { className: 'caption head' }, LOAD_HEAD[e.load]), h('span', { className: 'caption head' }, e.unit === 's' ? 'Secondes' : 'Répét.'), h('span'),
-      Array.from({ length: it.sets }, (_, n) => setRow(e, it, n + 1, done.get(n + 1), { ...tip, kg: [...done.values()].at(-1)?.kg ?? tip.kg }, hint))),
+      Array.from({ length: it.sets }, (_, n) => setRow(e, it, n + 1, done.get(n + 1), { ...tip, kg: [...done.values()].at(-1)?.kg ?? tip.kg }, past))),
     hint,
     h('div', { className: 'group' }, h('span', { className: 'label' }, 'Technique propre ?'), h('div', { className: 'chips' }, techButtons)),
     h('div', { className: 'group' }, h('span', { className: 'label' }, 'Ressenti'), h('div', { className: 'chips' }, feelButtons)));
@@ -806,7 +839,7 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n > 1 ? many : one}`;
 const kgText = (kg) => `${kg.toLocaleString('fr-FR')}\u00a0kg`; // espace insécable : « kg » ne part jamais seul à la ligne
 const clock = (iso) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-function setRow(e, item, n, done, tip, hint) {
+function setRow(e, item, n, done, tip, past) {
   let kg;
   if (e.load === 'pdc') kg = h('span', { className: 'caption bw' }, 'Poids du corps');
   else {
@@ -818,16 +851,18 @@ function setRow(e, item, n, done, tip, hint) {
       h('option', { value: '' }, 'Choisir'),
       list.sort((a, b) => a - b).map((x) => h('option', { value: x, selected: x === value }, kgLabel(e, x).replace('élastique ', ''))));
   }
-  const reps = h('input', { type: 'number', inputMode: 'numeric', min: 0, max: 300, step: 1, value: done?.reps ?? '', placeholder: item.reps, ariaLabel: `${e.unit === 's' ? 'Secondes' : 'Répétitions'} série ${n}` });
+  const planned = () => targetReps(item, past, e.load === 'pdc' ? null : Number(kg.value) || tip.kg, n, e.unit);
+  const reps = h('input', { type: 'number', inputMode: 'numeric', min: 0, max: 300, step: 1, value: done?.reps ?? '', placeholder: String(planned()), ariaLabel: `${e.unit === 's' ? 'Secondes' : 'Répétitions'} série ${n}` });
+  if (kg.tagName === 'SELECT') kg.onchange = () => { reps.placeholder = String(planned()); };
   const mark = (t) => { ok.className = 'btn done'; ok.replaceChildren(icon('check'), clock(t)); };
   const ok = button(null, () => {
     const kgValue = e.load === 'pdc' ? 0 : Number(kg.value);
-    const repsValue = Number(reps.value);
     if (e.load !== 'pdc' && kg.value === '') return toast('Choisis la charge utilisée.', 'warning');
-    if (reps.value === '' || !Number.isInteger(repsValue) || repsValue < 0 || repsValue > 300) return toast(`Indique les ${e.unit === 's' ? 'secondes tenues' : 'répétitions faites'}.`, 'warning');
+    const repsValue = reps.value === '' ? Number(reps.placeholder) : Number(reps.value); // champ vide = fait comme prévu
+    if (!Number.isInteger(repsValue) || repsValue < 0 || repsValue > 300) return toast(`Indique les ${e.unit === 's' ? 'secondes tenues' : 'répétitions faites'}.`, 'warning');
+    reps.value = repsValue;
     record({ type: 'set', ex: e.id, set: n, kg: kgValue, reps: repsValue, ...(tip.mode !== 'normal' && { mode: tip.mode }) });
     mark(log.at(-1).t);
-    hint.hidden = false;
     // Séries suivantes pas encore choisies : même charge par défaut.
     ok.parentElement.querySelectorAll('select').forEach((s) => { if (s.value === '') s.value = kg.value; });
     if (n < item.sets) startRest(item.rest);
@@ -1039,6 +1074,7 @@ function importButton() {
         log = entries;
         save();
         render();
+        cloudBackup();
         toast('Historique importé', 'success');
       }
     } catch {
@@ -1103,6 +1139,86 @@ function syncPush() {
   if (pushOn()) subscribePush(state.config).catch(() => toast('Rappels non mis à jour : hors ligne.', 'offline'));
 }
 
+// --- Sauvegarde automatique ---
+// Le journal est copié sur le serveur (push/worker.js) après chaque séance. Le code de récupération (identifiant aléatoire)
+// permet de le restaurer sur un autre iPhone : quiconque l'a peut lire le journal, il reste donc privé.
+
+const cloudOn = () => state.cloud?.on !== false;
+const deviceId = () => (state.push = { ...state.push, id: state.push?.id || crypto.randomUUID() }).id;
+const dateTime = (iso) => new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+
+async function cloudBackup(force = false) {
+  // En développement (localhost), on n'écrit jamais sur le serveur réel.
+  if (!location.hostname.endsWith('github.io') || !cloudOn() || !navigator.onLine || (!force && state.cloud?.n === log.length) || !log.length) return;
+  try {
+    const res = await fetch(`${PUSH.url}/backup?id=${deviceId()}`, { method: 'POST', body: JSON.stringify({ exported: new Date().toISOString(), config: state.config, log }) });
+    if (!res.ok) throw new Error(String(res.status));
+    state.cloud = { on: true, t: new Date().toISOString(), n: log.length };
+    save();
+    if (force) { render(); toast('Journal sauvegardé sur ton serveur', 'success'); }
+  } catch {
+    if (force) toast('Sauvegarde impossible : vérifie ta connexion.', 'error');
+  }
+}
+
+function cloudEditor() {
+  const code = state.push?.id;
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(code); toast('Code copié', 'success'); } catch { toast('Copie impossible : sélectionne le code à la main.', 'warning'); }
+  };
+  return [
+    h('div', { className: 'list' },
+      toggle('Sauvegarde automatique', cloudOn(), async (on) => {
+        state.cloud = { ...state.cloud, on };
+        save();
+        if (on) return cloudBackup(true);
+        try { await fetch(`${PUSH.url}/backup?id=${deviceId()}`, { method: 'DELETE' }); } catch { /* hors ligne : copie supprimée plus tard */ }
+        render();
+        toast('Sauvegarde automatique coupée, copie du serveur supprimée', 'info');
+      }),
+      cloudOn() && h('div', { className: 'line' },
+        h('span', { className: 'meta' }, state.cloud?.t ? `Dernière : ${dateTime(state.cloud.t)}` : 'Pas encore sauvegardé'),
+        button('Sauvegarder', () => cloudBackup(true), { size: 'compact' }))),
+    h('p', { className: 'caption' }, 'Après chaque séance, ton journal est copié sur ton serveur Cloudflare. Rien d\'autre n\'y est envoyé.'),
+    cloudOn() && code && h('div', { className: 'group' },
+      h('span', { className: 'label' }, 'Code de récupération, pour restaurer ton suivi sur un nouvel iPhone. Ne le partage pas.'),
+      h('div', { className: 'row' }, h('code', { className: 'code' }, code), button('Copier', copy, { size: 'compact' }))),
+    h('div', {}, button('Restaurer avec un code', restoreFlow, { variant: 'plain' })),
+  ];
+}
+
+async function restoreFlow() {
+  const input = h('input', { className: 'input', type: 'text', placeholder: 'Code de récupération', autocapitalize: 'off', autocomplete: 'off', spellcheck: false, ariaLabel: 'Code de récupération' });
+  const go = await choose({ title: 'Restaurer ton suivi', text: 'Colle le code affiché dans Réglages, section Sauvegarde, sur ton ancien iPhone.', extra: input,
+    actions: [{ label: 'Restaurer', value: true, variant: 'primary' }, { label: 'Annuler', value: null }] });
+  if (!go) return;
+  const code = input.value.trim().toLowerCase();
+  if (!/^[0-9a-f-]{36}$/.test(code)) return toast("Code invalide : vérifie qu'il est complet.", 'warning');
+  let data, t;
+  try {
+    const res = await fetch(`${PUSH.url}/backup?id=${code}`);
+    if (res.status === 404) return toast('Aucune sauvegarde pour ce code.', 'warning');
+    if (!res.ok) throw new Error(String(res.status));
+    t = Number(res.headers.get('X-Backup-Time')) || Date.now();
+    data = await res.json();
+  } catch {
+    return toast('Restauration impossible : vérifie ta connexion.', 'error');
+  }
+  if (!Array.isArray(data?.log) || !data.config?.days) return toast('Sauvegarde illisible.', 'error');
+  if (log.length && !await ask({ title: 'Remplacer ton suivi actuel ?', text: `Ton historique (${plural(log.length, 'saisie')}) sera remplacé par celui du ${dateTime(t)} (${plural(data.log.length, 'saisie')}).`, confirm: 'Remplacer', danger: true })) return;
+  log = data.log;
+  state.config = data.config;
+  state.plan = generate(EXOS, state.config);
+  state.cycle = { start: monday(new Date()).toISOString() };
+  state.active = null;
+  state.push = { id: code, on: false }; // les notifications se réactivent sur cet iPhone
+  state.cloud = { on: true, t: new Date(t).toISOString(), n: log.length };
+  ui = { view: 'week', step: 0, draft: null };
+  save();
+  render();
+  toast(`Suivi restauré : ${plural(new Set(log.filter((x) => x.type === 'set').map((x) => x.session)).size, 'séance')}`, 'success');
+}
+
 // --- Mises à jour ---
 // Le service worker sert la version en cache puis revérifie : s'il trouve du neuf, il prévient et on propose de recharger.
 
@@ -1163,6 +1279,7 @@ function resumeAfterReload() {
 document.body.append(restBar);
 const updated = resumeAfterReload();
 render();
+setTimeout(cloudBackup, 3000);
 if (updated) toast(`Appli à jour : version du ${new Date(document.lastModified).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`, 'success');
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   const controlled = !!navigator.serviceWorker.controller; // au tout premier lancement, l'installation n'est pas une mise à jour

@@ -248,7 +248,8 @@ const rir = (e, level) => (ISOLATION_ZONES.includes(e.zone) ? LEVELS[level].rir 
 
 // Charge conseillée pour la prochaine séance. ctx = { loads, learned, deload }.
 // Retourne { kg (null = à choisir), note, mode ('normal'|'tempo'|'pause', à enregistrer avec les séries), plafond, learning }.
-function suggest(e, item, past, { loads, learned: done = past.length, deload = false }) {
+// hold = forme moyenne au point de forme : la charge n'augmente pas aujourd'hui.
+function suggest(e, item, past, { loads, learned: done = past.length, deload = false, hold = false }) {
   const [lo, hi] = range(item.reps);
   const list = loadable(e, loads);
   const unit = e.unit === 's' ? 's' : 'répétitions';
@@ -275,6 +276,7 @@ function suggest(e, item, past, { loads, learned: done = past.length, deload = f
   if (next != null) {
     if (!all(hi)) return same(kg, `Même charge, ajoute une répétition par série (objectif ${hi}).`);
     // Saut de plus de 10 % : on gagne d'abord 2 répétitions de marge.
+    if (((next - kg) / kg <= 0.1 || all(hi + 2)) && hold) return same(kg, "Forme moyenne aujourd'hui : même charge, l'augmentation attendra la prochaine séance.");
     if ((next - kg) / kg <= 0.1 || all(hi + 2)) return same(next, `Toutes les séries à ${hi} ${unit} : passe à ${kgLabel(e, next)}.`);
     return same(kg, `Le palier suivant (${kgLabel(e, next)}) dépasse 10 % : monte d'abord à ${hi + 2} répétitions par série.`);
   }
@@ -298,6 +300,29 @@ function suggest(e, item, past, { loads, learned: done = past.length, deload = f
 
 const kgLabel = (e, kg) => `${e.load === 'elastique' ? 'élastique ' : ''}${kg.toLocaleString('fr-FR')}\u00a0kg`;
 
+// Disques à mettre de chaque côté de la barre Smith pour une charge (le moins de disques possible), [] = barre seule, null = impossible.
+function plates(kg, loads) {
+  const side = Math.round(((kg - loads.bar) / 2) * 100) / 100;
+  if (side < 0) return null;
+  const pairs = Object.entries(loads.plates || {}).flatMap(([w, n]) => Array(Math.floor(n / 2)).fill(Number(w))).sort((a, b) => b - a);
+  let best = null;
+  (function search(i, left, used) {
+    if (Math.abs(left) < 1e-6) { if (!best || used.length < best.length) best = [...used]; return; }
+    if (i >= pairs.length || left < 0 || (best && used.length >= best.length)) return;
+    search(i + 1, left - pairs[i], [...used, pairs[i]]);
+    search(i + 1, left, used);
+  })(0, side, []);
+  return best;
+}
+
+// Répétitions prévues pour une série : une de plus que la même série la dernière fois à la même charge, dans la fourchette.
+function targetReps(item, past, kg, set, unit) {
+  const [lo, hi] = range(item.reps);
+  const prev = past.at(-1)?.sets.find((x) => x.set === set);
+  if (!prev || (kg != null && prev.kg !== kg)) return lo;
+  return Math.min(hi, Math.max(lo, prev.reps + (unit === 's' ? 5 : 1)));
+}
+
 // Séries d'approche avant un mouvement principal à la Smith : barre seule × 10, ~50 % × 5, ~70 % × 3. Non enregistrées.
 function warmup(e, kg, loads) {
   if (e.load !== 'smith' || !e.main || kg == null || kg <= loads.bar) return [];
@@ -315,6 +340,6 @@ function project(kg, level, weeks = 8) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { generate, exerciseCount, backToBack, swap, repair, renew, available, cancelled, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
+  module.exports = { plates, targetReps, generate, exerciseCount, backToBack, swap, repair, renew, available, cancelled, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
     kgLabel, range, SLOTS, SESSIONS, GOALS, LEVELS, ZONES, CUES, TAGS, BODYWEIGHT, MAX_DAYS, LEARNING, CYCLE_WEEKS };
 }

@@ -89,7 +89,7 @@
   .note .icon { color: var(--accent-ink); }
 
   /* Boutons : un seul composant, 4 variantes, toujours ≥ 44 pt, s'atténue au toucher comme sur iOS */
-  .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--s2); min-width: var(--tap); min-height: var(--tap); padding: 0 var(--s4); border: 0; border-radius: var(--r-m); background: var(--accent-soft); color: var(--accent-ink); font-size: var(--t-body); font-weight: 600; text-decoration: none; cursor: pointer; touch-action: manipulation; transition: opacity .12s; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--s2); min-width: var(--tap); min-height: var(--tap); padding: 0 var(--s4); border: 0; border-radius: var(--r-m); background: var(--accent-soft); color: var(--accent-ink); font-size: var(--t-body); font-weight: 600; white-space: nowrap; text-decoration: none; cursor: pointer; touch-action: manipulation; transition: opacity .12s; }
   .btn.primary { background: var(--accent); color: #fff; }
   .btn.gray { background: var(--fill); color: var(--fg); }
   .btn.plain { padding: 0 var(--s2); background: none; }
@@ -131,6 +131,7 @@
   .switch:checked::after { transform: translateX(20px); }
   label.line { cursor: pointer; }
   .input.time { width: auto; min-width: 96px; text-align: center; }
+  .code { flex: 1; min-width: 0; padding: var(--s2) var(--s3); border-radius: var(--r-s); background: var(--fill); font: var(--t-footnote) ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; user-select: all; -webkit-user-select: all; }
   .stepper-field { display: inline-flex; flex: none; align-items: center; gap: var(--s3); white-space: nowrap; }
   .stepper-field output { color: var(--muted); font-size: var(--t-subhead); font-variant-numeric: tabular-nums; }
   .stepper { display: inline-flex; align-items: center; height: 32px; border-radius: var(--r-s); background: var(--fill); }
