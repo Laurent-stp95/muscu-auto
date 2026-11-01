@@ -288,7 +288,7 @@ function suggest(e, item, past, { loads, learned: done = past.length, deload = f
     : same(kg, `Ajoute une répétition par série (jusqu'à ${ceiling}).`);
 }
 
-const kgLabel = (e, kg) => `${e.load === 'elastique' ? 'élastique ' : ''}${kg.toLocaleString('fr-FR')} kg`;
+const kgLabel = (e, kg) => `${e.load === 'elastique' ? 'élastique ' : ''}${kg.toLocaleString('fr-FR')}\u00a0kg`;
 
 // Séries d'approche avant un mouvement principal à la Smith : barre seule × 10, ~50 % × 5, ~70 % × 3. Non enregistrées.
 function warmup(e, kg, loads) {

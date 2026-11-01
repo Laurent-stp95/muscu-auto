@@ -194,24 +194,33 @@ function chips(d, key, entries, { max, className = 'chips' } = {}) {
   return h('div', { className }, entries.map(([value, label]) => chip(label, d[key].includes(value), () => toggle(value))));
 }
 
-// Compteur − / + mis à jour sur place : le focus reste sur le bouton touché.
+// Valeur puis compteur « − | + » compact façon iOS, mis à jour sur place : le focus reste sur le bouton touché.
 function stepper(value, onChange, { min = 0, max, step = 1, unit, label }) {
   const out = h('output', {});
   const show = () => { out.textContent = unit === 'kg' ? kgText(value) : `${value} ${unit}${value > 1 ? 's' : ''}`; };
   const set = (v) => { value = Math.min(max, Math.max(min, Math.round(v * 100) / 100)); show(); onChange(value); };
   show();
-  return h('span', { className: 'stepper', role: 'group', ariaLabel: label },
-    button('−', () => set(value - step), { ariaLabel: `Moins : ${label}` }), out, button('+', () => set(value + step), { ariaLabel: `Plus : ${label}` }));
+  return h('span', { className: 'stepper-field' }, out,
+    h('span', { className: 'stepper', role: 'group', ariaLabel: label },
+      button('−', () => set(value - step), { variant: 'plain', ariaLabel: `Moins : ${label}` }),
+      h('i', { className: 'divider' }),
+      button('+', () => set(value + step), { variant: 'plain', ariaLabel: `Plus : ${label}` })));
 }
 
 // « 10, 12,5 » = 10 et 12,5 : la virgule entre deux chiffres est décimale.
 const numbers = (text) => [...new Set(String(text).replace(/(\d),(\d)/g, '$1.$2').split(/[;,\s]+/).map(Number).filter((x) => x > 0 && x <= 300))];
 
-// Poids disponibles (haltères, kettlebells, élastiques) : pastilles à retirer d'une tape (annulable), champ pour en ajouter.
-function weights(d, key, label) {
+// Poids disponibles (haltères, kettlebells, élastiques) : une ligne par poids avec « Retirer » (annulable), champ pour en ajouter.
+const WEIGHTS = {
+  halteres: ['Haltères', 'Chaque poids que tu peux monter sur un haltère. Le programme ne proposera que ceux-là.'],
+  kettlebell: ['Kettlebells', 'Le poids de chaque kettlebell que tu as.'],
+  elastiques: ['Élastiques', 'La résistance indiquée sur chacun de tes élastiques.'],
+};
+function weights(d, key) {
+  const [label, help] = WEIGHTS[key];
   const box = h('section', { className: 'card' });
   const draw = (focus) => {
-    const input = h('input', { className: 'input', type: 'text', inputMode: 'decimal', placeholder: 'Poids en kg', ariaLabel: `Ajouter un poids : ${label}` });
+    const input = h('input', { className: 'input', type: 'text', inputMode: 'decimal', placeholder: 'Ajouter un poids (kg)', ariaLabel: `Ajouter un poids : ${label}` });
     const add = () => {
       const v = numbers(input.value);
       if (!v.length) return toast('Indique un poids en kg.');
@@ -219,15 +228,16 @@ function weights(d, key, label) {
       draw(true);
     };
     input.onkeydown = (ev) => { if (ev.key === 'Enter') add(); };
-    const list = d.loads[key] || [];
+    const list = [...(d.loads[key] || [])].sort((a, b) => a - b);
     const remove = (kg) => {
       d.loads[key] = list.filter((x) => x !== kg);
       draw();
       toast(`${kgText(kg)} retiré`, () => { d.loads[key] = [...d.loads[key], kg].sort((a, b) => a - b); draw(); });
     };
-    box.replaceChildren(h('h2', {}, label),
-      list.length ? h('div', { className: 'chips' }, list.map((kg) => chip(`${kgText(kg)}  ×`, false, () => remove(kg), { ariaLabel: `Retirer ${kgText(kg)}` })))
-        : h('p', { className: 'meta' }, 'Ajoute au moins un poids, sinon les exercices concernés sont écartés.'),
+    box.replaceChildren(h('div', { className: 'stack tight' }, h('h2', {}, label), h('p', { className: 'caption' }, help)),
+      list.length ? h('div', { className: 'list' }, list.map((kg) => h('div', { className: 'line' }, h('span', {}, kgText(kg)),
+        button('Retirer', () => remove(kg), { variant: 'plain', className: 'btn plain destructive', ariaLabel: `Retirer ${kgText(kg)} (${label})` }))))
+        : h('p', { className: 'note' }, icon('warning'), 'Aucun poids : les exercices concernés sont écartés du programme.'),
       h('div', { className: 'row' }, h('div', { style: 'flex: 1' }, input), button('Ajouter', add)));
     if (focus) input.focus();
   };
@@ -250,13 +260,14 @@ function loadsEditor(d) {
     has('smith') && h('section', { className: 'card' }, h('h2', {}, 'Smith machine'),
       h('div', { className: 'list' },
         h('div', { className: 'line' }, h('span', {}, 'Barre'),
-          stepper(d.loads.bar, (v) => { d.loads.bar = v; refresh(); }, { step: 0.5, max: 40, unit: 'kg', label: 'poids de la barre' })),
-        PLATES.map((p) => h('div', { className: 'line' }, h('span', {}, `Disques de ${kgText(p)}`),
-          stepper(Math.floor((d.loads.plates[p] || 0) / 2), (v) => { d.loads.plates[p] = v * 2; refresh(); }, { max: 10, unit: 'paire', label: `paires de disques de ${kgText(p)}` })))),
+          stepper(d.loads.bar, (v) => { d.loads.bar = v; refresh(); }, { step: 0.5, max: 40, unit: 'kg', label: 'poids de la barre' }))),
+      h('div', { className: 'group' }, h('span', { className: 'label' }, 'Disques, par paires (un de chaque côté)'),
+        h('div', { className: 'list' }, PLATES.map((p) => h('div', { className: 'line' }, h('span', {}, kgText(p)),
+          stepper(Math.floor((d.loads.plates[p] || 0) / 2), (v) => { d.loads.plates[p] = v * 2; refresh(); }, { max: 10, unit: 'paire', label: `paires de disques de ${kgText(p)}` }))))),
       range),
-    has('halteres') && weights(d, 'halteres', 'Haltères (kg par haltère)'),
-    has('kettlebell') && weights(d, 'kettlebell', 'Kettlebells (kg)'),
-    has('elastique') && weights(d, 'elastiques', 'Élastiques (résistance en kg)'),
+    has('halteres') && weights(d, 'halteres'),
+    has('kettlebell') && weights(d, 'kettlebell'),
+    has('elastique') && weights(d, 'elastiques'),
   ];
 }
 
@@ -542,7 +553,7 @@ function sessionSummary() {
   const skipped = s.items.filter((it) => ![...sets.values()].some((x) => x.ex === it.ex)).map((it) => byId.get(it.ex).name);
   const stat = (value, label) => h('div', { className: 'stat' }, h('strong', {}, value), h('span', { className: 'caption' }, label));
   return h('div', { className: 'stack' },
-    h('div', { className: 'stats' }, stat(`${sets.size}/${planned}`, 'séries'), stat(`${minutes} min`, 'durée'), stat(`${volume.toLocaleString('fr-FR')} kg`, 'volume')),
+    h('div', { className: 'stats' }, stat(`${sets.size}/${planned}`, 'séries'), stat(`${minutes} min`, 'durée'), stat(kgText(volume), 'volume')),
     skipped.length > 0 && h('p', { className: 'caption' }, `Pas commencés : ${skipped.join(', ')}.`));
 }
 
@@ -608,7 +619,7 @@ function block(item, d, i) {
     h('div', { className: 'group' }, h('span', { className: 'label' }, 'Ressenti'), h('div', { className: 'chips' }, feelButtons)));
 }
 
-const kgText = (kg) => `${kg.toLocaleString('fr-FR')} kg`;
+const kgText = (kg) => `${kg.toLocaleString('fr-FR')}\u00a0kg`; // espace insécable : « kg » ne part jamais seul à la ligne
 const clock = (iso) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
 function setRow(e, item, n, done, tip, hint) {

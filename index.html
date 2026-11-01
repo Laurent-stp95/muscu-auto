@@ -68,7 +68,8 @@
   .banner-head h2 { color: var(--fg); }
   .list { display: grid; }
   .list > * + * { border-top: 1px solid var(--line); }
-  .line { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); min-height: var(--tap); white-space: nowrap; }
+  .line { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); min-height: 52px; padding: var(--s1) 0; }
+  .line > :first-child { min-width: 0; }
 
   /* Icônes : trait, couleur du texte */
   .icon { width: 1.25em; height: 1.25em; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -82,6 +83,7 @@
   .btn.plain { padding: 0 var(--s2); background: none; }
   .btn.danger { background: var(--danger); color: #fff; }
   .btn.done { background: var(--ok); color: #fff; }
+  .btn.plain.destructive { color: var(--danger-ink); font-weight: 400; }
   .btn.large { width: 100%; min-height: var(--tap-l); }
   .btn.compact { padding: 0 var(--s3); font-size: var(--t-subhead); }
   .btn:active:not(:disabled), .chip:active, .option:active, .tab:active, summary:active { opacity: .55; }
@@ -108,9 +110,13 @@
   .input, .sets input, .sets select { width: 100%; min-width: 0; min-height: var(--tap); padding: 0 var(--s3); border: 0; border-radius: var(--r-m); background: var(--fill); font-size: var(--t-body); }
   select { appearance: none; -webkit-appearance: none; padding-right: 28px !important; background: var(--fill) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 10l5 5 5-5'/%3E%3C/svg%3E") no-repeat right 8px center / 16px; }
   ::placeholder { color: var(--muted); }
-  .stepper { display: inline-flex; align-items: center; border-radius: var(--r-m); background: var(--fill); }
-  .stepper .btn { padding: 0; background: none; color: var(--fg); font-size: var(--t-title3); font-weight: 400; }
-  .stepper output { min-width: 5.5em; text-align: center; font-size: var(--t-subhead); font-variant-numeric: tabular-nums; }
+  /* Compteur iOS : 94 × 32 visibles, zone tactile étendue à 44 pt par ::after */
+  .stepper-field { display: inline-flex; flex: none; align-items: center; gap: var(--s3); white-space: nowrap; }
+  .stepper-field output { color: var(--muted); font-size: var(--t-subhead); font-variant-numeric: tabular-nums; }
+  .stepper { display: inline-flex; align-items: center; height: 32px; border-radius: var(--r-s); background: var(--fill); }
+  .stepper .btn { position: relative; width: 47px; min-width: 0; height: 32px; min-height: 0; padding: 0; border-radius: var(--r-s); color: var(--fg); font-size: var(--t-title3); font-weight: 400; }
+  .stepper .btn::after { content: ""; position: absolute; inset: -6px 0; }
+  .stepper .divider { width: 1px; height: 18px; background: var(--line); }
 
   /* Repli (liste d'exercices, « Voir l'exercice ») : chevron iOS */
   summary { display: flex; align-items: center; gap: var(--s3); min-height: var(--tap); list-style: none; cursor: pointer; transition: opacity .12s; }
