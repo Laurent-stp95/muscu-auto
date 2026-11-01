@@ -360,13 +360,16 @@ function openSettings() {
 function settings() {
   const d = (ui.draft ||= structuredClone(state.config));
   const restart = ['days', 'goal', 'level', 'minutes'].some((k) => JSON.stringify(d[k]) !== JSON.stringify(state.config[k]));
+  // Pendant une séance, un nouveau programme la casserait : seuls matériel, poids, zones et mise à jour restent modifiables.
+  const blocked = restart && state.active;
   const section = (title, ...content) => h('section', { className: 'card' }, h('h2', {}, title), ...content);
   return h('div', { className: 'screen' },
     h('header', { className: 'navbar' },
       button('Annuler', () => { ui.draft = null; show('week'); }, { variant: 'plain', className: 'btn plain start' }),
       h('h1', {}, 'Réglages'),
-      button('Enregistrer', applyConfig, { variant: 'plain', className: 'btn plain end', disabled: !d.days.length })),
-    restart && h('p', { className: 'note' }, icon('warning'), 'Niveau, objectif, jours ou durée changés : un nouveau programme et un nouveau cycle commenceront.'),
+      button('Enregistrer', applyConfig, { variant: 'plain', className: 'btn plain end', disabled: !d.days.length || blocked })),
+    blocked ? h('p', { className: 'note' }, icon('warning'), 'Une séance est en cours : termine-la ou arrête-la avant de changer le niveau, l\'objectif, les jours ou la durée.')
+      : restart && h('p', { className: 'note' }, icon('warning'), 'Niveau, objectif, jours ou durée changés : un nouveau programme et un nouveau cycle commenceront.'),
     section('Niveau', pills(d, 'level', Object.entries(LEVELS).map(([k, l]) => [k, l.label]))),
     section('Objectif', pills(d, 'goal', Object.entries(GOALS).map(([k, g]) => [k, g.label]))),
     section('Matériel', chips(d, 'equipment', Object.entries(TAGS)), loadsEditor(d)),
@@ -474,7 +477,7 @@ function week() {
   const backupDue = log.length > 0 && (!state.lastExport || daysAgo(state.lastExport) >= BACKUP_DAYS);
   return h('div', { className: 'screen' },
     h('header', { className: 'stack tight' },
-      h('div', { className: 'top' }, h('h1', {}, 'Ma semaine'), !state.active && button('Réglages', openSettings, { variant: 'plain' })),
+      h('div', { className: 'top' }, h('h1', {}, 'Ma semaine'), button('Réglages', openSettings, { variant: 'plain' })),
       h('p', { className: 'meta' }, `Cycle : semaine ${Math.min(n, CYCLE_WEEKS)} sur ${CYCLE_WEEKS}`),
       h('p', { className: 'caption' }, `${LEVELS[config.level].label} · ${GOALS[config.goal].label} · ${config.minutes} min`)),
     deload && banner('leaf', 'Semaine allégée',
