@@ -45,6 +45,9 @@ const ICONS = {
   offline: '<path d="M2 8.5a15 15 0 0 1 20 0M5.5 12a10 10 0 0 1 13 0M9 15.5a5 5 0 0 1 6 0M12 19h.01M3 3l18 18"/>',
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   pause: '<path d="M9 5v14M15 5v14"/>',
+  checkCircle: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.8 2.8 5.2-5.8"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.8v.01"/>',
+  xCircle: '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',
   play: '<path d="M7 4.5v15l12-7.5z"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
 };
@@ -77,7 +80,7 @@ function save() {
     localStorage.setItem(KEY, JSON.stringify(state));
     localStorage.setItem(LOG_KEY, JSON.stringify(log));
   } catch {
-    toast("Enregistrement impossible : sauvegarde ton journal depuis l'onglet Progrès.");
+    toast("Enregistrement impossible : sauvegarde ton journal depuis l'onglet Progrès.", 'error');
   }
 }
 
@@ -87,10 +90,11 @@ function record(entry) {
   save();
 }
 
-// Message en haut d'écran ; avec `undo`, un bouton Annuler pendant 5 s.
-function toast(text, undo) {
+// Message en haut d'écran, icône selon sa nature ; avec `undo`, un bouton Annuler pendant 5 s.
+const TOAST_ICONS = { success: 'checkCircle', info: 'info', warning: 'warning', error: 'xCircle', timer: 'timer', offline: 'offline' };
+function toast(text, kind = 'info', undo) {
   document.querySelector('.toast')?.remove();
-  const node = h('div', { className: 'toast', role: 'status' }, h('span', {}, text),
+  const node = h('div', { className: `toast ${kind}`, role: ['warning', 'error', 'offline'].includes(kind) ? 'alert' : 'status' }, icon(TOAST_ICONS[kind]), h('span', {}, text),
     undo && button('Annuler', () => { node.remove(); undo(); }, { variant: 'plain', size: 'compact' }));
   document.body.append(node);
   setTimeout(() => node.remove(), undo ? 5000 : 3000);
@@ -193,7 +197,7 @@ function pills(d, key, entries) {
 function chips(d, key, entries, { max, className = 'chips' } = {}) {
   const toggle = (value) => {
     if (d[key].includes(value)) d[key] = d[key].filter((v) => v !== value);
-    else if (max && d[key].length >= max) return toast(`${max} jours maximum : garde au moins un jour de repos.`);
+    else if (max && d[key].length >= max) return toast(`${max} jours maximum : garde au moins un jour de repos.`, 'warning');
     else d[key] = [...d[key], value];
     render();
   };
@@ -229,7 +233,7 @@ function weights(d, key) {
     const input = h('input', { className: 'input', type: 'text', inputMode: 'decimal', placeholder: 'Ajouter un poids (kg)', ariaLabel: `Ajouter un poids : ${label}` });
     const add = () => {
       const v = numbers(input.value);
-      if (!v.length) return toast('Indique un poids en kg.');
+      if (!v.length) return toast('Indique un poids en kg.', 'warning');
       d.loads[key] = [...new Set([...(d.loads[key] || []), ...v])].sort((a, b) => a - b);
       draw(true);
     };
@@ -238,7 +242,7 @@ function weights(d, key) {
     const remove = (kg) => {
       d.loads[key] = list.filter((x) => x !== kg);
       draw();
-      toast(`${kgText(kg)} retiré`, () => { d.loads[key] = [...d.loads[key], kg].sort((a, b) => a - b); draw(); });
+      toast(`${kgText(kg)} retiré`, 'info', () => { d.loads[key] = [...d.loads[key], kg].sort((a, b) => a - b); draw(); });
     };
     box.replaceChildren(h('div', { className: 'stack tight' }, h('h2', {}, label), h('p', { className: 'caption' }, help)),
       list.length ? h('div', { className: 'list' }, list.map((kg) => h('div', { className: 'line' }, h('span', {}, kgText(kg)),
@@ -397,7 +401,7 @@ function applyConfig() {
   save();
   render();
   scrollTo(0, 0);
-  if (prev) toast('Réglages enregistrés');
+  if (prev) toast('Réglages enregistrés', 'success');
 }
 
 // --- Programme ---
@@ -470,28 +474,40 @@ function dayCard(s, d, focused, done, nextWeek) {
     h('div', { className: 'row' }, actions));
 }
 
+// Avancement de la semaine : un segment par séance, vert quand elle est faite, jour du jour en gras.
+function weekProgress(plan, done, focus) {
+  const count = plan.filter((s) => done.has(s.day)).length;
+  const title = !focus.nextWeek ? 'Cette semaine' : count === plan.length ? 'Semaine bouclée' : 'Semaine terminée';
+  return h('section', { className: 'card' },
+    h('div', { className: 'line-head' }, h('h2', {}, title), h('span', { className: 'meta' }, `${count} sur ${plural(plan.length, 'séance')}`)),
+    h('div', { className: 'week-bar', style: `grid-template-columns: repeat(${plan.length}, minmax(0, 1fr))` },
+      plan.map((s) => h('div', { className: ['week-day', done.has(s.day) && 'done', s.day === weekday() && 'today'].filter(Boolean).join(' ') },
+        h('span', { className: 'week-seg' }), h('span', { className: 'caption' }, DAYS[s.day].slice(0, 3))))),
+    focus.nextWeek && h('p', { className: 'caption' }, `Prochaine séance ${DAYS[plan[0].day].toLowerCase()}`));
+}
+
 function week() {
-  const { config, plan } = state;
+  const { plan } = state;
   const { week: n, deload, ended } = cycle();
   const done = doneThisWeek();
   const focus = focusOf(plan, done);
-  const doneCount = plan.filter((s) => done.has(s.day)).length;
   const backupDue = log.length > 0 && (!state.lastExport || daysAgo(state.lastExport) >= BACKUP_DAYS);
   return h('div', { className: 'screen' },
     h('header', { className: 'stack tight' },
       h('div', { className: 'top' }, h('h1', {}, 'Ma semaine'), button('Réglages', openSettings, { variant: 'plain' })),
-      h('p', { className: 'meta' }, `Cycle : semaine ${Math.min(n, CYCLE_WEEKS)} sur ${CYCLE_WEEKS}`),
-      h('p', { className: 'caption' }, `${LEVELS[config.level].label} · ${GOALS[config.goal].label} · ${config.minutes} min`)),
+      h('p', { className: 'meta' }, `Semaine ${Math.min(n, CYCLE_WEEKS)} sur ${CYCLE_WEEKS} du cycle`)),
+    weekProgress(plan, done, focus),
     deload && banner('leaf', 'Semaine allégée',
       h('p', {}, 'Moitié moins de séries et charges baissées de 10 %. Ce repos fait partie de la progression : il évite la fatigue qui mène aux blessures.')),
     ended && banner('flag', 'Cycle terminé',
       h('p', {}, 'Le nouveau cycle garde tes mouvements principaux, pour continuer à progresser, et renouvelle les exercices secondaires.'),
       button('Lancer le nouveau cycle', newCycle, { variant: 'primary' })),
-    backupDue && banner('save', 'Sauvegarde ton journal',
-      h('p', {}, `${state.lastExport ? `Dernière sauvegarde il y a ${daysAgo(state.lastExport)} jours.` : "Aucune sauvegarde pour l'instant."} Ton suivi n'existe que sur cet appareil : envoie une copie dans Fichiers ou iCloud Drive.`),
-      button('Sauvegarder', backup, { variant: 'primary' })),
-    focus.nextWeek && h('p', { className: 'note' }, icon(doneCount === plan.length ? 'check' : 'calendar'),
-      `${doneCount === plan.length ? 'Semaine bouclée' : 'Semaine terminée'} : ${doneCount} séance${doneCount > 1 ? 's' : ''} sur ${plan.length} faite${doneCount > 1 ? 's' : ''}. Prochaine : ${DAYS[plan[0].day].toLowerCase()}.`),
+    // Rappel compact, toute la ligne se touche (comme une ligne de Réglages iOS).
+    backupDue && h('button', { type: 'button', className: 'card notice', onclick: backup },
+      h('span', { className: 'notice-icon' }, icon('save')),
+      h('span', { className: 'stack tight' }, h('strong', {}, 'Sauvegarde ton journal'),
+        h('span', { className: 'caption' }, state.lastExport ? `Dernière copie il y a ${plural(daysAgo(state.lastExport), 'jour')}` : "Ton suivi n'existe que sur cet iPhone")),
+      icon('chevron', 'chev')),
     plan.map((s, d) => dayCard(s, d, d === focus.index, done, focus.nextWeek)),
     !state.active && (freshCycle() || ended) && button('Générer une autre variante', reroll, { variant: 'gray', size: 'large' }),
     !state.active && !freshCycle() && !ended && h('p', { className: 'caption center' }, "Exercices fixes jusqu'à la fin du cycle, pour apprendre les gestes et progresser. « Remplacer » reste possible."));
@@ -500,10 +516,10 @@ function week() {
 function replace(d, i) {
   const item = state.plan[d].items[i];
   const before = { ...item };
-  if (!swap(EXOS, state.plan, state.config, d, i)) return toast('Aucun autre exercice possible avec ton matériel.');
+  if (!swap(EXOS, state.plan, state.config, d, i)) return toast('Aucun autre exercice possible avec ton matériel.', 'warning');
   save();
   render();
-  toast(`Remplacé par ${byId.get(item.ex).name}`, () => { Object.assign(item, before); save(); render(); });
+  toast(`Remplacé par ${byId.get(item.ex).name}`, 'success', () => { Object.assign(item, before); save(); render(); });
 }
 
 async function reroll() {
@@ -513,7 +529,7 @@ async function reroll() {
   state.cycle = { start: monday(new Date()).toISOString() };
   save();
   render();
-  toast('Nouveau programme prêt');
+  toast('Nouveau programme prêt', 'success');
 }
 
 async function newCycle() {
@@ -664,14 +680,14 @@ async function stopSession() {
   if (choice === 'end') {
     closeSession();
     show('week');
-    toast('Séance enregistrée');
+    toast('Séance enregistrée', 'success');
   }
   if (choice === 'cancel') {
     const active = { ...state.active };
     record({ type: 'cancel' });
     closeSession();
     show('week');
-    toast('Séance abandonnée', () => {
+    toast('Séance abandonnée', 'info', () => {
       state.active = active;
       record({ type: 'restore' });
       save();
@@ -736,7 +752,7 @@ function block(item, d, i) {
   const techButtons = [[true, 'Oui'], [false, 'Non']].map(([ok, label]) => chip(label, mine('tech')?.ok === ok, () => {
     record({ type: 'tech', ex: e.id, ok });
     techButtons.forEach((b, n) => { b.ariaPressed = String(n === (ok ? 0 : 1)); });
-    if (!ok) toast("Noté : la charge n'augmentera pas la prochaine fois.");
+    if (!ok) toast("Noté : la charge n'augmentera pas la prochaine fois.", 'info');
   }));
   const hint = h('p', { className: 'caption', hidden: done.size === 0 }, 'Pour corriger une série, change la valeur puis valide à nouveau.');
   return h('section', { className: 'card' },
@@ -776,8 +792,8 @@ function setRow(e, item, n, done, tip, hint) {
   const ok = button(null, () => {
     const kgValue = e.load === 'pdc' ? 0 : Number(kg.value);
     const repsValue = Number(reps.value);
-    if (e.load !== 'pdc' && kg.value === '') return toast('Choisis la charge utilisée.');
-    if (reps.value === '' || !Number.isInteger(repsValue) || repsValue < 0 || repsValue > 300) return toast(`Indique les ${e.unit === 's' ? 'secondes tenues' : 'répétitions faites'}.`);
+    if (e.load !== 'pdc' && kg.value === '') return toast('Choisis la charge utilisée.', 'warning');
+    if (reps.value === '' || !Number.isInteger(repsValue) || repsValue < 0 || repsValue > 300) return toast(`Indique les ${e.unit === 's' ? 'secondes tenues' : 'répétitions faites'}.`, 'warning');
     record({ type: 'set', ex: e.id, set: n, kg: kgValue, reps: repsValue, ...(tip.mode !== 'normal' && { mode: tip.mode }) });
     mark(log.at(-1).t);
     hint.hidden = false;
@@ -797,8 +813,8 @@ async function onFeel(e, value, d, i, buttons) {
   const item = state.plan[d].items[i];
   const before = { ...item };
   state.config.avoid = [...state.config.avoid, e.id];
-  if (!swap(EXOS, state.plan, state.config, d, i)) toast("Aucun exercice de remplacement : saute-le aujourd'hui.");
-  else toast(`Exercice écarté : ${e.name}`, () => { state.config.avoid = state.config.avoid.filter((x) => x !== e.id); Object.assign(item, before); save(); render(); });
+  if (!swap(EXOS, state.plan, state.config, d, i)) toast("Aucun exercice de remplacement : saute-le aujourd'hui.", 'warning');
+  else toast(`Exercice écarté : ${e.name}`, 'info', () => { state.config.avoid = state.config.avoid.filter((x) => x !== e.id); Object.assign(item, before); save(); render(); });
   save();
   render();
 }
@@ -835,7 +851,7 @@ function startRest(seconds) {
     if (left > 0) { time.textContent = `Repos ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; return; }
     stopRest();
     beep();
-    toast('Repos terminé : série suivante.');
+    toast('Repos terminé : série suivante.', 'timer');
   };
   rest = setInterval(tick, 250);
   restBar.hidden = false;
@@ -952,7 +968,7 @@ async function backup() {
   state.lastExport = new Date().toISOString();
   save();
   render();
-  toast('Journal sauvegardé');
+  toast('Journal sauvegardé', 'success');
 }
 
 function exportCsv() {
@@ -976,10 +992,10 @@ function importButton() {
         log = entries;
         save();
         render();
-        toast('Historique importé');
+        toast('Historique importé', 'success');
       }
     } catch {
-      toast('Fichier invalide : choisis une sauvegarde JSON de Muscu auto.');
+      toast('Fichier invalide : choisis une sauvegarde JSON de Muscu auto.', 'error');
     }
     input.value = '';
   };
@@ -990,13 +1006,13 @@ function importButton() {
 // Le service worker sert la version en cache puis revérifie : s'il trouve du neuf, il prévient et on propose de recharger.
 
 const updateBar = h('div', { className: 'update', hidden: true, role: 'status' },
-  h('span', {}, 'Nouvelle version disponible'), button('Recharger', () => location.reload(), { variant: 'primary', size: 'compact' }));
+  h('span', {}, 'Nouvelle version disponible'), button('Recharger', reloadApp, { variant: 'primary', size: 'compact' }));
 const showUpdate = () => { if (updateBar.hidden) { updateBar.hidden = false; app.prepend(updateBar); } };
 
 // Bouton des Réglages : retélécharge le code sans passer par aucun cache, puis recharge.
 async function forceUpdate() {
-  if (!navigator.onLine) return toast('Hors ligne : reconnecte-toi pour mettre à jour.');
-  toast('Mise à jour…');
+  if (!navigator.onLine) return toast('Hors ligne : reconnecte-toi pour mettre à jour.', 'offline');
+  toast('Mise à jour en cours…', 'info');
   try {
     await (await navigator.serviceWorker?.getRegistration())?.update();
     const cache = await caches.open('muscu-auto');
@@ -1005,11 +1021,29 @@ async function forceUpdate() {
       if (res.ok) await cache.put(f, res);
     }));
   } catch { /* sans service worker : on recharge quand même */ }
+  reloadApp();
+}
+
+// Recharger pour une mise à jour : on revient sur l'écran où l'on était (Réglages, Progrès…), avec une confirmation.
+const RELOAD_KEY = 'muscu-auto-reload';
+function reloadApp() {
+  try { sessionStorage.setItem(RELOAD_KEY, ui.view); } catch { /* stockage indisponible : retour au programme */ }
   location.reload();
 }
 
+function resumeAfterReload() {
+  let view = null;
+  try { view = sessionStorage.getItem(RELOAD_KEY); sessionStorage.removeItem(RELOAD_KEY); } catch { /* rien à reprendre */ }
+  if (!view || !state.config) return false;
+  if (view === 'settings') ui = { view, step: 0, draft: structuredClone(state.config) };
+  else if (view === 'progress' || (view === 'session' && state.active)) ui.view = view;
+  return true;
+}
+
 document.body.append(restBar);
+const updated = resumeAfterReload();
 render();
+if (updated) toast(`Appli à jour : version du ${new Date(document.lastModified).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`, 'success');
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   const controlled = !!navigator.serviceWorker.controller; // au tout premier lancement, l'installation n'est pas une mise à jour
   navigator.serviceWorker.register('sw.js').catch(() => {});
