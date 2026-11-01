@@ -448,9 +448,11 @@ function dayCard(s, d, focused, done, nextWeek) {
     : finished ? h('span', { className: 'badge ok' }, icon('check'), 'Terminée')
     : upcoming ? h('span', { className: 'badge' }, 'Prochaine')
     : s.day === weekday() && h('span', { className: 'badge' }, "Aujourd'hui");
+  // Actions en bas de carte (on lit, puis on agit) : grand bouton pour la séance à venir, compact à gauche pour les autres.
   const actions = active
     ? [button('Reprendre', () => start(d), { variant: 'primary', size: 'compact', icon: 'play' }), button('Arrêter', stopSession, { variant: 'gray', size: 'compact' })]
-    : [button(finished ? 'Refaire' : 'Commencer', () => start(d), { variant: finished ? 'gray' : focused ? 'primary' : undefined, size: 'compact' })];
+    : focused && !finished ? [button('Commencer la séance', () => start(d), { variant: 'primary', size: 'large', icon: 'play' })]
+    : [button(finished ? 'Refaire' : 'Commencer', () => start(d), { variant: finished ? 'gray' : undefined, size: 'compact' })];
   const details = h('details', { className: 'more', open: ui.open?.[s.day] ?? focused },
     h('summary', {}, `${s.items.length} exercices`, icon('chevron', 'chev')),
     h('div', { className: 'list' }, s.items.map((item, i) => {
@@ -463,9 +465,9 @@ function dayCard(s, d, focused, done, nextWeek) {
   return h('section', { className: focused ? 'card focus' : 'card' },
     h('div', { className: 'stack tight' },
       h('div', { className: 'card-head' }, h('h2', { className: 'title' }, `${DAYS[s.day]} · ${s.name}`), badge),
-      finished && h('p', { className: 'caption' }, `Faite ${DAYS[weekday(new Date(finished.t))].toLowerCase()} à ${clock(finished.t)} · ${finished.sets} séries`)),
-    h('div', { className: 'row' }, actions),
-    details);
+      finished && h('p', { className: 'caption' }, `Faite ${DAYS[weekday(new Date(finished.t))].toLowerCase()} à ${clock(finished.t)} · ${finished.sets} série${finished.sets > 1 ? 's' : ''}`)),
+    details,
+    h('div', { className: 'row' }, actions));
 }
 
 function week() {
