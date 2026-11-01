@@ -877,16 +877,23 @@ function startRest(seconds) {
   stopRest();
   const end = Date.now() + seconds * 1000;
   // Prévenu tout de suite, appli active : au verrouillage de l'écran, iOS la suspend avant qu'une requête parte.
+  // « Repos en cours, reprends à … » part 5 s après si l'écran a été verrouillé dans les 3 premières secondes.
+  const started = Date.now();
+  let notice = false;
   if (pushOn() && state.config.notify?.rest !== false) {
-    restPushed = true;
-    pushCall('POST', '/rest', { at: end }).catch(() => { restPushed = false; });
+    restPushed = notice = true;
+    const label = new Date(end).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    pushCall('POST', '/rest', { at: end, notice: started + 5000, label }).catch(() => { restPushed = notice = false; });
   }
   const time = h('span', {});
   restBar.replaceChildren(time, button('Passer', stopRest, { size: 'compact' }));
   const tick = () => {
     const left = Math.ceil((end - Date.now()) / 1000);
+    const visible = document.visibilityState === 'visible';
+    // Appli toujours à l'écran après 3 s : pas besoin d'annoncer l'heure de fin.
+    if (notice && restPushed && visible && Date.now() - started >= 3000) { notice = false; pushCall('DELETE', '/rest/notice').catch(() => {}); }
     // Appli toujours à l'écran juste avant la fin : le bip suffit, on annule la notification.
-    if (restPushed && left <= 3 && document.visibilityState === 'visible') { restPushed = false; pushCall('DELETE', '/rest').catch(() => {}); }
+    if (restPushed && left <= 3 && visible) { restPushed = false; pushCall('DELETE', '/rest').catch(() => {}); }
     if (left > 0) { time.textContent = `Repos ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; return; }
     stopRest();
     beep();

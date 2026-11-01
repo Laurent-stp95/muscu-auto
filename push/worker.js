@@ -44,14 +44,23 @@ export class Subscriber {
       return json({ ok: true });
     }
     if (route === 'POST /rest') {
-      const { at } = await req.json();
+      // { at: fin du repos, notice: heure de « Repos en cours » (facultatif), label: heure de fin lisible, ex. 18:42:30 }
+      const { at, notice, label } = await req.json();
       if (!(at > Date.now() - 5000 && at < Date.now() + 15 * 60000)) return json({ error: 'heure invalide' }, 400);
-      await this.storage.put('rest', at);
+      await this.storage.put({ rest: at, restLabel: String(label || '').slice(0, 8) });
+      if (notice > Date.now() - 5000 && notice < at) await this.storage.put('restNotice', notice);
+      else await this.storage.delete('restNotice');
       await this.schedule();
       return json({ ok: true });
     }
     if (route === 'DELETE /rest') {
-      await this.storage.delete('rest');
+      await this.storage.delete(['rest', 'restNotice']);
+      await this.schedule();
+      return json({ ok: true });
+    }
+    if (route === 'DELETE /rest/notice') {
+      // L'appli est restée à l'écran : pas besoin d'annoncer l'heure de fin.
+      await this.storage.delete('restNotice');
       await this.schedule();
       return json({ ok: true });
     }
@@ -68,10 +77,10 @@ export class Subscriber {
     return json({ error: 'introuvable' }, 404);
   }
 
-  // Une seule alarme par Durable Object : la plus proche entre la fin du repos et le prochain rappel.
+  // Une seule alarme par Durable Object : la plus proche entre l'annonce du repos, sa fin et le prochain rappel.
   async schedule() {
-    const [rest, reminder] = [await this.storage.get('rest'), await this.nextReminder()];
-    const at = Math.min(rest || Infinity, reminder?.at || Infinity);
+    const [notice, rest, reminder] = [await this.storage.get('restNotice'), await this.storage.get('rest'), await this.nextReminder()];
+    const at = Math.min(notice || Infinity, rest || Infinity, reminder?.at || Infinity);
     if (at === Infinity) await this.storage.deleteAlarm();
     else await this.storage.setAlarm(at);
   }
@@ -83,6 +92,12 @@ export class Subscriber {
 
   async alarm() {
     const now = Date.now();
+    const notice = await this.storage.get('restNotice');
+    if (notice && notice <= now + 1000) {
+      await this.storage.delete('restNotice');
+      const label = await this.storage.get('restLabel');
+      await this.send({ title: 'Repos en cours', body: label ? `Reprends à ${label}.` : 'Reprends à la fin du repos.', tag: 'rest' });
+    }
     const rest = await this.storage.get('rest');
     if (rest && rest <= now + 1000) {
       await this.storage.delete('rest');
