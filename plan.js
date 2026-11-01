@@ -87,9 +87,11 @@ function rng(seed) {
 
 const family = (e) => e.fam || e.id;
 
-function available(exos, { equipment, zones = [], avoid = [] }) {
+// Matériel coché sans poids renseigné (haltères sans aucun poids, par exemple) = pas faisable.
+function available(exos, { equipment, loads = {}, zones = [], avoid = [] }) {
   const own = new Set([...equipment, BODYWEIGHT]);
-  return exos.filter((e) => e.eq.every((q) => own.has(q)) && !avoid.includes(e.id) && !(e.risk || []).some((z) => zones.includes(z)));
+  return exos.filter((e) => e.eq.every((q) => own.has(q)) && !avoid.includes(e.id) && !(e.risk || []).some((z) => zones.includes(z))
+    && (!['halteres', 'kettlebell', 'elastique'].includes(e.load) || loadable(e, loads).length > 0));
 }
 
 // Les 2 premiers exercices (main) sont les plus chargés : exercices marqués principaux si possible.
@@ -113,13 +115,14 @@ function prescription(goal, level, index, e) {
 }
 
 const backToBack = (days) => days.some((d) => days.includes((d + 1) % 7));
+const exerciseCount = (minutes) => Math.min(7, Math.max(4, Math.round(minutes / 15) + 2));
 
 // days = jours choisis (0 = lundi). Retourne [{ day, name, items: [{ slot, ex, sets, reps, rest }] }].
 function generate(exos, config) {
   const { days, goal, level, minutes, seed } = config;
   const rand = rng(seed);
   const pool = available(exos, config);
-  const count = Math.min(7, Math.max(4, Math.round(minutes / 15) + 2));
+  const count = exerciseCount(minutes);
   const split = (backToBack(days) && SPLITS_BACK_TO_BACK[days.length]) || SPLITS[days.length];
   const weekIds = new Set();
 
@@ -304,6 +307,6 @@ function project(kg, level, weeks = 8) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { generate, swap, repair, renew, available, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
+  module.exports = { generate, exerciseCount, backToBack, swap, repair, renew, available, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
     kgLabel, range, SLOTS, SESSIONS, GOALS, LEVELS, ZONES, CUES, TAGS, BODYWEIGHT, MAX_DAYS, LEARNING, CYCLE_WEEKS };
 }

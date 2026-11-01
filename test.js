@@ -42,6 +42,8 @@ assert.deepStrictEqual(generate(EXOS, gym), plan); // même graine = même progr
 assert.ok(!available(EXOS, { ...gym, zones: ['knees'] }).some((e) => /fente/i.test(e.name)));
 assert.ok(!available(EXOS, { ...gym, zones: ['back'] }).some((e) => [507, 83, 960].includes(e.id)));
 assert.ok(!available(EXOS, { ...gym, avoid: [plan[0].items[0].ex] }).some((e) => e.id === plan[0].items[0].ex));
+// Haltères cochés sans aucun poids renseigné : aucun exercice aux haltères.
+assert.ok(!available(EXOS, { ...gym, loads: { ...LOADS, halteres: [] } }).some((e) => e.load === 'halteres'));
 
 // Remplacer : autre exercice du même créneau, matériel respecté.
 const db = { ...base, equipment: ['halteres', 'banc'] };

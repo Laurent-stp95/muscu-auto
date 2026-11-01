@@ -60,9 +60,11 @@ function show(view) {
 }
 
 function render() {
-  const views = { onboarding, week, session, progress };
+  const views = { onboarding, week, session, progress, settings };
   app.replaceChildren(...[views[ui.view](), nav()].filter(Boolean));
   if (ui.view === 'session') keepAwake();
+  // Nouvel écran d'onboarding : le lecteur d'écran repart du titre.
+  if (ui.focus) { ui.focus = false; const t = app.querySelector('h1'); t.tabIndex = -1; t.focus({ preventScroll: true }); }
 }
 
 function nav() {
@@ -71,19 +73,38 @@ function nav() {
   return h('nav', { className: 'tabs' }, tab('week', '📅 Programme'), state.active && tab('session', '⏱️ Séance'), tab('progress', '📈 Progrès'));
 }
 
-// --- Onboarding (et Réglages, qui le rouvre à l'étape 1) ---
+// --- Onboarding (premier lancement) ---
+
+const standalone = () => navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+const iphone = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+const LOADED = ['smith', 'halteres', 'kettlebell', 'elastique'];
+
+// Écrans selon le contexte : installation seulement dans Safari sur iPhone, charges seulement si du matériel chargeable est coché.
+function steps(d) {
+  return [welcome, iphone() && !standalone() && stepInstall, stepLevel, stepGoal, stepEquipment,
+    d.equipment.some((q) => LOADED.includes(q)) && stepLoads, stepPlanning, stepZones, stepFirstWeek].filter(Boolean);
+}
 
 function onboarding() {
-  const d = (ui.draft ||= structuredClone({ ...DEFAULTS, ...state.config }));
-  const last = ui.step === STEPS.length - 1;
-  const label = ui.step === 0 ? "C'est parti" : last ? (state.plan ? 'Enregistrer' : 'Générer mon programme') : 'Suivant';
+  const d = (ui.draft ||= structuredClone(DEFAULTS));
+  const list = steps(d);
+  const last = ui.step === list.length - 1;
   return h('div', { className: 'ob' },
-    h('div', { className: 'progress' }, h('span', { style: `width: ${(ui.step / (STEPS.length - 1)) * 100}%` })),
-    STEPS[ui.step](d),
+    h('div', { className: 'ob-top' },
+      h('div', { className: 'progress' }, h('span', { style: `width: ${(ui.step / (list.length - 1)) * 100}%` })),
+      ui.step > 0 && h('span', { className: 'meta' }, `${ui.step}/${list.length - 1}`)),
+    list[ui.step](d),
     h('div', { className: 'ob-nav' },
-      ui.step > 0 && h('button', { className: 'btn', onclick: () => { ui.step--; render(); } }, 'Retour'),
-      state.plan && ui.step > 0 && !last && h('button', { className: 'btn', onclick: () => { ui = { view: 'week', step: 0, draft: null }; render(); } }, 'Annuler'),
-      h('button', { className: 'btn primary', disabled: !d.days.length, onclick: () => (last ? finish() : (ui.step++, render())) }, label)));
+      ui.step > 0 && h('button', { className: 'btn', onclick: () => go(-1) }, 'Retour'),
+      h('button', { className: 'btn primary', disabled: !d.days.length, onclick: () => (last ? applyConfig() : go(1)) },
+        ui.step === 0 ? "C'est parti" : last ? 'Voir ma semaine' : 'Suivant')));
+}
+
+function go(delta) {
+  ui.step += delta;
+  ui.focus = true;
+  render();
+  scrollTo(0, 0);
 }
 
 function step(title, lead, ...content) {
@@ -95,6 +116,12 @@ function choice(d, key, entries) {
   return h('div', { className: 'options' }, ...entries.map(([value, icon, label, hint]) =>
     h('button', { type: 'button', className: 'option', ariaPressed: String(d[key] === value), onclick: () => { d[key] = value; render(); } },
       h('span', { className: 'icon' }, icon), h('strong', {}, label), hint && h('span', { className: 'meta' }, hint))));
+}
+
+// Choix unique en pastilles (Réglages, durée) : entries = [[valeur, libellé]].
+function pills(d, key, entries) {
+  return h('div', { className: 'chips' }, entries.map(([value, label]) =>
+    h('button', { type: 'button', className: 'chip', ariaPressed: String(d[key] === value), onclick: () => { d[key] = value; render(); } }, label)));
 }
 
 // Choix multiple en pastilles : entries = [[valeur, libellé]].
@@ -109,82 +136,168 @@ function chips(d, key, entries, max) {
     h('button', { type: 'button', className: 'chip', ariaPressed: String(d[key].includes(value)), onclick: () => toggle(value) }, label)));
 }
 
+// Compteur − / + mis à jour sur place : le focus reste sur le bouton touché.
+function stepper(value, onChange, { min = 0, max, step = 1, unit, label }) {
+  const out = h('output', { className: 'count' });
+  const show = () => { out.textContent = unit === 'kg' ? kgText(value) : `${value} ${unit}${value > 1 ? 's' : ''}`; };
+  const set = (v) => { value = Math.min(max, Math.max(min, Math.round(v * 100) / 100)); show(); onChange(value); };
+  show();
+  return h('span', { className: 'stepper', role: 'group', ariaLabel: label },
+    h('button', { type: 'button', className: 'btn small', ariaLabel: `Moins : ${label}`, onclick: () => set(value - step) }, '−'),
+    out,
+    h('button', { type: 'button', className: 'btn small', ariaLabel: `Plus : ${label}`, onclick: () => set(value + step) }, '+'));
+}
+
+// « 10, 12,5 » = 10 et 12,5 : la virgule entre deux chiffres est décimale.
+const numbers = (text) => [...new Set(String(text).replace(/(\d),(\d)/g, '$1.$2').split(/[;,\s]+/).map(Number).filter((x) => x > 0 && x <= 300))];
+
+// Poids disponibles (haltères, kettlebells, élastiques) : pastilles à retirer d'une tape, champ pour en ajouter.
+function weights(d, key, label) {
+  const box = h('fieldset', { className: 'loads' });
+  const draw = (focus) => {
+    const input = h('input', { type: 'text', inputMode: 'decimal', placeholder: 'kg', ariaLabel: `Ajouter un poids : ${label}` });
+    const add = () => {
+      const v = numbers(input.value);
+      if (!v.length) return toast('Indique un poids en kg.');
+      d.loads[key] = [...new Set([...(d.loads[key] || []), ...v])].sort((a, b) => a - b);
+      draw(true);
+    };
+    input.onkeydown = (ev) => { if (ev.key === 'Enter') add(); };
+    const list = d.loads[key] || [];
+    box.replaceChildren(h('legend', {}, label),
+      list.length ? h('div', { className: 'chips' }, list.map((kg) => h('button', { type: 'button', className: 'chip', ariaLabel: `Retirer ${kgText(kg)}`,
+        onclick: () => { d.loads[key] = list.filter((x) => x !== kg); draw(true); } }, `${kgText(kg)}  ×`)))
+        : h('p', { className: 'meta' }, 'Ajoute au moins un poids, sinon les exercices concernés sont écartés.'),
+      h('div', { className: 'row' }, input, h('button', { type: 'button', className: 'btn small', onclick: add }, 'Ajouter')));
+    if (focus) input.focus();
+  };
+  draw();
+  return box;
+}
+
+// Charges exactes : le programme ne proposera que ce que tu peux monter.
+function loadsEditor(d) {
+  const has = (q) => d.equipment.includes(q);
+  const range = h('p', { className: 'meta' });
+  const refresh = () => {
+    const grid = loadable({ load: 'smith' }, d.loads);
+    range.textContent = grid.length > 1
+      ? `Charges possibles : ${kgText(grid[0])} à ${kgText(grid.at(-1))}, par ${kgText(Math.min(...grid.slice(1).map((kg, i) => kg - grid[i])))}.`
+      : 'Ajoute des disques pour charger la barre.';
+  };
+  refresh();
+  return [
+    has('smith') && h('fieldset', { className: 'loads' }, h('legend', {}, 'Smith machine'),
+      h('div', { className: 'line' }, h('span', {}, 'Barre'),
+        stepper(d.loads.bar, (v) => { d.loads.bar = v; refresh(); }, { step: 0.5, max: 40, unit: 'kg', label: 'poids de la barre' })),
+      h('p', { className: 'meta' }, 'Disques, par paires (un de chaque côté) :'),
+      PLATES.map((p) => h('div', { className: 'line' }, h('span', {}, kgText(p)),
+        stepper(Math.floor((d.loads.plates[p] || 0) / 2), (v) => { d.loads.plates[p] = v * 2; refresh(); }, { max: 10, unit: 'paire', label: `paires de disques de ${kgText(p)}` }))),
+      range),
+    has('halteres') && weights(d, 'halteres', 'Haltères (kg par haltère)'),
+    has('kettlebell') && weights(d, 'kettlebell', 'Kettlebells (kg)'),
+    has('elastique') && weights(d, 'elastiques', 'Élastiques (résistance en kg)'),
+  ];
+}
+
+// Jours et durée, avec ce que ça donne : la répartition des séances change selon les jours choisis.
+function planningEditor(d) {
+  const sessions = d.days.length ? generate(EXOS, d) : [];
+  return [
+    chips(d, 'days', DAYS.map((day, i) => [i, day.slice(0, 3)]), MAX_DAYS),
+    sessions.length > 0 && h('ul', { className: 'preview' }, sessions.map((s) => h('li', {}, h('strong', {}, DAYS[s.day]), ` · ${s.name}`))),
+    backToBack(d.days) && h('p', { className: 'meta' }, "Jours qui se suivent : jamais les mêmes muscles deux jours d'affilée."),
+    h('h2', { className: 'sub' }, 'Durée par séance'),
+    pills(d, 'minutes', [30, 45, 60, 75].map((m) => [m, `${m} min`])),
+    h('p', { className: 'meta' }, `${exerciseCount(d.minutes)} exercices par séance.`),
+  ];
+}
+
+function zonesEditor(d) {
+  const reintegrate = (id) => { d.avoid = d.avoid.filter((x) => x !== id); render(); };
+  return [
+    chips(d, 'zones', Object.entries(ZONES)),
+    d.avoid.length > 0 && h('div', {},
+      h('h2', { className: 'sub' }, 'Exercices écartés après une douleur'),
+      h('p', { className: 'meta' }, 'Réintégré, un exercice repart en apprentissage : 2 séances légères.'),
+      d.avoid.map((id) => h('div', { className: 'row between' }, h('span', {}, byId.get(id)?.name || `Exercice ${id}`),
+        h('button', { type: 'button', className: 'btn small', onclick: () => reintegrate(id) }, 'Réintégrer')))),
+  ];
+}
+
 function welcome() {
   return h('div', { className: 'step' },
     h('div', { className: 'hero' }, '🏋️'),
-    h('h1', {}, 'Bienvenue sur Muscu auto'),
-    h('p', { className: 'lead' }, "Ton programme s'adapte à ton matériel, à ton niveau et à ton corps. Réglage en une minute."),
+    h('h1', {}, 'Muscu auto'),
+    h('p', { className: 'lead' }, 'Tes séances, programmées selon ton matériel. La technique avant la charge.'),
     h('ul', { className: 'promises' },
-      h('li', {}, '📅 Séances programmées automatiquement'),
-      h('li', {}, '🎥 Chaque exercice montré : gestes, muscles, consignes'),
-      h('li', {}, '📈 Progression prudente : la technique avant la charge')));
+      h('li', {}, '📅 Programme automatique, renouvelé par cycles'),
+      h('li', {}, '🎥 Chaque exercice montré, avec ses consignes'),
+      h('li', {}, '📈 Charges qui montent seulement quand le geste est propre')));
 }
 
-const stepLevel = (d) => step('Ton niveau', 'Pour doser les charges et le volume.',
+// Sur iPhone, l'appli installée a son propre stockage : on installe avant de régler, sinon tout est à refaire.
+const stepInstall = () => step("Installe-la d'abord", "Sur l'écran d'accueil, l'appli s'ouvre en plein écran, marche sans réseau, et Safari n'efface pas ton suivi.",
+  h('ol', { className: 'howto' },
+    h('li', {}, 'Touche ', h('strong', {}, 'Partager'), ' en bas de Safari (carré avec une flèche).'),
+    h('li', {}, 'Choisis ', h('strong', {}, "Sur l'écran d'accueil"), ', puis Ajouter.'),
+    h('li', {}, "Ouvre Muscu auto depuis sa nouvelle icône et règle-la là.")),
+  h('p', { className: 'meta' }, "Ce que tu règles ici dans Safari ne suit pas dans l'appli installée."));
+
+const stepLevel = (d) => step('Ton niveau', 'Il règle le nombre de séries et la marge de sécurité.',
   choice(d, 'level', Object.entries(LEVELS).map(([k, l], i) => [k, ['🌱', '⚡', '🏆'][i], l.label, l.hint])));
 
 const stepGoal = (d) => step('Ton objectif', null,
   choice(d, 'goal', Object.entries(GOALS).map(([k, g], i) => [k, ['💪', '🏋️', '🏃'][i], g.label, g.hint])),
   d.level === 'debutant' && d.goal === 'force' && h('p', { className: 'cue' }, '⚠️ La force demande une technique solide : commence plutôt par la prise de muscle quelques mois.'));
 
-// « 10, 12,5 » = 10 et 12,5 : la virgule entre deux chiffres est décimale.
-const numbers = (text) => [...new Set(String(text).replace(/(\d),(\d)/g, '$1.$2').split(/[;,\s]+/).map(Number).filter((x) => x > 0 && x <= 300))];
+const stepEquipment = (d) => step('Ton matériel', 'Coche ce que tu as. Le poids du corps est toujours inclus.',
+  chips(d, 'equipment', Object.entries(TAGS)));
 
-// Matériel : ce que tu as, et les charges exactes, pour ne proposer que des charges réalisables.
-function stepEquipment(d) {
-  const has = (q) => d.equipment.includes(q);
-  const field = (label, value, onchange, props = {}) => h('label', { className: 'field' }, h('span', {}, label),
-    h('input', { value, onchange: (ev) => { onchange(ev.target.value); render(); }, ...props }));
-  const list = (key, label, placeholder) => field(label, (d.loads[key] || []).join(', '), (v) => { d.loads[key] = numbers(v); }, { inputMode: 'decimal', placeholder });
-  const grid = loadable({ load: 'smith' }, d.loads);
-  return step('Ton matériel', 'Coche ce que tu as et précise les charges : le programme ne propose que ce que tu peux vraiment charger.',
-    chips(d, 'equipment', Object.entries(TAGS)),
-    has('smith') && h('fieldset', { className: 'loads' },
-      h('legend', {}, 'Smith machine'),
-      field('Poids de la barre (kg)', d.loads.bar, (v) => { d.loads.bar = Number(v.replace(',', '.')) || 0; }, { type: 'number', inputMode: 'decimal', min: 0, max: 40, step: 0.5 }),
-      h('p', { className: 'meta' }, 'Nombre de disques de chaque poids (au total, pas par côté) :'),
-      h('div', { className: 'plates' }, PLATES.map((p) => field(`${p.toLocaleString('fr-FR')} kg`, d.loads.plates[p] || 0,
-        (v) => { d.loads.plates[p] = Math.max(0, Math.floor(Number(v) || 0)); }, { type: 'number', inputMode: 'numeric', min: 0, max: 20, step: 1 }))),
-      h('p', { className: 'meta' }, grid.length > 1
-        ? `Charges possibles : ${kgText(grid[0])} à ${kgText(grid.at(-1))}, par ${kgText(Math.min(...grid.slice(1).map((kg, i) => kg - grid[i])))}.`
-        : 'Ajoute des disques par paires pour charger la barre.')),
-    has('halteres') && list('halteres', 'Haltères : poids disponibles (kg par haltère)', '10'),
-    has('kettlebell') && list('kettlebell', 'Kettlebells (kg)', '16'),
-    has('elastique') && list('elastiques', 'Élastiques : résistances (kg)', '30, 20, 10'));
+const stepLoads = (d) => step('Tes charges', 'Le programme ne proposera que ce que tu peux vraiment charger.', loadsEditor(d));
+
+const stepPlanning = (d) => step('Ton planning', 'Quels jours ?', planningEditor(d));
+
+const stepZones = (d) => step('Des zones fragiles ?', 'Les exercices à risque pour elles sont écartés. Douleur persistante : consulte un professionnel de santé.', zonesEditor(d));
+
+function stepFirstWeek(d) {
+  const plan = d.days.length ? generate(EXOS, d) : [];
+  return step('Ta première semaine', null,
+    plan.map((s) => h('section', { className: 'card' }, h('h2', {}, `${DAYS[s.day]} · ${s.name}`),
+      h('p', { className: 'meta' }, s.items.map((it) => byId.get(it.ex).name).join(' · ')))),
+    h('h2', { className: 'sub' }, 'À ta première séance'),
+    h('ul', { className: 'rules' },
+      h('li', {}, "Charges légères : chaque exercice commence par 2 séances d'apprentissage."),
+      h('li', {}, `Garde au moins ${Math.max(2, LEVELS[d.level].rir)} répétitions en réserve sur les gros mouvements.`),
+      h('li', {}, 'Le minuteur de repos démarre tout seul après chaque série.'),
+      h('li', {}, "Douleur articulaire : arrête et signale-la, l'exercice sera écarté.")));
 }
 
-const stepPlanning = (d) => step('Ton planning', 'Quels jours ? On évite deux séances d\'affilée sur les mêmes muscles.',
-  chips(d, 'days', DAYS.map((day, i) => [i, day.slice(0, 3)]), MAX_DAYS),
-  h('h2', { className: 'sub' }, 'Durée par séance'),
-  choice(d, 'minutes', [30, 45, 60, 75].map((m) => [m, '⏱️', `${m} min`, `${Math.min(7, Math.max(4, Math.round(m / 15) + 2))} exercices`])));
+// --- Réglages : chaque section se modifie seule, enregistrement en une fois ---
 
-function stepZones(d) {
-  const reintegrate = (id) => { d.avoid = d.avoid.filter((x) => x !== id); render(); };
-  return step('Des zones fragiles ?', 'On écarte les exercices à risque pour elles. Douleur persistante : consulte un professionnel de santé.',
-    chips(d, 'zones', Object.entries(ZONES)),
-    h('p', { className: 'meta' }, d.zones.length ? `${d.zones.length} zone(s) ménagée(s).` : 'Aucune : tu pourras en ajouter plus tard dans Réglages.'),
-    d.avoid.length > 0 && h('div', {},
-      h('h2', { className: 'sub' }, 'Exercices écartés après une douleur'),
-      h('p', { className: 'meta' }, 'Réintégré, un exercice repart en apprentissage : 2 séances légères.'),
-      d.avoid.map((id) => h('div', { className: 'row between' }, h('span', {}, byId.get(id)?.name || `Exercice ${id}`),
-        h('button', { type: 'button', className: 'btn small', onclick: () => reintegrate(id) }, 'Réintégrer')))));
+function openSettings() {
+  ui.draft = structuredClone(state.config);
+  show('settings');
 }
 
-function stepRecap(d) {
-  const equip = d.equipment.map((q) => TAGS[q]).join(', ') || 'poids du corps';
-  return step('Tes règles d\'or', 'Pour progresser sans te blesser.',
-    h('ol', { className: 'rules' },
-      h('li', {}, "Échauffe-toi, puis fais les séries d'approche indiquées sur les mouvements lourds."),
-      h('li', {}, `Garde au moins ${Math.max(2, LEVELS[d.level].rir)} répétitions en réserve sur les gros mouvements : aucune série jusqu'à l'échec.`),
-      h('li', {}, 'Chaque nouvel exercice commence par 2 séances légères pour apprendre le geste.'),
-      h('li', {}, 'Technique pas propre = la charge n\'augmente pas. Filme ta première série lourde.'),
-      h('li', {}, 'Douleur articulaire = stop, signale-la. La brûlure musculaire est normale, la douleur vive non.')),
-    h('p', { className: 'meta' }, `${LEVELS[d.level].label} · ${GOALS[d.goal].label} · ${[...d.days].sort().map((i) => DAYS[i].slice(0, 3)).join(', ')} · ${d.minutes} min · ${equip}`));
+function settings() {
+  const d = (ui.draft ||= structuredClone(state.config));
+  const restart = ['days', 'goal', 'level', 'minutes'].some((k) => JSON.stringify(d[k]) !== JSON.stringify(state.config[k]));
+  const section = (title, ...content) => h('section', { className: 'card' }, h('h2', {}, title), ...content);
+  return h('div', { className: 'screen' },
+    h('header', { className: 'top' }, h('h1', {}, 'Réglages')),
+    section('Niveau', pills(d, 'level', Object.entries(LEVELS).map(([k, l]) => [k, l.label]))),
+    section('Objectif', pills(d, 'goal', Object.entries(GOALS).map(([k, g]) => [k, g.label]))),
+    section('Matériel', chips(d, 'equipment', Object.entries(TAGS)), loadsEditor(d)),
+    section('Planning', planningEditor(d)),
+    section('Zones fragiles', zonesEditor(d)),
+    restart && h('p', { className: 'cue' }, 'Niveau, objectif, jours ou durée changés : un nouveau programme et un nouveau cycle commenceront.'),
+    h('div', { className: 'ob-nav' },
+      h('button', { className: 'btn', onclick: () => { ui.draft = null; show('week'); } }, 'Annuler'),
+      h('button', { className: 'btn primary', disabled: !d.days.length, onclick: applyConfig }, 'Enregistrer')));
 }
 
-const STEPS = [welcome, stepLevel, stepGoal, stepEquipment, stepPlanning, stepZones, stepRecap];
-
-function finish() {
+function applyConfig() {
   const prev = state.config;
   state.config = structuredClone(ui.draft);
   const c = state.config;
@@ -200,6 +313,7 @@ function finish() {
   save();
   render();
   scrollTo(0, 0);
+  if (prev) toast('Réglages enregistrés.');
 }
 
 // --- Programme ---
@@ -220,7 +334,7 @@ function week() {
   return h('div', { className: 'screen' },
     h('header', { className: 'top' },
       h('h1', {}, 'Ma semaine'),
-      !state.active && h('button', { className: 'btn', onclick: () => { ui = { view: 'onboarding', step: 1, draft: null }; render(); } }, 'Réglages')),
+      !state.active && h('button', { className: 'btn', onclick: openSettings }, 'Réglages')),
     h('p', { className: 'meta' }, `${LEVELS[config.level].label} · ${GOALS[config.goal].label} · ${config.minutes} min · cycle : semaine ${Math.min(n, CYCLE_WEEKS)}/${CYCLE_WEEKS}`),
     deload && h('section', { className: 'card banner' }, h('h2', {}, '🌿 Semaine allégée'),
       h('p', {}, 'Moitié moins de séries et charges baissées de 10 %. Ce repos fait partie de la progression : il évite la fatigue qui mène aux blessures.')),

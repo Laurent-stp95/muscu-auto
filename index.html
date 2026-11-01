@@ -75,6 +75,18 @@
   .rest { position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 9; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 99px; background: var(--fg); color: var(--bg); font-weight: 700; font-variant-numeric: tabular-nums; box-shadow: 0 4px 16px rgb(0 0 0 / .25); }
   .rest .btn { border-color: currentColor; background: none; color: inherit; }
   .rest span { white-space: nowrap; }
+  .ob-top { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+  .ob-top .progress { flex: 1; margin: 0; }
+  .ob-top .meta { font-variant-numeric: tabular-nums; }
+  .line { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 2px 0; white-space: nowrap; }
+  .stepper { display: inline-flex; align-items: center; gap: 6px; }
+  .stepper .btn { min-width: 40px; min-height: 36px; font-size: 1.1rem; }
+  .stepper output { min-width: 5.5em; text-align: center; font-variant-numeric: tabular-nums; }
+  .loads .chips { margin: 4px 0 8px; }
+  .loads .row input { font: inherit; width: 6em; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: inherit; }
+  .howto { display: grid; gap: 12px; padding-left: 22px; font-size: 1.05rem; }
+  .preview { display: grid; gap: 4px; margin: 12px 0 0; padding: 0; list-style: none; }
+  .step .card .meta { margin: 6px 0 0; }
   [hidden] { display: none !important; }
   .tip { margin: 8px 0; }
   .sets { display: grid; grid-template-columns: 2.5rem 1.3fr 1fr 5.5rem; gap: 6px; align-items: center; margin-top: 10px; }
