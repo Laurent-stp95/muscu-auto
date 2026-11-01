@@ -294,7 +294,10 @@ function settings() {
     restart && h('p', { className: 'cue' }, 'Niveau, objectif, jours ou durée changés : un nouveau programme et un nouveau cycle commenceront.'),
     h('div', { className: 'ob-nav' },
       h('button', { className: 'btn', onclick: () => { ui.draft = null; show('week'); } }, 'Annuler'),
-      h('button', { className: 'btn primary', disabled: !d.days.length, onclick: applyConfig }, 'Enregistrer')));
+      h('button', { className: 'btn primary', disabled: !d.days.length, onclick: applyConfig }, 'Enregistrer')),
+    section('Appli',
+      h('p', { className: 'meta' }, `Version du ${new Date(document.lastModified).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}.`),
+      h('button', { className: 'btn', onclick: forceUpdate }, 'Mettre à jour')));
 }
 
 function applyConfig() {
@@ -729,6 +732,31 @@ function importButton() {
   return h('label', { className: 'btn' }, 'Importer', input);
 }
 
-document.body.append(restBar);
+// --- Mises à jour ---
+// Le service worker sert la version en cache puis revérifie : s'il trouve du neuf, il prévient et on propose de recharger.
+
+const updateBar = h('div', { className: 'update', hidden: true, role: 'status' },
+  h('span', {}, 'Nouvelle version disponible'), h('button', { className: 'btn small', onclick: () => location.reload() }, 'Recharger'));
+
+// Bouton des Réglages : retélécharge le code sans passer par aucun cache, puis recharge.
+async function forceUpdate() {
+  toast('Mise à jour…');
+  try {
+    await (await navigator.serviceWorker?.getRegistration())?.update();
+    const cache = await caches.open('muscu-auto');
+    await Promise.all(['./', 'index.html', 'app.js', 'plan.js', 'data.js'].map(async (f) => {
+      const res = await fetch(f, { cache: 'reload' });
+      if (res.ok) await cache.put(f, res);
+    }));
+  } catch { /* hors ligne ou sans service worker : on recharge quand même */ }
+  location.reload();
+}
+
+document.body.append(restBar, updateBar);
 render();
-if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  const controlled = !!navigator.serviceWorker.controller; // au tout premier lancement, l'installation n'est pas une mise à jour
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.addEventListener('message', (ev) => { if (ev.data === 'update') updateBar.hidden = false; });
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (controlled) updateBar.hidden = false; });
+}

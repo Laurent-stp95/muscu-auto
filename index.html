@@ -75,6 +75,9 @@
   .rest { position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 9; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 99px; background: var(--fg); color: var(--bg); font-weight: 700; font-variant-numeric: tabular-nums; box-shadow: 0 4px 16px rgb(0 0 0 / .25); }
   .rest .btn { border-color: currentColor; background: none; color: inherit; }
   .rest span { white-space: nowrap; }
+  .update { position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 9; display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100% - 32px); padding: 8px 8px 8px 16px; border-radius: 12px; background: var(--accent); color: #fff; font-weight: 600; box-shadow: 0 4px 16px rgb(0 0 0 / .25); }
+  .update .btn { border-color: #fff; background: #fff; color: var(--accent); font-weight: 700; }
+  body:has(.update:not([hidden])) #app { padding-bottom: 160px; }
   .ob-top { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
   .ob-top .progress { flex: 1; margin: 0; }
   .ob-top .meta { font-variant-numeric: tabular-nums; }
