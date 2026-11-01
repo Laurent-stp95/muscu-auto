@@ -207,6 +207,8 @@
   .toast .btn { margin-left: var(--s1); background: none; color: var(--accent-ink); }
   .rest { position: fixed; left: 50%; bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + var(--s2)); z-index: 9; display: flex; align-items: center; gap: var(--s3); padding: var(--s1) var(--s1) var(--s1) var(--s5); border-radius: var(--r-full); background: var(--fg); color: var(--bg); font-size: var(--t-title3); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; box-shadow: var(--shadow); transform: translateX(-50%); }
   .rest .btn { border-radius: var(--r-full); background: color-mix(in srgb, var(--bg) 20%, transparent); color: inherit; }
+  .offline { display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s4); border-radius: var(--r-l); background: var(--card); }
+  .offline > .icon { width: 24px; height: 24px; color: var(--warn-ink); }
   .update { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s2) var(--s2) var(--s2) var(--s4); border-radius: var(--r-l); background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
 
   /* Feuille de confirmation (bas d'écran, façon iOS) */

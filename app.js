@@ -131,7 +131,8 @@ function render() {
   const views = { onboarding, week, session, progress, settings };
   document.body.classList.toggle('has-tabs', ui.view !== 'onboarding');
   document.body.classList.toggle('ob-mode', ui.view === 'onboarding');
-  app.replaceChildren(...[!updateBar.hidden && updateBar, views[ui.view](), nav()].filter(Boolean));
+  app.replaceChildren(...[views[ui.view](), nav()].filter(Boolean));
+  placeBars();
   if (ui.view === 'session') keepAwake();
   // Nouvel écran d'onboarding : le lecteur d'écran repart du titre.
   if (ui.focus) { ui.focus = false; const t = app.querySelector('h1'); t.tabIndex = -1; t.focus({ preventScroll: true }); }
@@ -1007,7 +1008,26 @@ function importButton() {
 
 const updateBar = h('div', { className: 'update', hidden: true, role: 'status' },
   h('span', {}, 'Nouvelle version disponible'), button('Recharger', reloadApp, { variant: 'primary', size: 'compact' }));
-const showUpdate = () => { if (updateBar.hidden) { updateBar.hidden = false; app.prepend(updateBar); } };
+const showUpdate = () => { updateBar.hidden = false; placeBars(); };
+
+// --- Réseau ---
+// Hors ligne, tout marche (données sur l'iPhone, appli en cache) sauf les vidéos : bandeau tant que ça dure, message à chaque bascule.
+const offlineBar = h('div', { className: 'offline', hidden: navigator.onLine, role: 'status' }, icon('offline'),
+  h('div', { className: 'stack tight' }, h('strong', {}, 'Hors ligne'), h('span', { className: 'caption' }, "Tout fonctionne, sauf les vidéos. Tes saisies restent sur l'iPhone.")));
+addEventListener('offline', () => { offlineBar.hidden = false; placeBars(); toast('Hors ligne : tout reste utilisable, sauf les vidéos', 'offline'); });
+addEventListener('online', () => { offlineBar.hidden = true; placeBars(); toast('De retour en ligne', 'success'); });
+
+// Bandeaux d'état (hors ligne, nouvelle version) : sous l'en-tête de l'écran affiché, jamais par-dessus la barre collante.
+function placeBars() {
+  const bars = [offlineBar, updateBar];
+  bars.forEach((b) => b.remove());
+  const view = app.firstElementChild;
+  const shown = bars.filter((b) => !b.hidden);
+  if (!view || !shown.length) return;
+  const header = view.querySelector(':scope > header');
+  if (header) header.after(...shown);
+  else view.prepend(...shown);
+}
 
 // Bouton des Réglages : retélécharge le code sans passer par aucun cache, puis recharge.
 async function forceUpdate() {
