@@ -16,7 +16,7 @@
   :root {
     --bg: #f2f2f7; --card: #fff; --fg: #1c1c1e; --muted: #636366; --line: #d1d1d6; --fill: rgb(120 120 128 / .12); --seg-on: #fff;
     --accent: #c8441d; --accent-ink: #a83a17; --accent-soft: color-mix(in srgb, #c8441d 12%, transparent);
-    --ok: #1e7d46; --danger: #b3261e; --danger-ink: #b3261e; --danger-soft: color-mix(in srgb, #b3261e 12%, transparent);
+    --ok: #1e7d46; --ok-ink: #18703e; --ok-soft: color-mix(in srgb, #1e7d46 14%, transparent); --danger: #b3261e; --danger-ink: #b3261e; --danger-soft: color-mix(in srgb, #b3261e 12%, transparent);
     --shadow: 0 4px 20px rgb(0 0 0 / .18);
     --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
     --r-s: 8px; --r-m: 12px; --r-l: 16px; --r-full: 999px;
@@ -28,6 +28,7 @@
   @media (prefers-color-scheme: dark) {
     :root { --bg: #000; --card: #1c1c1e; --fg: #fff; --muted: #98989f; --line: #38383a; --fill: rgb(120 120 128 / .24); --seg-on: #636366;
       --accent-ink: #ff8a5c; --accent-soft: color-mix(in srgb, #c8441d 26%, transparent);
+      --ok-ink: #4cd964; --ok-soft: color-mix(in srgb, #1e7d46 30%, transparent);
       --danger-ink: #ff6961; --danger-soft: color-mix(in srgb, #ff6961 18%, transparent); --shadow: 0 4px 20px rgb(0 0 0 / .6); }
   }
   html { font: -apple-system-body; }
@@ -83,7 +84,8 @@
   .btn.plain { padding: 0 var(--s2); background: none; }
   .btn.danger { background: var(--danger); color: #fff; }
   .btn.done { background: var(--ok); color: #fff; }
-  .btn.plain.destructive { color: var(--danger-ink); font-weight: 400; }
+  .btn.destructive { color: var(--danger-ink); }
+  .btn.plain.destructive { font-weight: 400; }
   .btn.large { width: 100%; min-height: var(--tap-l); }
   .btn.compact { padding: 0 var(--s3); font-size: var(--t-subhead); }
   .btn:active:not(:disabled), .chip:active, .option:active, .tab:active, summary:active { opacity: .55; }
@@ -149,7 +151,10 @@
   .dot.second { background: #f57900; }
   .cue { display: grid; gap: var(--s1); padding: var(--s3) var(--s4); border-radius: var(--r-m); background: var(--accent-soft); }
   ul.cue { padding-left: calc(var(--s4) + 1.1em); }
-  .badge { display: inline-flex; align-items: center; flex: none; min-height: 24px; padding: 0 var(--s2); border-radius: var(--r-full); background: var(--accent-soft); color: var(--accent-ink); font-size: var(--t-footnote); font-weight: 600; white-space: nowrap; }
+  .badge { display: inline-flex; align-items: center; gap: 2px; flex: none; min-height: 24px; padding: 0 var(--s2); border-radius: var(--r-full); background: var(--accent-soft); color: var(--accent-ink); font-size: var(--t-footnote); font-weight: 600; white-space: nowrap; }
+  .badge.ok { background: var(--ok-soft); color: var(--ok-ink); }
+  .badge .icon { width: 14px; height: 14px; stroke-width: 2.4; }
+  .card.focus { box-shadow: inset 0 0 0 2px var(--accent); }
 
   /* Séance */
   .tip { font-size: var(--t-body); }

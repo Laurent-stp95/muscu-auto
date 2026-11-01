@@ -128,6 +128,12 @@ const pull = byId.get(158);
 const band = [...sess(pull, 10, [10, 10, 10]), ...sess(pull, 10, [10, 10, 10]), ...sess(pull, 10, [12, 12, 12])];
 assert.strictEqual(tip(pull, band).kg, 20);
 
+// Séance abandonnée : ignorée dans le suivi ; restaurée (Annuler) : comptée à nouveau.
+const ab = sess(squat, 40, [10, 10, 10]);
+const sid = ab[0].session;
+assert.strictEqual(exerciseHistory([...ab, { t: '2026-12-01T10:00:00Z', type: 'cancel', session: sid }], squat.id).length, 0);
+assert.strictEqual(exerciseHistory([...ab, { t: '2026-12-01T10:00:00Z', type: 'cancel', session: sid }, { t: '2026-12-01T10:00:05Z', type: 'restore', session: sid }], squat.id).length, 1);
+
 // Correction d'une série : la dernière saisie fait foi.
 const fix = [{ t: '2026-11-02T10:00:00Z', type: 'set', session: 'x', ex: 92, set: 1, kg: 10, reps: 6 },
   { t: '2026-11-02T10:01:00Z', type: 'set', session: 'x', ex: 92, set: 1, kg: 10, reps: 10 }];

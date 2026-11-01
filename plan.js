@@ -189,14 +189,22 @@ function cycleWeek(cycle, now = new Date()) {
 
 // --- Suivi ---
 // Journal = entrées horodatées, jamais modifiées :
-// { t, type: 'start'|'set'|'feel'|'tech'|'reintegrate'|'end', session?, ex?, set?, kg?, reps?, mode?, feel?, ok? }.
+// { t, type: 'start'|'set'|'feel'|'tech'|'pause'|'resume'|'cancel'|'restore'|'reintegrate'|'end', session?, ex?, set?, kg?, reps?, mode?, feel?, ok? }.
 // Une correction = nouvelle entrée ; la dernière saisie d'une série fait foi.
+
+// Séances abandonnées : marquées dans le journal (jamais effacées), la dernière entrée cancel/restore fait foi.
+function cancelled(log) {
+  const last = new Map();
+  for (const x of log) if (x.type === 'cancel' || x.type === 'restore') last.set(x.session, x.type);
+  return new Set([...last].filter(([, type]) => type === 'cancel').map(([session]) => session));
+}
 
 // Séances passées d'un exercice, de la plus ancienne à la plus récente : [{ session, t, sets, feel, tech, mode }].
 function exerciseHistory(log, exId) {
+  const skip = cancelled(log);
   const sessions = new Map();
   for (const entry of log) {
-    if (entry.ex !== exId || !entry.session) continue;
+    if (entry.ex !== exId || !entry.session || skip.has(entry.session)) continue;
     const s = sessions.get(entry.session) || { session: entry.session, t: entry.t, sets: {}, feel: null, tech: null, mode: 'normal' };
     if (entry.type === 'set') {
       s.sets[entry.set] = { set: entry.set, kg: entry.kg, reps: entry.reps, t: entry.t };
@@ -307,6 +315,6 @@ function project(kg, level, weeks = 8) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { generate, exerciseCount, backToBack, swap, repair, renew, available, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
+  module.exports = { generate, exerciseCount, backToBack, swap, repair, renew, available, cancelled, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
     kgLabel, range, SLOTS, SESSIONS, GOALS, LEVELS, ZONES, CUES, TAGS, BODYWEIGHT, MAX_DAYS, LEARNING, CYCLE_WEEKS };
 }

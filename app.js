@@ -44,6 +44,9 @@ const ICONS = {
   back: '<path d="M15 6l-6 6 6 6"/>',
   offline: '<path d="M2 8.5a15 15 0 0 1 20 0M5.5 12a10 10 0 0 1 13 0M9 15.5a5 5 0 0 1 6 0M12 19h.01M3 3l18 18"/>',
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  pause: '<path d="M9 5v14M15 5v14"/>',
+  play: '<path d="M7 4.5v15l12-7.5z"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
 };
 function icon(name, className = '') {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -93,22 +96,25 @@ function toast(text, undo) {
   setTimeout(() => node.remove(), undo ? 5000 : 3000);
 }
 
-// Feuille de confirmation en bas d'écran (façon iOS). Résout true si confirmé.
-function ask({ title, text, confirm: ok, cancel = 'Annuler', danger, extra }) {
+// Feuille de choix en bas d'écran (façon iOS). actions = [{ label, value, variant }] ; résout la valeur choisie, null si fermée.
+function choose({ title, text, extra, actions }) {
   return new Promise((resolve) => {
     const dialog = h('dialog', { className: 'sheet' });
-    if (!dialog.showModal) return resolve(confirm(`${title}\n${text || ''}`));
+    if (!dialog.showModal) return resolve(confirm(`${title}\n${text || ''}`) ? actions[0].value : null);
     const close = (value) => { dialog.close(); dialog.remove(); resolve(value); };
     dialog.append(h('div', { className: 'sheet-body' },
       h('div', { className: 'stack' }, h('h2', { className: 'title' }, title), text && h('p', { className: 'meta' }, text)),
       extra,
-      h('div', { className: 'stack' },
-        button(ok, () => close(true), { variant: danger ? 'danger' : 'primary', size: 'large' }),
-        button(cancel, () => close(false), { variant: 'gray', size: 'large' }))));
-    dialog.addEventListener('cancel', (ev) => { ev.preventDefault(); close(false); });
+      h('div', { className: 'stack' }, actions.map((a) => button(a.label, () => close(a.value), { variant: a.variant || 'gray', size: 'large' })))));
+    dialog.addEventListener('cancel', (ev) => { ev.preventDefault(); close(null); });
     document.body.append(dialog);
     dialog.showModal();
   });
+}
+
+// Confirmation simple : résout true si confirmé.
+async function ask({ confirm: ok, cancel = 'Annuler', danger, ...sheet }) {
+  return (await choose({ ...sheet, actions: [{ label: ok, value: true, variant: danger ? 'gray destructive' : 'primary' }, { label: cancel, value: false }] })) === true;
 }
 
 function show(view) {
@@ -406,9 +412,65 @@ function banner(name, title, ...content) {
   return h('section', { className: 'card' }, h('div', { className: 'banner-head' }, icon(name), h('h2', {}, title)), ...content);
 }
 
+const weekday = (date = new Date()) => (date.getDay() + 6) % 7; // 0 = lundi
+
+// Séances faites cette semaine (depuis lundi), par jour : { t, sets }. Une séance abandonnée ou vide ne compte pas.
+function doneThisWeek() {
+  const since = monday(new Date()).toISOString();
+  const skip = cancelled(log);
+  const ended = new Set(log.filter((x) => x.type === 'end').map((x) => x.session));
+  const done = new Map();
+  for (const x of log) {
+    if (x.type !== 'start' || x.t < since || !ended.has(x.session) || skip.has(x.session)) continue;
+    const sets = sessionSets(x.session).size;
+    if (sets) done.set(x.day, { t: x.t, sets });
+  }
+  return done;
+}
+
+// Séance mise en avant : celle en cours, sinon la première pas faite à partir d'aujourd'hui,
+// sinon (plus rien cette semaine) la première de la semaine suivante.
+function focusOf(plan, done) {
+  if (state.active) return { index: state.active.day, nextWeek: false };
+  const index = plan.findIndex((s) => s.day >= weekday() && !done.has(s.day));
+  return index >= 0 ? { index, nextWeek: false } : { index: 0, nextWeek: true };
+}
+
+// Carte d'une séance : statut (en cours, en pause, terminée, aujourd'hui), actions, exercices repliés sauf la séance à venir.
+function dayCard(s, d, focused, done, nextWeek) {
+  const active = state.active?.day === d;
+  const upcoming = focused && nextWeek; // séance de la semaine suivante : son statut de cette semaine ne compte plus
+  const finished = !active && !upcoming && done.get(s.day);
+  const badge = active ? h('span', { className: 'badge' }, state.active.paused ? 'En pause' : 'En cours')
+    : finished ? h('span', { className: 'badge ok' }, icon('check'), 'Terminée')
+    : upcoming ? h('span', { className: 'badge' }, 'Prochaine')
+    : s.day === weekday() && h('span', { className: 'badge' }, "Aujourd'hui");
+  const actions = active
+    ? [button('Reprendre', () => start(d), { variant: 'primary', size: 'compact', icon: 'play' }), button('Arrêter', stopSession, { variant: 'gray', size: 'compact' })]
+    : [button(finished ? 'Refaire' : 'Commencer', () => start(d), { variant: finished ? 'gray' : focused ? 'primary' : undefined, size: 'compact' })];
+  const details = h('details', { className: 'more', open: ui.open?.[s.day] ?? focused },
+    h('summary', {}, `${s.items.length} exercices`, icon('chevron', 'chev')),
+    h('div', { className: 'list' }, s.items.map((item, i) => {
+      const e = byId.get(item.ex);
+      return h('details', { className: 'ex' },
+        h('summary', {}, h('span', { className: 'stack tight' }, h('strong', {}, e.name), h('span', { className: 'meta' }, `${prescriptionText(e, effective(item))} · ${muscles(e)}`)), icon('chevron', 'chev')),
+        h('div', { className: 'ex-body' }, exerciseInfo(e), !state.active && h('div', {}, button('Remplacer', () => replace(d, i), { size: 'compact' }))));
+    })));
+  details.addEventListener('toggle', () => { (ui.open ||= {})[s.day] = details.open; }); // garde le choix jusqu'au prochain lancement
+  return h('section', { className: focused ? 'card focus' : 'card' },
+    h('div', { className: 'stack tight' },
+      h('div', { className: 'card-head' }, h('h2', { className: 'title' }, `${DAYS[s.day]} · ${s.name}`), badge),
+      finished && h('p', { className: 'caption' }, `Faite ${DAYS[weekday(new Date(finished.t))].toLowerCase()} à ${clock(finished.t)} · ${finished.sets} séries`)),
+    h('div', { className: 'row' }, actions),
+    details);
+}
+
 function week() {
   const { config, plan } = state;
   const { week: n, deload, ended } = cycle();
+  const done = doneThisWeek();
+  const focus = focusOf(plan, done);
+  const doneCount = plan.filter((s) => done.has(s.day)).length;
   const backupDue = log.length > 0 && (!state.lastExport || daysAgo(state.lastExport) >= BACKUP_DAYS);
   return h('div', { className: 'screen' },
     h('header', { className: 'stack tight' },
@@ -423,16 +485,9 @@ function week() {
     backupDue && banner('save', 'Sauvegarde ton journal',
       h('p', {}, `${state.lastExport ? `Dernière sauvegarde il y a ${daysAgo(state.lastExport)} jours.` : "Aucune sauvegarde pour l'instant."} Ton suivi n'existe que sur cet appareil : envoie une copie dans Fichiers ou iCloud Drive.`),
       button('Sauvegarder', backup, { variant: 'primary' })),
-    plan.map((s, d) => h('section', { className: 'card' },
-      h('div', { className: 'card-head' },
-        h('h2', { className: 'title' }, `${DAYS[s.day]} · ${s.name}`),
-        button(state.active?.day === d ? 'Reprendre' : 'Commencer', () => start(d), { variant: 'primary', size: 'compact' })),
-      h('div', { className: 'list' }, s.items.map((item, i) => {
-        const e = byId.get(item.ex);
-        return h('details', { className: 'ex' },
-          h('summary', {}, h('span', { className: 'stack tight' }, h('strong', {}, e.name), h('span', { className: 'meta' }, `${prescriptionText(e, effective(item))} · ${muscles(e)}`)), icon('chevron', 'chev')),
-          h('div', { className: 'ex-body' }, exerciseInfo(e), !state.active && h('div', {}, button('Remplacer', () => replace(d, i), { size: 'compact' }))));
-      })))),
+    focus.nextWeek && h('p', { className: 'note' }, icon(doneCount === plan.length ? 'check' : 'calendar'),
+      `${doneCount === plan.length ? 'Semaine bouclée' : 'Semaine terminée'} : ${doneCount} séance${doneCount > 1 ? 's' : ''} sur ${plan.length} faite${doneCount > 1 ? 's' : ''}. Prochaine : ${DAYS[plan[0].day].toLowerCase()}.`),
+    plan.map((s, d) => dayCard(s, d, d === focus.index, done, focus.nextWeek)),
     !state.active && (freshCycle() || ended) && button('Générer une autre variante', reroll, { variant: 'gray', size: 'large' }),
     !state.active && !freshCycle() && !ended && h('p', { className: 'caption center' }, "Exercices fixes jusqu'à la fin du cycle, pour apprendre les gestes et progresser. « Remplacer » reste possible."));
 }
@@ -531,37 +586,93 @@ function exerciseInfo(e) {
 
 async function start(d) {
   if (state.active && state.active.day !== d) {
-    if (!await ask({ title: 'Une séance est déjà en cours', text: 'La terminer et commencer celle-ci ?', confirm: 'Terminer et commencer' })) return;
+    if (!await ask({ title: 'Une séance est déjà en cours', text: 'Elle sera terminée et enregistrée avant de commencer celle-ci.', confirm: 'Terminer et commencer' })) return;
     closeSession();
   }
   if (!state.active) {
     state.active = { session: new Date().toISOString(), day: d };
     record({ type: 'start', day: state.plan[d].day, name: state.plan[d].name });
-  }
+  } else if (state.active.paused) resume();
   show('session');
 }
 
-// Bilan avant de terminer : séries faites, durée, volume, exercices pas commencés.
+const sessionSets = (sid) => {
+  const sets = new Map();
+  for (const x of log) if (x.session === sid && x.type === 'set') sets.set(`${x.ex}-${x.set}`, x);
+  return sets;
+};
+
+// Durée d'effort : de l'ouverture à maintenant (ou au début de la pause en cours), pauses déduites.
+function activeMinutes(sid) {
+  let paused = 0, since = null;
+  for (const x of log) {
+    if (x.session !== sid) continue;
+    if (x.type === 'pause') since = Date.parse(x.t);
+    if (x.type === 'resume' && since) { paused += Date.parse(x.t) - since; since = null; }
+  }
+  return Math.max(1, Math.round(((since ?? Date.now()) - Date.parse(sid) - paused) / 60000));
+}
+
+// Bilan : séries faites, durée d'effort, volume, exercices pas commencés.
 function sessionSummary() {
   const sid = state.active.session;
   const s = state.plan[state.active.day];
-  const sets = new Map();
-  for (const x of log) if (x.session === sid && x.type === 'set') sets.set(`${x.ex}-${x.set}`, x);
+  const sets = sessionSets(sid);
   const planned = s.items.reduce((n, it) => n + effective(it).sets, 0);
-  const minutes = Math.max(1, Math.round((Date.now() - Date.parse(sid)) / 60000));
   const volume = Math.round([...sets.values()].reduce((v, x) => v + (x.kg || 0) * x.reps, 0));
   const skipped = s.items.filter((it) => ![...sets.values()].some((x) => x.ex === it.ex)).map((it) => byId.get(it.ex).name);
   const stat = (value, label) => h('div', { className: 'stat' }, h('strong', {}, value), h('span', { className: 'caption' }, label));
   return h('div', { className: 'stack' },
-    h('div', { className: 'stats' }, stat(`${sets.size}/${planned}`, 'séries'), stat(`${minutes} min`, 'durée'), stat(kgText(volume), 'volume')),
+    h('div', { className: 'stats' }, stat(`${sets.size}/${planned}`, 'séries'), stat(`${activeMinutes(sid)} min`, 'effort'), stat(kgText(volume), 'volume')),
     skipped.length > 0 && h('p', { className: 'caption' }, `Pas commencés : ${skipped.join(', ')}.`));
 }
 
-async function endSession() {
-  if (!await ask({ title: 'Terminer la séance ?', extra: sessionSummary(), confirm: 'Terminer', cancel: 'Continuer la séance' })) return;
-  closeSession();
-  show('progress');
-  toast('Séance enregistrée');
+// Pause : minuteur coupé, écran libre de s'éteindre, temps de pause hors durée. Réversible, donc sans confirmation.
+function pause() {
+  record({ type: 'pause' });
+  state.active.paused = new Date().toISOString();
+  stopRest();
+  wakeLock?.release().catch(() => {});
+  wakeLock = null;
+  save();
+  render();
+  scrollTo(0, 0);
+}
+
+function resume() {
+  record({ type: 'resume' });
+  delete state.active.paused;
+  save();
+}
+
+// Arrêter : terminer (enregistrée), abandonner (marquée, ignorée dans le suivi, annulable 5 s) ou continuer.
+async function stopSession() {
+  const choice = await choose({
+    title: 'Arrêter la séance ?',
+    text: 'Terminer enregistre tes séries. Abandonner retire la séance de ton suivi.',
+    extra: sessionSummary(),
+    actions: [
+      { label: 'Terminer et enregistrer', value: 'end', variant: 'primary' },
+      { label: 'Abandonner sans enregistrer', value: 'cancel', variant: 'gray destructive' },
+      { label: 'Continuer la séance', value: null }],
+  });
+  if (choice === 'end') {
+    closeSession();
+    show('week');
+    toast('Séance enregistrée');
+  }
+  if (choice === 'cancel') {
+    const active = { ...state.active };
+    record({ type: 'cancel' });
+    closeSession();
+    show('week');
+    toast('Séance abandonnée', () => {
+      state.active = active;
+      record({ type: 'restore' });
+      save();
+      show('session');
+    });
+  }
 }
 
 function closeSession() {
@@ -573,10 +684,26 @@ function closeSession() {
   save();
 }
 
+function pausedScreen(s) {
+  const since = clock(state.active.paused);
+  return h('div', { className: 'screen' },
+    h('header', { className: 'top' }, h('h1', {}, `${DAYS[s.day]} · ${s.name}`)),
+    h('section', { className: 'card empty' }, icon('pause'), h('h2', { className: 'title' }, 'Séance en pause'),
+      h('p', { className: 'meta' }, `Depuis ${since}. Le minuteur est coupé et le temps de pause ne compte pas dans la durée.`),
+      sessionSummary(),
+      h('div', { className: 'stack', style: 'width: 100%' },
+        button('Reprendre', () => { resume(); render(); }, { variant: 'primary', size: 'large', icon: 'play' }),
+        button('Arrêter la séance', stopSession, { variant: 'gray', size: 'large' }))));
+}
+
 function session() {
   const s = state.plan[state.active.day];
+  if (state.active.paused) return pausedScreen(s);
   return h('div', { className: 'screen' },
-    h('header', { className: 'top' }, h('h1', {}, `${DAYS[s.day]} · ${s.name}`), button('Terminer', endSession, { variant: 'gray', size: 'compact' })),
+    h('header', { className: 'stack' }, h('h1', {}, `${DAYS[s.day]} · ${s.name}`),
+      h('div', { className: 'row' },
+        button('Pause', pause, { variant: 'gray', size: 'compact', icon: 'pause' }),
+        button('Arrêter', stopSession, { variant: 'gray', size: 'compact', icon: 'stop' }))),
     cycle().deload && h('p', { className: 'note' }, icon('leaf'), 'Semaine allégée : moitié moins de séries, charges −10 %.'),
     banner('flame', 'Échauffement · 5 à 8 min',
       h('p', {}, "5 min de cardio léger et quelques rotations des articulations. Les séries d'approche sont indiquées sur chaque mouvement lourd."),
@@ -712,7 +839,7 @@ function stopRest() {
 }
 
 async function keepAwake() {
-  if (!state.active || wakeLock || !navigator.wakeLock) return;
+  if (!state.active || state.active.paused || wakeLock || !navigator.wakeLock) return;
   try {
     wakeLock = await navigator.wakeLock.request('screen');
     wakeLock.addEventListener('release', () => { wakeLock = null; });
@@ -723,7 +850,8 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 // --- Progrès ---
 
 function progress() {
-  const sets = log.filter((x) => x.type === 'set' && byId.has(x.ex)); // exercices retirés de la liste : plus affichés
+  const skip = cancelled(log);
+  const sets = log.filter((x) => x.type === 'set' && byId.has(x.ex) && !skip.has(x.session)); // exercices retirés et séances abandonnées : pas comptés
   const sessions = new Set(sets.map((x) => x.session)).size;
   const cards = [...new Set(sets.map((x) => x.ex))]
     .filter((id) => byId.has(id))
