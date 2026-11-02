@@ -10,7 +10,8 @@ const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dima
 export default {
   async fetch(req, env) {
     if (req.method === 'OPTIONS') return cors(new Response(null, { status: 204 }));
-    const id = new URL(req.url).searchParams.get('id') || '';
+    // Code collé à la main dans Safari : iOS ajoute parfois une espace ou des majuscules.
+    const id = (new URL(req.url).searchParams.get('id') || '').trim().toLowerCase();
     if (!/^[0-9a-f-]{36}$/.test(id)) return cors(new Response('id invalide', { status: 400 }));
     const stub = env.SUBSCRIBERS.get(env.SUBSCRIBERS.idFromName(id));
     return cors(await stub.fetch(req));
@@ -65,6 +66,14 @@ export class Subscriber {
       await this.storage.delete('restNotice');
       await this.schedule();
       return json({ ok: true });
+    }
+    if (route === 'GET /status') {
+      // Diagnostic : abonnement présent, prochain rappel, dernier push envoyé et réponse du service push d'Apple.
+      const [sub, lastReminder, lastPush] = [await this.storage.get('sub'), await this.storage.get('lastReminder'), await this.storage.get('lastPush')];
+      const next = await this.nextReminder();
+      const timeZone = (await this.storage.get('tz')) || 'Europe/Paris';
+      const time = (t) => t && new Date(t).toLocaleString('fr-FR', { timeZone });
+      return json({ subscribed: !!sub, next: next && time(next.at), lastReminder: time(lastReminder), lastPush: lastPush && { ...lastPush, t: time(lastPush.t) } });
     }
     if (route === 'GET /message') return json((await this.storage.get('message')) || { title: 'Muscu auto', body: 'Ouvre l\'appli.' });
     if (route === 'POST /test') {
@@ -150,6 +159,7 @@ export class Subscriber {
       method: 'POST',
       headers: { TTL: '600', Urgency: 'high', 'Content-Length': '0', Authorization: `vapid t=${await vapidJwt(new URL(sub.endpoint).origin, this.env)}, k=${this.env.VAPID_PUBLIC}` },
     });
+    await this.storage.put('lastPush', { t: Date.now(), title: message.title, status: res.status });
     if (res.status === 404 || res.status === 410) await this.storage.delete(['sub', 'reminders', 'rest', 'restNotice']);
   }
 }

@@ -1280,6 +1280,8 @@ document.body.append(restBar);
 const updated = resumeAfterReload();
 render();
 setTimeout(cloudBackup, 3000);
+// iOS peut renouveler ou révoquer l'abonnement push (mise à jour de l'appli…) : le serveur reçoit le dernier à chaque ouverture.
+if (pushOn()) subscribePush(state.config).catch(() => {});
 if (updated) toast(`Appli à jour : version du ${new Date(document.lastModified).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`, 'success');
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   const controlled = !!navigator.serviceWorker.controller; // au tout premier lancement, l'installation n'est pas une mise à jour
