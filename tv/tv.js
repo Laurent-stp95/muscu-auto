@@ -3,8 +3,8 @@
 // même si l'iPhone se verrouille et coupe la connexion. Navigateurs de TV (Chromium 68+) : ES2018 au plus
 // (pas de ?., ??, flat, Object.fromEntries, replaceChildren, catch sans variable).
 //
-// Instantané reçu (s, version 1), construit par live() dans app.js :
-// { v: 1, at: Date.now() du téléphone à l'envoi, phase: 'idle'|'work'|'rest'|'paused'|'done', title, voice: bool,
+// Instantané reçu (s, version 1), construit par live() dans app.js (phase 'stopped' seule : projection arrêtée sur l'iPhone) :
+// { v: 1, at: Date.now() du téléphone à l'envoi, phase: 'idle'|'work'|'rest'|'paused'|'done'|'stopped', title, voice: bool,
 //   upcoming: { when, items: [{ name, detail }], gear: [texte] } | null,       // phase idle
 //   progress: { ex, exCount, sets, setCount, minutes } | null,
 //   ex: { id, name, img: ['img/…'], mus: [id], mus2: [id], cues: [texte], badge, note } | null,
@@ -197,8 +197,8 @@ function render() {
   const phase = !s ? null : s.phase === 'rest' && !rest ? 'work' : s.phase;
   const live = phase === 'work' || phase === 'rest' || phase === 'paused';
   const idle = phase === 'idle' && !!s.upcoming;
-  const view = !room ? 'pair' : live || idle || phase === 'done' ? 'session' : 'wait';
-  ['start', 'pair', 'wait', 'session'].forEach((v) => { $(v).hidden = v !== view; });
+  const view = !room ? 'pair' : phase === 'stopped' ? 'stopped' : live || idle || phase === 'done' ? 'session' : 'wait';
+  ['start', 'pair', 'wait', 'stopped', 'session'].forEach((v) => { $(v).hidden = v !== view; });
   if (view !== 'session') return;
   const p = live ? s.progress : null;
   text('title', s.title);

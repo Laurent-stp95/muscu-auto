@@ -1488,7 +1488,14 @@ async function projectSheet() {
     actions: [state.screen.on ? { label: 'Arrêter la projection', value: 'off' } : { label: 'Projeter', value: 'on', variant: 'primary' },
       { label: 'Associer un autre écran', value: 'pair' }, { label: 'Fermer', value: null }],
   });
-  if (choice === 'off') { state.screen.on = false; save(); socket?.close(); setTv(0); }
+  if (choice === 'off') {
+    // L'écran affiche « Rien n'est projeté » ; le serveur garde cet état, une page rechargée le retrouve.
+    if (socket?.readyState === 1) socket.send(JSON.stringify({ type: 'state', s: { v: 1, at: Date.now(), phase: 'stopped' } }));
+    state.screen.on = false;
+    save();
+    socket?.close();
+    setTv(0);
+  }
   if (choice === 'on') { state.screen.on = true; save(); connectScreen(); }
   if (choice === 'pair') pairSheet();
 }
