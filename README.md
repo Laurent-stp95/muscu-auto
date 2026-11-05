@@ -1,4 +1,6 @@
-# Muscu auto
+# Steady
+
+Anciennement « Muscu auto » (l'adresse /muscu-auto/ est gardée : changer de chemin obligerait à réinstaller et réassocier).
 
 Appli web perso : le programme de musculation se construit tout seul selon le matériel, avec une progression prudente (la technique avant la charge). Faite pour l'iPhone, installable sur l'écran d'accueil, utilisable sans réseau.
 

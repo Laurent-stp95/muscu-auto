@@ -339,7 +339,7 @@ function zonesEditor(d) {
 function welcome() {
   return h('div', { className: 'step welcome' },
     h('img', { className: 'app-icon', src: 'icon-180.png', alt: '' }),
-    h('div', { className: 'stack' }, h('h1', {}, 'Muscu auto'), h('p', { className: 'lead' }, 'Tes séances, programmées selon ton matériel.')),
+    h('div', { className: 'stack' }, h('h1', {}, 'Steady'), h('p', { className: 'lead' }, 'Progresse sans te blesser : tes séances, programmées selon ton matériel.')),
     h('ul', { className: 'features' },
       [['calendar', 'Programme automatique', 'Renouvelé par cycles, adapté à tes jours.'],
         ['eye', 'Chaque geste montré', 'Visuels, muscles et consignes de sécurité.'],
@@ -353,7 +353,7 @@ const stepInstall = () => step("Installe-la d'abord", "Sur l'écran d'accueil, l
   h('ol', { className: 'howto' },
     h('li', {}, 'Touche ', h('strong', {}, 'Partager'), ' en bas de Safari (carré avec une flèche).'),
     h('li', {}, 'Choisis ', h('strong', {}, "Sur l'écran d'accueil"), ', puis Ajouter.'),
-    h('li', {}, 'Ouvre Muscu auto depuis sa nouvelle icône et règle-la là.')),
+    h('li', {}, 'Ouvre Steady depuis sa nouvelle icône et règle-la là.')),
   h('p', { className: 'note' }, icon('warning'), "Ce que tu règles ici dans Safari ne suit pas dans l'appli installée."));
 
 const stepLevel = (d) => step('Ton niveau', 'Il règle le nombre de séries et la marge de sécurité.',
@@ -431,7 +431,7 @@ function toggle(label, checked, onchange) {
 function notifyEditor(d) {
   const n = (d.notify ||= { ...NOTIFY });
   if (!pushSupported() || (iphone() && !standalone())) return h('p', { className: 'note' }, icon('info'), "Installe l'appli sur l'écran d'accueil pour recevoir des notifications.");
-  if (Notification.permission === 'denied') return h('p', { className: 'note' }, icon('warning'), "Notifications refusées. Pour les autoriser : Réglages de l'iPhone, Notifications, Muscu auto.");
+  if (Notification.permission === 'denied') return h('p', { className: 'note' }, icon('warning'), "Notifications refusées. Pour les autoriser : Réglages de l'iPhone, Notifications, Steady.");
   if (!pushOn()) {
     return [h('p', { className: 'meta' }, "Un rappel avant chaque séance, et la fin du repos quand l'écran est verrouillé."),
       h('div', {}, button('Activer les notifications', () => enablePush(d), { variant: 'primary', icon: 'bell' }))];
@@ -1320,7 +1320,7 @@ async function backup() {
   const text = JSON.stringify({ exported: new Date().toISOString(), config: state.config, log }, null, 1);
   const file = new File([text], name, { type: 'application/json' });
   try {
-    if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: 'Muscu auto' });
+    if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: 'Steady' });
     else download(name, 'application/json', text);
   } catch (err) {
     if (err.name === 'AbortError') return; // partage annulé
@@ -1357,7 +1357,7 @@ function importButton() {
         toast('Historique importé', 'success');
       }
     } catch {
-      toast('Fichier invalide : choisis une sauvegarde JSON de Muscu auto.', 'error');
+      toast('Fichier invalide : choisis une sauvegarde JSON de Steady.', 'error');
     }
     input.value = '';
   };
@@ -1572,7 +1572,7 @@ function summaryData(items) {
 // Instantané de la séance pour l'écran projeté (contrat v1, décrit dans tv/tv.js).
 function live() {
   const base = { v: 1, at: Date.now(), voice: voiceOn(), upcoming: null, progress: null, ex: null, set: null, done: [], rest: null, next: null, record: null, summary: null, say: null };
-  if (!state.plan) return { ...base, phase: 'idle', title: 'Muscu auto' };
+  if (!state.plan) return { ...base, phase: 'idle', title: 'Steady' };
   if (!state.active) {
     if (state.ended && Date.now() - state.ended.t < 15 * 60000) return { ...base, phase: 'done', title: state.ended.title, summary: state.ended.summary };
     const { index, nextWeek } = focusOf(state.plan, doneThisWeek());
@@ -1627,7 +1627,7 @@ function claudeText() {
   const skip = cancelled(log);
   const c = state.config;
   const lines = [
-    'Voici mes 4 dernières semaines de musculation à domicile (appli Muscu auto). Analyse ma progression, ma régularité et mes ressentis, signale ce qui pourrait mener à une blessure, puis propose 3 ajustements concrets.',
+    'Voici mes 4 dernières semaines de musculation à domicile (appli Steady). Analyse ma progression, ma régularité et mes ressentis, signale ce qui pourrait mener à une blessure, puis propose 3 ajustements concrets.',
     '',
     `Profil : ${LEVELS[c.level].label.toLowerCase()}, objectif ${GOALS[c.goal].label.toLowerCase()}, ${plural(c.days.length, 'séance')} par semaine (${c.days.map((d) => DAYS[d].toLowerCase()).join(', ')}), ${c.minutes} min.`,
     `Matériel : ${c.equipment.map((q) => TAGS[q]).join(', ')}.`,

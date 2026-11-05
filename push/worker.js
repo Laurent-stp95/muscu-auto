@@ -1,4 +1,4 @@
-// Serveur de Muscu auto : notifications (rappels de séance, fin du repos écran verrouillé, Web Push iOS 16.4+)
+// Serveur de Steady (ex-Muscu auto) : notifications (rappels de séance, fin du repos écran verrouillé, Web Push iOS 16.4+)
 // et sauvegarde automatique du journal.
 // Un Durable Object par iPhone (id aléatoire tiré par l'appli) : abonnement, réglages, prochaine échéance en alarme.
 // Les push partent sans contenu : le service worker de l'appli demande ensuite le message (GET /message), pas de chiffrement à gérer.
@@ -150,7 +150,7 @@ export class Subscriber {
       const time = (t) => t && new Date(t).toLocaleString('fr-FR', { timeZone });
       return json({ subscribed: !!sub, next: next && time(next.at), lastReminder: time(lastReminder), lastPush: lastPush && { ...lastPush, t: time(lastPush.t) } });
     }
-    if (route === 'GET /message') return json((await this.storage.get('message')) || { title: 'Muscu auto', body: 'Ouvre l\'appli.' });
+    if (route === 'GET /message') return json((await this.storage.get('message')) || { title: 'Steady', body: 'Ouvre l\'appli.' });
     if (route === 'POST /test') {
       await this.send({ title: 'Notifications activées', body: 'Tu recevras tes rappels de séance et la fin du repos.' });
       return json({ ok: true });

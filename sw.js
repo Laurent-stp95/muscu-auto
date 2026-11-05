@@ -35,7 +35,7 @@ self.addEventListener('fetch', (ev) => {
 
 // Notification reçue (push sans contenu) : on demande le texte au serveur, sinon message générique.
 self.addEventListener('push', (ev) => ev.waitUntil((async () => {
-  let message = { title: 'Muscu auto', body: "Ouvre l'appli." };
+  let message = { title: 'Steady', body: "Ouvre l'appli." };
   try {
     const id = await (await (await caches.open('muscu-auto-push')).match('id'))?.text();
     if (id) message = await (await fetch(`${PUSH.url}/message?id=${id}`, { cache: 'no-store' })).json();
