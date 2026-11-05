@@ -156,5 +156,32 @@ const fix = [{ t: '2026-11-02T10:00:00Z', type: 'set', session: 'x', ex: 92, set
   { t: '2026-11-02T10:01:00Z', type: 'set', session: 'x', ex: 92, set: 1, kg: 10, reps: 10 }];
 assert.deepStrictEqual(exerciseHistory(fix, 92)[0].sets.map((x) => x.reps), [10]);
 
+// Changement de disques : on garde ce qui est monté (10 + 1,25 → 12,5 de chaque côté : on retire 1,25 et on ajoute 2,5).
+assert.deepStrictEqual(P.plateChange([10, 1.25], 44, LOADS), { side: [10, 2.5], remove: [1.25], add: [2.5] });
+assert.deepStrictEqual(P.plateChange([20, 5], 69, LOADS), { side: [20, 5], remove: [], add: [] });
+assert.deepStrictEqual(P.plateChange([20, 10], 59, LOADS), { side: [20], remove: [10], add: [] });
+assert.strictEqual(P.plateChange([], 20, LOADS), null);
+
+// Records : charge jamais faite ou plus de répétitions à la meilleure charge, jamais à la première séance.
+const rec = exerciseHistory([...sess(squat, 40, [10, 8]), ...sess(squat, 42.5, [6])], squat.id);
+assert.strictEqual(P.recordKind(rec, 'now', { kg: 45, reps: 3 }), 'kg');
+assert.strictEqual(P.recordKind(rec, 'now', { kg: 42.5, reps: 7 }), 'reps');
+assert.strictEqual(P.recordKind(rec, 'now', { kg: 42.5, reps: 6 }), null);
+assert.strictEqual(P.recordKind(rec, 'now', { kg: 40, reps: 12 }), null);
+const first = exerciseHistory(sess(squat, 40, [10]), squat.id);
+assert.strictEqual(P.recordKind(first, first[0].session, { kg: 45, reps: 10 }), null);
+
+// Reprise après une pause : 14 jours = −10 %, 28 jours = −20 %, séances abandonnées ignorées.
+const off = sess(squat, 40, [10, 10, 10]);
+assert.strictEqual(P.daysOff(off, Date.parse(off[0].t) + 15 * 864e5), 15);
+assert.strictEqual(P.daysOff([...off, { t: off[0].t, type: 'cancel', session: off[0].session }], Date.now()), null);
+assert.deepStrictEqual([P.comeback(13), P.comeback(14), P.comeback(30)], [null, 0.9, 0.8]);
+assert.strictEqual(tip(squat, log, { comeback: 0.9 }).kg, 34);
+assert.match(tip(squat, log, { comeback: 0.9 }).note, /Reprise/);
+
+// Matériel à préparer : Smith avec les disques de la charge la plus lourde, poids des haltères.
+assert.deepStrictEqual(P.gearList([{ e: squat, kg: 41.5 }, { e: squat, kg: 59 }, { e: curl, kg: 10 }], LOADS),
+  [`Smith machine (jusqu'à 20\u00a0kg de chaque côté)`, `Haltères 10\u00a0kg`]);
+
 for (const x of plan) console.log(x.day, x.name, x.items.map((it) => byId.get(it.ex).name).join(' | '));
 console.log('OK');

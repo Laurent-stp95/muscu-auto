@@ -9,6 +9,8 @@ const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dima
 
 export default {
   async fetch(req, env) {
+    const url = new URL(req.url);
+    if (url.pathname === '/screen') return screen(req, env, url);
     if (req.method === 'OPTIONS') return cors(new Response(null, { status: 204 }));
     // Code collé à la main dans Safari : iOS ajoute parfois une espace ou des majuscules.
     const id = (new URL(req.url).searchParams.get('id') || '').trim().toLowerCase();
@@ -28,6 +30,79 @@ function cors(res) {
 }
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
+
+// Écran projeté (page tv/) : l'iPhone y envoie un instantané de la séance par WebSocket.
+// Une salle = un objet Screen : permanente (UUID tiré par l'iPhone) ou d'appairage (pair-1234, code affiché par l'écran).
+// Pas de cors() : une réponse 101 ne se recopie pas, et les WebSocket n'ont pas de requête préalable.
+function screen(req, env, url) {
+  const origin = req.headers.get('Origin'); // absent : client Node (test), accepté
+  if (origin && origin !== ORIGIN && !/^http:\/\/(localhost(:\d+)?|127\.0\.0\.1:\d+)$/.test(origin)) return new Response('origine refusée', { status: 403 });
+  const room = url.searchParams.get('room') || '', role = url.searchParams.get('role');
+  if (!(/^[0-9a-f-]{36}$/.test(room) || /^pair-\d{4}$/.test(room)) || !['tv', 'phone'].includes(role)) return new Response('salle ou rôle invalide', { status: 400 });
+  if ((req.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') return new Response('WebSocket attendu', { status: 426 });
+  return env.SCREENS.get(env.SCREENS.idFromName(room)).fetch(req);
+}
+
+const STALE = 6 * 3600e3; // dernier état plus vieux : séance d'un autre moment, pas renvoyé à l'écran
+
+// Hibernation : l'objet dort entre deux messages, les connexions restent ouvertes et gardent leurs étiquettes (rôle, salle).
+export class Screen {
+  constructor(state) {
+    this.state = state;
+    // Maintien de connexion : « ping » reçoit « pong » sans réveiller l'objet.
+    state.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
+  }
+
+  async fetch(req) {
+    const params = new URL(req.url).searchParams;
+    const role = params.get('role'), room = params.get('room');
+    const [client, server] = Object.values(new WebSocketPair());
+    this.state.acceptWebSocket(server, [role, room]);
+    // Écran qui arrive ou revient : il affiche tout de suite le dernier état. age = son ancienneté, pour recaler le chrono du repos.
+    if (role === 'tv' && !room.startsWith('pair-')) {
+      const last = await this.state.storage.get('last');
+      if (last && Date.now() - last.t < STALE) server.send(JSON.stringify({ type: 'state', s: last.s, age: Date.now() - last.t }));
+    }
+    this.presence();
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async webSocketMessage(ws, msg) {
+    if (typeof msg !== 'string' || msg.length > 32768) return; // texte JSON de 32 Kio max, le reste est ignoré
+    let m;
+    try { m = JSON.parse(msg); } catch { return; }
+    const [role, room] = this.state.getTags(ws);
+    const keep = !room.startsWith('pair-'); // seule une salle permanente garde le dernier état
+    if (role === 'phone' && ['state', 'adopt', 'forget'].includes(m?.type)) {
+      this.send(msg, 'tv');
+      if (keep && m.type === 'state') await this.state.storage.put('last', { s: m.s, t: Date.now() });
+      if (keep && m.type === 'forget') await this.state.storage.delete('last');
+    } else if (role === 'tv' && m?.type === 'adopted') this.send(msg, 'phone');
+  }
+
+  webSocketClose(ws) {
+    try { ws.close(); } catch { /* déjà fermée */ } // termine la fermeture demandée par le client
+    this.presence(ws);
+  }
+
+  webSocketError(ws) {
+    this.presence(ws);
+  }
+
+  // Connexions ouvertes d'un rôle (toutes sans rôle), sauf celle qui se ferme.
+  open(tag, closing) {
+    return this.state.getWebSockets(tag).filter((s) => s !== closing && s.readyState === 1);
+  }
+
+  send(msg, tag, closing) {
+    for (const s of this.open(tag, closing)) s.send(msg);
+  }
+
+  // Qui est là : l'iPhone sait si l'écran affiche, l'écran signale un iPhone déconnecté.
+  presence(closing) {
+    this.send(JSON.stringify({ type: 'presence', tv: this.open('tv', closing).length, phone: this.open('phone', closing).length }), undefined, closing);
+  }
+}
 
 export class Subscriber {
   constructor(state, env) {

@@ -246,10 +246,10 @@ const nearest = (list, kg) => list.reduce((a, b) => (Math.abs(b - kg) < Math.abs
 // Répétitions gardées en réserve : jamais moins de 2 sur les mouvements qui font travailler plusieurs articulations.
 const rir = (e, level) => (ISOLATION_ZONES.includes(e.zone) ? LEVELS[level].rir : Math.max(2, LEVELS[level].rir));
 
-// Charge conseillée pour la prochaine séance. ctx = { loads, learned, deload }.
+// Charge conseillée pour la prochaine séance. ctx = { loads, learned, deload, hold, comeback (ratio de reprise ou null) }.
 // Retourne { kg (null = à choisir), note, mode ('normal'|'tempo'|'pause', à enregistrer avec les séries), plafond, learning }.
 // hold = forme moyenne au point de forme : la charge n'augmente pas aujourd'hui.
-function suggest(e, item, past, { loads, learned: done = past.length, deload = false, hold = false }) {
+function suggest(e, item, past, { loads, learned: done = past.length, deload = false, hold = false, comeback: back = null }) {
   const [lo, hi] = range(item.reps);
   const list = loadable(e, loads);
   const unit = e.unit === 's' ? 's' : 'répétitions';
@@ -263,6 +263,7 @@ function suggest(e, item, past, { loads, learned: done = past.length, deload = f
   const kg = e.load === 'pdc' ? null : topKg(last) || null;
   const lighter = (ratio) => (kg == null ? null : e.load === 'smith' ? below(list, kg * ratio) : below(list, Math.min(kg * ratio, kg - 0.01)) ?? kg);
   if (last.feel === 'pain') return same(lighter(0.8), 'Douleur signalée : charge réduite. Si elle revient, arrête cet exercice.');
+  if (back) return same(lighter(back), `Reprise après une pause : charge −${Math.round((1 - back) * 100)} % aujourd'hui, la progression repart ensuite.`);
   if (deload) return same(lighter(0.9), 'Semaine allégée : moitié moins de séries, charge −10 %. Laisse ton corps récupérer.');
   if (done < LEARNING) return same(kg, `Apprentissage ${done + 1}/${LEARNING} : même charge, soigne la technique.`, { learning: done + 1 });
   if (last.tech === false) return same(kg, 'Technique à revoir : même charge. Filme-toi pour vérifier.');
@@ -300,20 +301,32 @@ function suggest(e, item, past, { loads, learned: done = past.length, deload = f
 
 const kgLabel = (e, kg) => `${e.load === 'elastique' ? 'élastique ' : ''}${kg.toLocaleString('fr-FR')}\u00a0kg`;
 
-// Disques à mettre de chaque côté de la barre Smith pour une charge (le moins de disques possible), [] = barre seule, null = impossible.
-function plates(kg, loads) {
-  const side = Math.round(((kg - loads.bar) / 2) * 100) / 100;
-  if (side < 0) return null;
+// Disques par côté de la barre Smith pour une charge, en gardant le plus possible ceux déjà montés (current, [] = barre nue).
+// Retourne { side, remove, add } (disques par côté, du plus lourd au plus léger) ou null si la charge est impossible.
+// ponytail: essai de toutes les combinaisons, 2^n avec n = disques par côté (6 ici) ; au-delà de 16, ne garde que le moins de disques.
+function plateChange(current, kg, loads) {
+  const target = Math.round(((kg - loads.bar) / 2) * 100) / 100;
+  if (target < 0) return null;
   const pairs = Object.entries(loads.plates || {}).flatMap(([w, n]) => Array(Math.floor(n / 2)).fill(Number(w))).sort((a, b) => b - a);
+  const mine = pairs.length > 16 ? [] : current || [];
   let best = null;
-  (function search(i, left, used) {
-    if (Math.abs(left) < 1e-6) { if (!best || used.length < best.length) best = [...used]; return; }
-    if (i >= pairs.length || left < 0 || (best && used.length >= best.length)) return;
-    search(i + 1, left - pairs[i], [...used, pairs[i]]);
-    search(i + 1, left, used);
-  })(0, side, []);
+  for (let mask = 0; mask < 2 ** Math.min(pairs.length, 16); mask++) {
+    const side = pairs.filter((_, i) => mask & (1 << i));
+    if (Math.abs(side.reduce((a, b) => a + b, 0) - target) > 1e-6) continue;
+    const move = { side, remove: minus(mine, side), add: minus(side, mine) };
+    const cost = (m) => [m.remove.length + m.add.length, m.side.length];
+    const [c, n] = cost(move);
+    if (!best || c < cost(best)[0] || (c === cost(best)[0] && n < cost(best)[1])) best = move;
+  }
   return best;
 }
+// a privé de b, en multiensemble : minus([20, 5, 5], [5]) = [20, 5].
+function minus(a, b) {
+  const left = [...b];
+  return a.filter((x) => { const i = left.indexOf(x); if (i < 0) return true; left.splice(i, 1); return false; });
+}
+// Disques à mettre de chaque côté pour une charge (le moins de disques possible), [] = barre seule, null = impossible.
+const plates = (kg, loads) => plateChange([], kg, loads)?.side ?? null;
 
 // Répétitions prévues pour une série : une de plus que la même série la dernière fois à la même charge, dans la fourchette.
 function targetReps(item, past, kg, set, unit) {
@@ -334,12 +347,48 @@ function warmup(e, kg, loads) {
   return sets;
 }
 
+// Record personnel : charge jamais atteinte, ou plus de répétitions (secondes) qu'avant à la meilleure charge.
+// history = séances de l'exercice avant cette série (séance en cours comprise) ; jamais de record à la première séance.
+function recordKind(history, sid, set) {
+  if (!history.some((s) => s.session !== sid)) return null;
+  const sets = history.flatMap((s) => s.sets);
+  const best = Math.max(0, ...sets.map((x) => x.kg || 0));
+  const kg = set.kg || 0;
+  if (kg > best) return 'kg';
+  return kg === best && set.reps > Math.max(0, ...sets.filter((x) => (x.kg || 0) === best).map((x) => x.reps)) ? 'reps' : null;
+}
+
+// Jours écoulés depuis la dernière série enregistrée (hors séance `current` et séances abandonnées), null si aucune.
+function daysOff(log, now = Date.now(), current = null) {
+  const skip = cancelled(log);
+  const last = log.findLast((x) => x.type === 'set' && x.session && x.session !== current && !skip.has(x.session));
+  return last ? Math.floor((now - Date.parse(last.t)) / DAY) : null;
+}
+// Reprise après une pause : charges réduites le temps d'une séance (2 semaines : −10 %, 4 semaines : −20 %).
+const comeback = (days) => (days >= 28 ? 0.8 : days >= 14 ? 0.9 : null);
+
+// Matériel à sortir avant la séance. entries = [{ e, kg }] (kg conseillé, null = à choisir).
+// Smith : disques de chaque côté pour la charge la plus lourde ; haltères, kettlebell, élastiques : poids utilisés.
+function gearList(entries, loads) {
+  const used = (load) => [...new Set(entries.filter(({ e, kg }) => e.load === load && kg != null).map(({ kg }) => kg))].sort((a, b) => a - b);
+  const kgs = (list) => list.length && ` ${list.map((x) => x.toLocaleString('fr-FR')).join(' et ')}\u00a0kg`;
+  const tags = new Set(entries.flatMap(({ e }) => e.eq));
+  return Object.entries(TAGS).filter(([q]) => tags.has(q)).map(([q, label]) => {
+    if (q === 'smith') {
+      const top = used('smith').at(-1);
+      const side = top != null && plates(top, loads);
+      return side?.length ? `${label} (jusqu'à ${side.map((w) => w.toLocaleString('fr-FR')).join(' + ')}\u00a0kg de chaque côté)` : label;
+    }
+    return `${label}${kgs(used({ halteres: 'halteres', kettlebell: 'kettlebell', elastique: 'elastique' }[q])) || ''}`;
+  });
+}
+
 // Courbe indicative sur `weeks` semaines au rythme du niveau.
 function project(kg, level, weeks = 8) {
   return Array.from({ length: weeks }, (_, w) => roundHalf(kg * (1 + LEVELS[level].weekly) ** (w + 1)));
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { plates, targetReps, generate, exerciseCount, backToBack, swap, repair, renew, available, cancelled, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
+  module.exports = { plates, plateChange, recordKind, daysOff, comeback, gearList, targetReps, generate, exerciseCount, backToBack, swap, repair, renew, available, cancelled, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
     kgLabel, range, SLOTS, SESSIONS, GOALS, LEVELS, ZONES, CUES, TAGS, BODYWEIGHT, MAX_DAYS, LEARNING, CYCLE_WEEKS };
 }

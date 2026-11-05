@@ -52,6 +52,8 @@ const ICONS = {
   xCircle: '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',
   play: '<path d="M7 4.5v15l12-7.5z"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  tv: '<rect x="2.5" y="4.5" width="19" height="13" rx="2.5"/><path d="M8 21h8M12 17.5V21"/>',
+  copy: '<rect x="8.5" y="8.5" width="12" height="12" rx="2.5"/><path d="M15.5 8.5V6a2.5 2.5 0 0 0-2.5-2.5H6A2.5 2.5 0 0 0 3.5 6v7A2.5 2.5 0 0 0 6 15.5h2.5"/>',
 };
 function icon(name, className = '') {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -77,10 +79,13 @@ if (state.v !== VERSION) state = { v: VERSION, lastExport: state.lastExport };
 let log = load(LOG_KEY) || [];
 let ui = { view: state.config ? 'week' : 'onboarding', step: 0, draft: null };
 
+let revision = 0; // change à chaque enregistrement : un écran gardé en mémoire d'une révision antérieure est périmé
 function save() {
+  revision++;
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
     localStorage.setItem(LOG_KEY, JSON.stringify(log));
+    broadcast();
   } catch {
     toast("Enregistrement impossible : sauvegarde ton journal depuis l'onglet Progrès.", 'error');
   }
@@ -123,17 +128,39 @@ async function ask({ confirm: ok, cancel = 'Annuler', danger, ...sheet }) {
   return (await choose({ ...sheet, actions: [{ label: ok, value: true, variant: danger ? 'gray destructive' : 'primary' }, { label: cancel, value: false }] })) === true;
 }
 
+// Onglets gardés en mémoire : y revenir est instantané et retrouve la position de défilement, comme sur iOS.
+// Reconstruits seulement si quelque chose a été enregistré depuis, ou si la date a changé (« Aujourd'hui »).
+const screens = new Map(); // vue → { node, revision, day, scroll }
+const KEPT = ['week', 'session', 'progress'];
+const today = () => new Date().toDateString();
+
 function show(view) {
+  const from = screens.get(ui.view);
+  if (from) from.scroll = scrollY;
   ui.view = view;
+  const kept = screens.get(view);
+  if (kept && kept.revision === revision && kept.day === today()) {
+    mount(kept.node);
+    scrollTo(0, kept.scroll);
+    return;
+  }
   render();
   scrollTo(0, 0);
 }
 
 function render() {
   const views = { onboarding, week, session, progress, settings };
+  const node = views[ui.view]();
+  if (KEPT.includes(ui.view)) screens.set(ui.view, { node, revision, day: today(), scroll: 0 });
+  mount(node);
+  broadcast();
+}
+
+function mount(node) {
   document.body.classList.toggle('has-tabs', ui.view !== 'onboarding');
   document.body.classList.toggle('ob-mode', ui.view === 'onboarding');
-  app.replaceChildren(...[views[ui.view](), nav()].filter(Boolean));
+  document.body.classList.toggle('focus-mode', ui.view === 'session' && !state.listMode && !state.active?.paused);
+  app.replaceChildren(...[node, nav()].filter(Boolean));
   placeBars();
   if (ui.view === 'session') keepAwake();
   // Nouvel écran d'onboarding : le lecteur d'écran repart du titre.
@@ -384,6 +411,10 @@ function settings() {
     section('Planning', planningEditor(d)),
     section('Zones fragiles', zonesEditor(d)),
     section('Sauvegarde', cloudEditor()),
+    section('Séance',
+      h('div', { className: 'list' }, toggle('Coach vocal', d.voice !== false, (v) => { d.voice = v; })),
+      h('p', { className: 'caption' }, "Annonce la série suivante, la fin du repos et tes records. Sur l'écran projeté s'il est connecté, sinon sur l'iPhone."),
+      state.screen && h('div', { className: 'line' }, h('span', {}, 'Écran projeté'), button("Oublier l'écran", forgetScreen, { variant: 'plain', className: 'btn plain destructive' }))),
     section('Notifications', notifyEditor(d)),
     section('Appli',
       h('div', { className: 'line' },
@@ -495,15 +526,16 @@ function dayCard(s, d, focused, done, nextWeek) {
     h('summary', {}, plural(s.items.length, 'exercice'), icon('chevron', 'chev')),
     h('div', { className: 'list' }, s.items.map((item, i) => {
       const e = byId.get(item.ex);
-      return h('details', { className: 'ex' },
+      return lazy('ex',
         h('summary', {}, h('span', { className: 'stack tight' }, h('strong', {}, e.name), h('span', { className: 'meta' }, `${prescriptionText(e, effective(item))} · ${muscles(e)}`)), icon('chevron', 'chev')),
-        h('div', { className: 'ex-body' }, exerciseInfo(e), !state.active && h('div', {}, button('Remplacer', () => replace(d, i), { size: 'compact' }))));
+        () => h('div', { className: 'ex-body' }, exerciseInfo(e), !state.active && h('div', {}, button('Remplacer', () => replace(d, i), { size: 'compact' }))));
     })));
   details.addEventListener('toggle', () => { (ui.open ||= {})[s.day] = details.open; }); // garde le choix jusqu'au prochain lancement
   return h('section', { className: focused ? 'card focus' : 'card' },
     h('div', { className: 'stack tight' },
       h('div', { className: 'card-head' }, h('h2', { className: 'title' }, `${DAYS[s.day]} · ${s.name}`), badge),
       finished && h('p', { className: 'caption' }, `Faite ${DAYS[weekday(new Date(finished.t))].toLowerCase()} à ${clock(finished.t)} · ${finished.sets} série${finished.sets > 1 ? 's' : ''}`)),
+    focused && !finished && !active && h('p', { className: 'caption' }, `À préparer : ${preview(s, nextWeek).gear.join(', ')}`),
     details,
     h('div', { className: 'row' }, actions));
 }
@@ -529,7 +561,8 @@ function week() {
   const backupDue = log.length > 0 && (!lastCopy || daysAgo(lastCopy) >= BACKUP_DAYS);
   return h('div', { className: 'screen' },
     h('header', { className: 'stack tight' },
-      h('div', { className: 'top' }, h('h1', {}, 'Ma semaine'), button('Réglages', openSettings, { variant: 'plain' })),
+      h('div', { className: 'top' }, h('h1', {}, 'Ma semaine'),
+        h('div', { className: 'row' }, button(null, projectSheet, { variant: 'plain', icon: 'tv', ariaLabel: 'Projeter sur un écran', className: `btn plain${projected() ? ' on' : ''}` }), button('Réglages', openSettings, { variant: 'plain' }))),
       h('p', { className: 'meta' }, `Semaine ${Math.min(n, CYCLE_WEEKS)} sur ${CYCLE_WEEKS} du cycle`)),
     weekProgress(plan, done, focus),
     deload && banner('leaf', 'Semaine allégée',
@@ -602,6 +635,13 @@ function tabs(segments) {
   return h('div', { className: 'segments' }, bar, panel);
 }
 
+// Repli dont le contenu n'est construit qu'à la première ouverture : rien à créer ni à charger tant qu'on ne regarde pas.
+function lazy(className, summary, build) {
+  const node = h('details', { className }, summary);
+  node.addEventListener('toggle', () => { if (node.open && node.childElementCount === 1) node.append(build()); });
+  return node;
+}
+
 // Visuels en onglets (mouvement, vidéo, muscles), puis consignes et description.
 function exerciseInfo(e) {
   const img = (src, alt = '') => h('img', { src, alt, loading: 'lazy', onerror: (ev) => ev.target.remove() });
@@ -648,7 +688,8 @@ async function start(d) {
   if (!state.active) {
     const fit = await fitnessCheck();
     if (!fit) return;
-    state.active = { session: new Date().toISOString(), day: d, readiness: fit.level };
+    state.active = { session: new Date().toISOString(), day: d, readiness: fit.level, off: daysOff(log) };
+    ui.at = ui.pick = null;
     record({ type: 'start', day: state.plan[d].day, name: state.plan[d].name });
     record({ type: 'readiness', sleep: fit.sleep, soreness: fit.soreness, energy: fit.energy, level: fit.level });
   } else if (state.active.paused) resume();
@@ -673,6 +714,14 @@ async function fitnessCheck() {
   if (!go) return null;
   const score = answers.sleep + answers.soreness + answers.energy;
   return { ...answers, level: score >= 4 ? 'light' : score >= 2 ? 'hold' : 'normal' };
+}
+
+// Historique d'un exercice, relu une seule fois par état du journal (il ne fait que grandir, ou change d'objet à l'import).
+let histories = { log: null, n: 0, byEx: new Map() };
+function history(id) {
+  if (histories.log !== log || histories.n !== log.length) histories = { log, n: log.length, byEx: new Map() };
+  if (!histories.byEx.has(id)) histories.byEx.set(id, exerciseHistory(log, id));
+  return histories.byEx.get(id);
 }
 
 const sessionSets = (sid) => {
@@ -700,9 +749,11 @@ function sessionSummary() {
   const planned = s.items.reduce((n, it) => n + effective(it, true).sets, 0);
   const volume = Math.round([...sets.values()].reduce((v, x) => v + (x.kg || 0) * x.reps, 0));
   const skipped = s.items.filter((it) => ![...sets.values()].some((x) => x.ex === it.ex)).map((it) => byId.get(it.ex).name);
+  const prs = [...sets.values()].filter((x) => x.pr && byId.has(x.ex)).map((x) => `${byId.get(x.ex).name} : ${setText(byId.get(x.ex), x.kg, x.reps)}`);
   const stat = (value, label) => h('div', { className: 'stat' }, h('strong', {}, value), h('span', { className: 'caption' }, label));
   return h('div', { className: 'stack' },
     h('div', { className: 'stats' }, stat(`${sets.size}/${planned}`, planned > 1 ? 'séries' : 'série'), stat(`${activeMinutes(sid)} min`, 'effort'), stat(kgText(volume), 'volume')),
+    prs.length > 0 && h('p', { className: 'note' }, icon('flag'), `${prs.length > 1 ? 'Records' : 'Record'} : ${prs.join(' · ')}`),
     skipped.length > 0 && h('p', { className: 'caption' }, `${skipped.length > 1 ? 'Pas commencés' : 'Pas commencé'} : ${skipped.join(', ')}.`));
 }
 
@@ -755,6 +806,8 @@ async function stopSession() {
 }
 
 function closeSession() {
+  const s = state.plan[state.active.day];
+  state.ended = { t: Date.now(), title: `${DAYS[s.day]} · ${s.name}`, summary: summaryData(s.items.map(exercise)) };
   record({ type: 'end' });
   state.active = null;
   stopRest();
@@ -779,37 +832,192 @@ function pausedScreen(s) {
 function session() {
   const s = state.plan[state.active.day];
   if (state.active.paused) return pausedScreen(s);
+  const list = !!state.listMode;
+  const warm = () => banner('flame', 'Échauffement · 5 à 8 min',
+    h('p', {}, "5 min de cardio léger et quelques rotations des articulations. Les séries d'approche sont indiquées sur chaque mouvement lourd."),
+    h('p', { className: 'caption' }, "Le minuteur de repos démarre à chaque série validée et sonne à la fin : garde le son de l'iPhone activé."));
   // Barre collante : Pause et Arrêter restent à portée pendant tout le défilement.
   return h('div', { className: 'screen' },
     h('header', { className: 'navbar' },
       button('Pause', pause, { variant: 'plain', icon: 'pause', className: 'btn plain start' }),
       h('h1', {}, `${DAYS[s.day]} · ${s.name}`),
       button('Arrêter', stopSession, { variant: 'plain', className: 'btn plain end' })),
+    segmented([[false, 'Une série à la fois'], [true, 'Toute la séance']], list, (v) => { state.listMode = v; ui.pick = null; save(); render(); }),
+    projector(),
     cycle().deload && h('p', { className: 'note' }, icon('leaf'), 'Semaine allégée : moitié moins de séries, charges −10 %.'),
     state.active.readiness === 'hold' && h('p', { className: 'note' }, icon('info'), "Forme moyenne : pas d'augmentation de charge aujourd'hui."),
     state.active.readiness === 'light' && h('p', { className: 'note' }, icon('leaf'), 'Forme basse : séance allégée, moitié moins de séries et charges −10 %. Écoute ton corps.'),
-    banner('flame', 'Échauffement · 5 à 8 min',
-      h('p', {}, "5 min de cardio léger et quelques rotations des articulations. Les séries d'approche sont indiquées sur chaque mouvement lourd."),
-      h('p', { className: 'caption' }, "Le minuteur de repos démarre à chaque série validée et sonne à la fin : garde le son de l'iPhone activé.")),
-    s.items.map((item, i) => block(item, state.active.day, i)),
-    // Fin de liste = fin de séance : le bouton est là où on en a besoin, sans remonter.
-    button('Terminer la séance', stopSession, { variant: 'primary', size: 'large' }));
+    comeback(state.active.off) && h('p', { className: 'note' }, icon('leaf'), `Reprise après ${state.active.off} jours sans séance : charges réduites aujourd'hui, pour repartir sans te blesser.`),
+    list ? [warm(), s.items.map((item, i) => block(item, state.active.day, i)),
+      // Fin de liste = fin de séance : le bouton est là où on en a besoin, sans remonter.
+      button('Terminer la séance', stopSession, { variant: 'primary', size: 'large' })]
+      : [!sessionSets(state.active.session).size && h('p', { className: 'note' }, icon('flame'), "Échauffe-toi 5 à 8 min avant la première série : cardio léger et rotations des articulations."),
+        focusView(s, state.active.day)]);
 }
 
-function block(item, d, i) {
+// Contrôle segmenté iOS : options = [[valeur, libellé]].
+function segmented(options, value, onPick) {
+  return h('div', { className: 'seg' }, options.map(([v, label]) => h('button', { type: 'button', className: 'seg-tab', ariaPressed: String(v === value), onclick: () => onPick(v) }, label)));
+}
+
+// Tout ce qu'il faut pour un exercice de la séance en cours : conseil du jour, historique, séries déjà faites.
+function exercise(item) {
   const e = byId.get(item.ex);
   const sid = state.active.session;
   const it = effective(item, true);
-  const all = exerciseHistory(log, e.id);
+  const all = history(e.id);
   const past = all.filter((x) => x.session !== sid);
   const fit = state.active.readiness;
-  const tip = suggest(e, it, past, { loads: state.config.loads, learned: learned(log, e.id, past), deload: cycle().deload || fit === 'light', hold: fit === 'hold' });
-  const side = e.load === 'smith' && tip.kg != null ? plates(tip.kg, state.config.loads) : null;
+  const tip = suggest(e, it, past, { loads: state.config.loads, learned: learned(log, e.id, past), deload: cycle().deload || fit === 'light', hold: fit === 'hold', comeback: comeback(state.active.off) });
   const done = new Map((all.find((x) => x.session === sid)?.sets || []).map((x) => [x.set, x]));
-  const mine = (type) => log.findLast((x) => x.session === sid && x.ex === e.id && x.type === type);
-  const approach = warmup(e, tip.kg, state.config.loads);
-  // Le badge dit déjà « Apprentissage n/2 » : la consigne commence directement.
+  return { e, it, past, tip, done };
+}
+// Prochaine série d'un exercice (la première pas encore validée), null si toutes sont faites.
+const nextSet = (x) => Array.from({ length: x.it.sets }, (_, k) => k + 1).find((k) => !x.done.has(k)) ?? null;
+// Exercice en cours : le premier qui a encore une série à faire (items.length = tout est fait).
+const nextItem = (items) => { const i = items.findIndex((x) => nextSet(x) != null); return i < 0 ? items.length : i; };
+// Charge de départ d'une série : celle de la série précédente du jour, sinon la charge conseillée.
+const startKg = (x) => (x.e.load === 'pdc' ? null : [...x.done.values()].at(-1)?.kg ?? x.tip.kg);
+
+// Prochaine série à faire de la séance en cours : { x, i, n, kg, reps }, null si tout est fait.
+function upNext() {
+  const items = state.plan[state.active.day].items.map(exercise);
+  const i = nextItem(items);
+  if (i >= items.length) return null;
+  const x = items[i], n = nextSet(x), kg = startKg(x);
+  return { x, i, n, kg, reps: targetReps(x.it, x.past, kg, n, x.e.unit) };
+}
+
+// --- Mode focus ---
+// Une série à la fois : gros chiffres, gros boutons, sans clavier. C'est aussi la télécommande de l'écran projeté.
+const LOAD_CAPTION = { smith: 'kg au total', halteres: 'kg par haltère', kettlebell: 'kg', elastique: "kg d'élastique" };
+
+function focusView(s, d) {
+  const items = s.items.map(exercise);
+  const i = Math.min(ui.at ?? nextItem(items), items.length);
+  const move = (to) => { ui.at = to; ui.pick = null; render(); scrollTo(0, 0); };
+  if (i >= items.length) {
+    return h('section', { className: 'card focus-card' },
+      h('div', { className: 'stack tight center' }, icon('flag', 'big-icon'), h('h2', { className: 'title' }, 'Toutes les séries sont faites'),
+        h('p', { className: 'meta' }, "Bravo. Termine la séance pour l'enregistrer.")),
+      sessionSummary(),
+      button('Terminer la séance', stopSession, { variant: 'primary', size: 'large' }),
+      button('Revenir au dernier exercice', () => move(items.length - 1), { variant: 'gray', size: 'large' }));
+  }
+  const x = items[i];
+  const { e, it, tip } = x;
+  const n = nextSet(x);
+  return h('section', { className: 'card focus-card' },
+    h('div', { className: 'focus-nav' },
+      button(null, () => move(i - 1), { variant: 'gray', icon: 'back', ariaLabel: 'Exercice précédent', disabled: i === 0 }),
+      h('span', { className: 'caption' }, `Exercice ${i + 1} sur ${items.length}`),
+      button(null, () => move(i + 1), { variant: 'gray', icon: 'chevron', ariaLabel: 'Exercice suivant' })),
+    h('div', { className: 'stack tight center' },
+      h('h2', { className: 'title' }, e.name),
+      h('p', { className: 'meta' }, n ? `Série ${n} sur ${it.sets} · ${it.reps}${e.unit === 's' ? ' s' : ' rép.'}` : plural(x.done.size, 'série faite', 'séries faites')),
+      tip.learning && h('div', {}, h('span', { className: 'badge' }, `Apprentissage ${tip.learning}/${LEARNING}`))),
+    restPanel(),
+    n ? setPanel(x, n, i, items.length)
+      : [h('p', { className: 'note' }, icon('checkCircle'), "Exercice terminé. Comment ça s'est passé ?"), ...feedback(e, d, i),
+        button(i + 1 < items.length ? 'Exercice suivant' : 'Voir le bilan', () => move(i + 1), { variant: 'primary', size: 'large' })],
+    lazy('more', h('summary', {}, "Voir l'exercice et les consignes", icon('chevron', 'chev')), () => exerciseInfo(e)));
+}
+
+// Série à faire : répétitions et charge en − / +, disques à monter, puis un seul geste pour valider.
+function setPanel(x, n, i, count) {
+  const { e, it, tip, past } = x;
+  const loads = state.config.loads;
+  const key = `${state.active.session}|${e.id}|${n}`;
+  const list = e.load === 'pdc' ? [] : loadable(e, loads);
+  if (ui.pick?.key !== key) ui.pick = { key, kg: e.load === 'pdc' ? 0 : startKg(x) ?? list[0] ?? null, reps: null, touched: false };
+  const pick = ui.pick;
+  if (e.load !== 'pdc' && pick.kg != null && !list.includes(pick.kg)) list.push(pick.kg), list.sort((a, b) => a - b);
+  const planned = () => targetReps(it, past, e.load === 'pdc' ? null : pick.kg, n, e.unit);
+  pick.reps ??= planned();
+  const platesLine = h('p', { className: 'meta center' });
+  const changeLine = h('p', { className: 'focus-change' });
+  const showPlates = () => {
+    const bar = barPlan(e, pick.kg);
+    platesLine.textContent = bar.plates || '';
+    platesLine.hidden = !bar.plates;
+    changeLine.textContent = bar.change || '';
+    changeLine.hidden = !bar.change;
+  };
+  showPlates();
+  const reps = bigStepper(e.unit === 's' ? 'secondes' : 'répétitions', pick.reps, { min: 0, max: 300, step: e.unit === 's' ? 5 : 1 }, String,
+    (v) => { pick.reps = v; pick.touched = true; broadcast(); });
+  const load = e.load !== 'pdc' && bigStepper(LOAD_CAPTION[e.load], pick.kg, list, (v) => (v == null ? '–' : v.toLocaleString('fr-FR')),
+    (v) => { pick.kg = v; if (!pick.touched) { pick.reps = planned(); reps.set(pick.reps); } showPlates(); broadcast(); });
+  const last = past.at(-1)?.sets.find((s) => s.set === n);
+  const approach = n === 1 ? warmup(e, pick.kg, loads) : [];
   const note = tip.learning ? tip.note.replace(/^Apprentissage \d\/\d : (.)/, (_, c) => c.toUpperCase()) : tip.note;
+  return [
+    h('div', { className: 'focus-pick' }, reps.node, load && load.node),
+    platesLine, changeLine,
+    approach.length > 0 && h('p', { className: 'meta center' }, `Approche : ${approach.map(([kg, r]) => `${kgText(kg)}\u00a0×\u00a0${r}`).join(' · ')}`),
+    last && h('p', { className: 'caption center' }, `La dernière fois : ${setText(e, last.kg, last.reps)}`),
+    button('Série faite', () => {
+      if (e.load !== 'pdc' && pick.kg == null) return toast('Choisis la charge utilisée.', 'warning');
+      logSet(e, n, pick.kg, pick.reps, tip.mode);
+      // Dernière série de l'exercice : on reste dessus pour le ressenti, « Exercice suivant » fait avancer.
+      if (x.done.size + 1 >= it.sets) ui.at = i;
+      if (n < it.sets || i + 1 < count) startRest(it.rest);
+      else announce("Dernière série faite. Bravo ! Termine la séance pour l'enregistrer.");
+      ui.pick = null;
+      render();
+    }, { variant: 'primary', size: 'large', icon: 'check', className: 'btn primary large focus-go' }),
+    h('p', { className: 'tip' }, note),
+    h('ul', { className: 'cue' }, (e.cues || [CUES[e.zone]]).slice(0, 2).map((c) => h('li', {}, c)))];
+}
+
+// Grand compteur − valeur + : values = liste des valeurs permises ou { min, max, step } ; set() change la valeur sans prévenir.
+function bigStepper(label, value, values, format, onChange) {
+  const out = h('output', { className: 'big-value', ariaLive: 'polite' });
+  let v = value;
+  const set = (next) => { v = next; out.textContent = format(v); };
+  const step = (dir) => {
+    let next;
+    if (Array.isArray(values)) next = values[Math.min(values.length - 1, Math.max(0, values.indexOf(v) + dir))];
+    else next = Math.min(values.max, Math.max(values.min, v + dir * values.step));
+    if (next == null || next === v) return;
+    set(next);
+    onChange(next);
+  };
+  set(v);
+  const node = h('div', { className: 'big-stepper' },
+    button('−', () => step(-1), { variant: 'gray', ariaLabel: `Moins de ${label}` }),
+    h('div', { className: 'stack tight center' }, out, h('span', { className: 'caption' }, label)),
+    button('+', () => step(1), { variant: 'gray', ariaLabel: `Plus de ${label}` }));
+  return { node, set };
+}
+
+// Disques pour une charge à la Smith, et le changement depuis la dernière charge montée pendant la séance.
+function barPlan(e, kg) {
+  if (e.load !== 'smith' || kg == null) return {};
+  const loads = state.config.loads;
+  let side = [];
+  for (const x of log) if (x.session === state.active.session && x.type === 'set' && byId.get(x.ex)?.load === 'smith') side = plateChange(side, x.kg, loads)?.side ?? side;
+  const move = plateChange(side, kg, loads);
+  if (!move) return {};
+  return { plates: move.side.length ? `De chaque côté : ${platesText(move.side)}` : 'Barre seule, sans disque',
+    change: side.length && (move.remove.length || move.add.length) ? changeText(move) : null };
+}
+const platesText = (list) => `${list.map((w) => w.toLocaleString('fr-FR')).join(' + ')}\u00a0kg`;
+const changeText = ({ remove, add }) => `${[remove.length && `retire ${platesText(remove)}`, add.length && `ajoute ${platesText(add)}`].filter(Boolean).join(' et ')} de chaque côté`.replace(/^./, (c) => c.toUpperCase());
+
+// Repos en cours : grand compte à rebours (mis à jour par le minuteur), passer ou rallonger.
+function restPanel() {
+  if (!rest) return null;
+  return h('div', { className: 'focus-rest', role: 'timer' },
+    h('span', { className: 'caption' }, 'Repos'),
+    h('strong', { className: 'rest-time' }, restClock()),
+    h('div', { className: 'row' }, button('Passer', stopRest, { variant: 'gray', size: 'compact' }), button('+30 s', () => extendRest(30), { variant: 'gray', size: 'compact' })));
+}
+
+// Technique propre ? et ressenti, après les séries d'un exercice.
+function feedback(e, d, i) {
+  const sid = state.active.session;
+  const mine = (type) => log.findLast((x) => x.session === sid && x.ex === e.id && x.type === type);
   const feelButtons = FEELS.map(([value, label]) => chip(label, mine('feel')?.feel === value, () => onFeel(e, value, d, i, feelButtons), { danger: value === 'pain' }));
   feelButtons.forEach((b, n) => { b.dataset.feel = FEELS[n][0]; });
   const techButtons = [[true, 'Oui'], [false, 'Non']].map(([ok, label]) => chip(label, mine('tech')?.ok === ok, () => {
@@ -817,6 +1025,37 @@ function block(item, d, i) {
     techButtons.forEach((b, n) => { b.ariaPressed = String(n === (ok ? 0 : 1)); });
     if (!ok) toast("Noté : la charge n'augmentera pas la prochaine fois.", 'info');
   }));
+  return [h('div', { className: 'group' }, h('span', { className: 'label' }, 'Technique propre ?'), h('div', { className: 'chips' }, techButtons)),
+    h('div', { className: 'group' }, h('span', { className: 'label' }, 'Ressenti'), h('div', { className: 'chips' }, feelButtons))];
+}
+
+// Enregistre une série ; un record personnel (un par exercice et par séance) est détecté avant l'ajout, annoncé et noté (pr).
+function logSet(e, n, kg, reps, mode) {
+  const value = e.load === 'pdc' ? 0 : kg;
+  const sid = state.active.session;
+  const already = log.some((x) => x.session === sid && x.ex === e.id && x.pr);
+  const pr = !already && recordKind(history(e.id), sid, { kg: value, reps });
+  record({ type: 'set', ex: e.id, set: n, kg: value, reps, ...(mode !== 'normal' && { mode }), ...(pr && { pr }) });
+  if (pr) {
+    toast(`Record : ${setText(e, value, reps)}`, 'success');
+    announce(`Nouveau record : ${setSpeech(e, value, reps)} !`);
+  }
+  return pr;
+}
+const setText = (e, kg, reps) => (e.load === 'pdc' ? `${reps}\u00a0${unitText(e)}` : `${kgLabel(e, kg)}\u00a0×\u00a0${reps}${e.unit === 's' ? '\u00a0s' : ''}`);
+// Texte d'une série pour la voix : « 10 répétitions à 42,5 kilos ».
+function setSpeech(e, kg, reps) {
+  const what = `${reps} ${e.unit === 's' ? 'secondes' : 'répétitions'}`;
+  if (e.load === 'pdc' || kg == null) return what;
+  return `${what} à ${kg.toLocaleString('fr-FR')} kilos${{ halteres: ' par haltère', elastique: " d'élastique" }[e.load] || ''}`;
+}
+
+function block(item, d, i) {
+  const { e, it, past, tip, done } = exercise(item);
+  const side = e.load === 'smith' && tip.kg != null ? plates(tip.kg, state.config.loads) : null;
+  const approach = warmup(e, tip.kg, state.config.loads);
+  // Le badge dit déjà « Apprentissage n/2 » : la consigne commence directement.
+  const note = tip.learning ? tip.note.replace(/^Apprentissage \d\/\d : (.)/, (_, c) => c.toUpperCase()) : tip.note;
   const hint = h('p', { className: 'caption' }, 'Répétitions en gris = prévues : touche ✓ si la série est faite comme prévu. Pour corriger, change la valeur et valide à nouveau.');
   return h('section', { className: 'card' },
     h('div', { className: 'card-head' }, h('h2', { className: 'title' }, e.name), tip.learning && h('span', { className: 'badge' }, `Apprentissage ${tip.learning}/${LEARNING}`)),
@@ -825,19 +1064,26 @@ function block(item, d, i) {
     side && h('p', { className: 'meta' }, side.length ? `De chaque côté : ${side.map((w) => w.toLocaleString('fr-FR')).join(' + ')}\u00a0kg` : 'Barre seule, sans disque'),
     approach.length > 0 && h('p', { className: 'meta' }, `Approche : ${approach.map(([kg, reps]) => `${kgText(kg)}\u00a0×\u00a0${reps}`).join(' · ')}`),
     e.main && h('p', { className: 'note' }, icon('video'), e.load === 'smith' ? 'Avant la première série lourde : règle les butées et filme-toi.' : 'Filme ta première série pour vérifier le geste.'),
-    h('details', { className: 'more' }, h('summary', {}, "Voir l'exercice et les consignes", icon('chevron', 'chev')), exerciseInfo(e)),
+    lazy('more', h('summary', {}, "Voir l'exercice et les consignes", icon('chevron', 'chev')), () => exerciseInfo(e)),
     h('div', { className: 'sets' },
       h('span', { className: 'caption head n' }, 'Série'), h('span', { className: 'caption head' }, LOAD_HEAD[e.load]), h('span', { className: 'caption head' }, e.unit === 's' ? 'Secondes' : 'Répét.'), h('span'),
       Array.from({ length: it.sets }, (_, n) => setRow(e, it, n + 1, done.get(n + 1), { ...tip, kg: [...done.values()].at(-1)?.kg ?? tip.kg }, past))),
     hint,
-    h('div', { className: 'group' }, h('span', { className: 'label' }, 'Technique propre ?'), h('div', { className: 'chips' }, techButtons)),
-    h('div', { className: 'group' }, h('span', { className: 'label' }, 'Ressenti'), h('div', { className: 'chips' }, feelButtons)));
+    ...feedback(e, d, i));
 }
 
 // « 0 série », « 1 série », « 2 séries » : en français, 0 et 1 restent au singulier.
 const plural = (n, one, many = `${one}s`) => `${n} ${n > 1 ? many : one}`;
 const kgText = (kg) => `${kg.toLocaleString('fr-FR')}\u00a0kg`; // espace insécable : « kg » ne part jamais seul à la ligne
 const clock = (iso) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+// Menus de charges : construits une fois par liste puis clonés (une séance en affiche une douzaine d'environ 50 choix).
+const menus = new Map();
+function loadMenu(e, list) {
+  const key = `${e.load}|${list.join()}`;
+  if (!menus.has(key)) menus.set(key, h('select', {}, h('option', { value: '' }, 'Choisir'), list.map((x) => h('option', { value: x }, kgLabel(e, x).replace('élastique ', '')))));
+  return menus.get(key).cloneNode(true);
+}
 
 function setRow(e, item, n, done, tip, past) {
   let kg;
@@ -847,9 +1093,9 @@ function setRow(e, item, n, done, tip, past) {
     const list = loadable(e, state.config.loads);
     const value = done?.kg ?? tip.kg;
     if (value != null && !list.includes(value)) list.push(value);
-    kg = h('select', { ariaLabel: `Charge série ${n}` },
-      h('option', { value: '' }, 'Choisir'),
-      list.sort((a, b) => a - b).map((x) => h('option', { value: x, selected: x === value }, kgLabel(e, x).replace('élastique ', ''))));
+    kg = loadMenu(e, list.sort((a, b) => a - b));
+    kg.ariaLabel = `Charge série ${n}`;
+    if (value != null) kg.value = String(value);
   }
   const planned = () => targetReps(item, past, e.load === 'pdc' ? null : Number(kg.value) || tip.kg, n, e.unit);
   const reps = h('input', { type: 'number', inputMode: 'numeric', min: 0, max: 300, step: 1, value: done?.reps ?? '', placeholder: String(planned()), ariaLabel: `${e.unit === 's' ? 'Secondes' : 'Répétitions'} série ${n}` });
@@ -861,7 +1107,7 @@ function setRow(e, item, n, done, tip, past) {
     const repsValue = reps.value === '' ? Number(reps.placeholder) : Number(reps.value); // champ vide = fait comme prévu
     if (!Number.isInteger(repsValue) || repsValue < 0 || repsValue > 300) return toast(`Indique les ${e.unit === 's' ? 'secondes tenues' : 'répétitions faites'}.`, 'warning');
     reps.value = repsValue;
-    record({ type: 'set', ex: e.id, set: n, kg: kgValue, reps: repsValue, ...(tip.mode !== 'normal' && { mode: tip.mode }) });
+    logSet(e, n, kgValue, repsValue, tip.mode);
     mark(log.at(-1).t);
     // Séries suivantes pas encore choisies : même charge par défaut.
     ok.parentElement.querySelectorAll('select').forEach((s) => { if (s.value === '') s.value = kg.value; });
@@ -888,7 +1134,7 @@ async function onFeel(e, value, d, i, buttons) {
 // --- Minuteur de repos et écran allumé ---
 // Une appli web iPhone ne peut ni vibrer ni notifier sans serveur : le son ne joue que si l'écran reste allumé.
 
-let audio = null, rest = null, restPushed = false, wakeLock = null;
+let audio = null, rest = null, restEnd = 0, restTotal = 0, restPushed = false, wakeLock = null;
 const restBar = h('div', { className: 'rest', hidden: true, role: 'timer' });
 
 function beep() {
@@ -911,6 +1157,8 @@ function startRest(seconds) {
   restPushed = false; // le nouvel envoi remplace l'ancien côté serveur : pas d'annulation qui pourrait arriver après lui
   stopRest();
   const end = Date.now() + seconds * 1000;
+  restEnd = end;
+  restTotal = seconds * 1000;
   // Prévenu tout de suite, appli active : au verrouillage de l'écran, iOS la suspend avant qu'une requête parte.
   // « Repos en cours, reprends à … » part 5 s après si l'écran a été verrouillé dans les 3 premières secondes.
   const started = Date.now();
@@ -929,21 +1177,54 @@ function startRest(seconds) {
     if (notice && restPushed && visible && Date.now() - started >= 3000) { notice = false; pushCall('DELETE', '/rest/notice').catch(() => {}); }
     // Appli toujours à l'écran juste avant la fin : le bip suffit, on annule la notification.
     if (restPushed && left <= 3 && visible) { restPushed = false; pushCall('DELETE', '/rest').catch(() => {}); }
-    if (left > 0) { time.textContent = `Repos ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; return; }
+    if (left > 0) {
+      time.textContent = `Repos ${restClock()}`;
+      document.querySelectorAll('.rest-time').forEach((el) => { el.textContent = restClock(); });
+      return;
+    }
     stopRest();
-    beep();
+    // Écran projeté connecté : c'est lui qui sonne et annonce, l'iPhone reste silencieux.
+    if (!projected()) { beep(); speak(restSay()); }
     toast('Repos terminé : série suivante.', 'timer');
   };
   rest = setInterval(tick, 250);
   restBar.hidden = false;
   tick();
+  broadcast();
 }
 
 function stopRest() {
   clearInterval(rest);
   rest = null;
   restBar.hidden = true;
+  document.querySelector('.focus-rest')?.remove();
+  broadcast();
   if (restPushed) { restPushed = false; pushCall('DELETE', '/rest').catch(() => {}); }
+}
+
+const restClock = () => { const left = Math.max(0, Math.ceil((restEnd - Date.now()) / 1000)); return `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; };
+const extendRest = (seconds) => startRest(Math.ceil((restEnd - Date.now()) / 1000) + seconds);
+
+// Annonce de fin de repos : la série qui suit, ou l'exercice suivant.
+function restSay() {
+  const u = upNext();
+  if (!u) return 'Repos terminé.';
+  const what = setSpeech(u.x.e, u.kg, u.reps);
+  return u.n === 1 ? `Repos terminé. Exercice suivant : ${u.x.e.name}. ${what}.` : `Repos terminé. Série ${u.n} sur ${u.x.it.sets} : ${what}.`;
+}
+
+// --- Coach vocal ---
+// Annonces lues par la voix française de l'appareil (réglable dans Réglages). Quand l'écran projeté est connecté, c'est lui qui parle.
+const voiceOn = () => state.config?.voice !== false;
+function speak(text) {
+  const synth = window.speechSynthesis;
+  if (!text || !synth || !voiceOn() || projected()) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'fr-FR';
+  const fr = synth.getVoices().filter((v) => /^fr/i.test(v.lang));
+  u.voice = ['Amélie', 'Thomas', 'Audrey', 'Aurélie'].map((name) => fr.find((v) => v.name.startsWith(name))).find(Boolean) || fr.find((v) => /fr.FR/i.test(v.lang)) || fr[0] || null;
+  synth.cancel();
+  synth.speak(u);
 }
 
 async function keepAwake() {
@@ -963,7 +1244,7 @@ function progress() {
   const sessions = new Set(sets.map((x) => x.session)).size;
   const cards = [...new Set(sets.map((x) => x.ex))]
     .filter((id) => byId.has(id))
-    .map((id) => ({ e: byId.get(id), past: exerciseHistory(log, id) }))
+    .map((id) => ({ e: byId.get(id), past: history(id) }))
     .sort((a, b) => b.past.at(-1).t.localeCompare(a.past.at(-1).t));
   const capped = cards.filter(({ e, past }) => tipFor(e, past)?.plafond).map(({ e }) => e.name);
   return h('div', { className: 'screen' },
@@ -981,12 +1262,13 @@ function progress() {
       h('div', { className: 'row' },
         button('Sauvegarder', backup, { variant: 'primary', icon: 'save' }),
         button('Exporter CSV', exportCsv),
+        button('Copier pour Claude', copyForClaude, { icon: 'copy' }),
         importButton())));
 }
 
 function tipFor(e, past) {
   const item = state.plan.flatMap((s) => s.items).find((it) => it.ex === e.id);
-  return item && suggest(e, effective(item), past, { loads: state.config.loads, learned: learned(log, e.id, past), deload: cycle().deload });
+  return item && suggest(e, effective(item), past, { loads: state.config.loads, learned: learned(log, e.id, past), deload: cycle().deload, comeback: comeback(daysOff(log)) });
 }
 
 function progressCard(e, past) {
@@ -1139,6 +1421,238 @@ function syncPush() {
   if (pushOn()) subscribePush(state.config).catch(() => toast('Rappels non mis à jour : hors ligne.', 'offline'));
 }
 
+// --- Écran projeté ---
+// La séance s'affiche en grand sur une TV ou un ordinateur (page tv/), l'iPhone sert de télécommande.
+// Relais WebSocket par le serveur (push/worker.js, objet Screen) : l'iPhone envoie un instantané à chaque changement,
+// l'écran ne fait qu'afficher et tient seul le chrono du repos (il sonne et annonce même si l'iPhone se verrouille).
+const TV_URL = 'laurent-stp95.github.io/muscu-auto/tv';
+let socket = null, socketTimer = null, socketDelay = 1000, tvCount = 0, sending = false, lastSay = null;
+const wsUrl = (room, role) => `${PUSH.url.replace(/^http/, 'ws')}/screen?room=${room}&role=${role}`;
+const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
+const projected = () => tvCount > 0;
+
+function connectScreen() {
+  clearTimeout(socketTimer);
+  if (!state.screen?.on || socket || document.visibilityState !== 'visible') return;
+  const ws = new WebSocket(wsUrl(state.screen.room, 'phone'));
+  socket = ws;
+  ws.onopen = () => { socketDelay = 1000; send(); };
+  ws.onmessage = (ev) => { const m = parse(ev.data); if (m?.type === 'presence') setTv(m.tv); };
+  ws.onerror = () => ws.close();
+  ws.onclose = () => {
+    if (socket === ws) socket = null;
+    setTv(0);
+    if (state.screen?.on) socketTimer = setTimeout(connectScreen, socketDelay = Math.min(socketDelay * 2, 30000));
+  };
+}
+// iOS coupe la connexion quand l'écran se verrouille : on se reconnecte au retour, l'écran reçoit tout de suite l'état.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') connectScreen(); });
+addEventListener('online', connectScreen);
+setInterval(() => { if (socket?.readyState === 1) socket.send('ping'); }, 30000); // le serveur répond seul, sans se réveiller
+
+function setTv(n) {
+  if (tvCount === n) return;
+  tvCount = n;
+  document.querySelector('.projector')?.replaceWith(projector());
+}
+
+function send() {
+  if (socket?.readyState === 1) socket.send(JSON.stringify({ type: 'state', s: live() }));
+}
+// Un seul envoi par tour de boucle, même si plusieurs changements s'enchaînent.
+function broadcast() {
+  if (!state.screen?.on || sending) return;
+  sending = true;
+  queueMicrotask(() => { sending = false; send(); });
+}
+
+// Annonce vocale : lue par l'iPhone, ou par l'écran projeté s'il est connecté.
+function announce(text) {
+  lastSay = { id: String(Date.now()), text, t: Date.now() };
+  speak(text);
+  broadcast();
+}
+
+function projector() {
+  const label = !state.screen?.on ? 'Projeter sur un écran' : projected() ? "Projeté sur l'écran" : "En attente de l'écran…";
+  return button(label, projectSheet, { variant: 'plain', icon: 'tv', className: `btn plain projector${projected() ? ' on' : ''}` });
+}
+
+async function projectSheet() {
+  if (!state.screen) return pairSheet();
+  const choice = await choose({
+    title: 'Écran projeté',
+    text: !state.screen.on ? 'Projection arrêtée.' : projected() ? "La séance s'affiche sur l'écran : ton iPhone sert de télécommande." : `Écran pas encore connecté : ouvre ${TV_URL} sur la TV ou l'ordinateur.`,
+    actions: [state.screen.on ? { label: 'Arrêter la projection', value: 'off' } : { label: 'Projeter', value: 'on', variant: 'primary' },
+      { label: 'Associer un autre écran', value: 'pair' }, { label: 'Fermer', value: null }],
+  });
+  if (choice === 'off') { state.screen.on = false; save(); socket?.close(); setTv(0); }
+  if (choice === 'on') { state.screen.on = true; save(); connectScreen(); }
+  if (choice === 'pair') pairSheet();
+}
+
+async function pairSheet() {
+  const input = h('input', { className: 'input pair-code', type: 'text', inputMode: 'numeric', pattern: '[0-9]*', maxLength: 4, autocomplete: 'one-time-code', placeholder: '0000', ariaLabel: "Code affiché sur l'écran" });
+  const go = await choose({
+    title: 'Projeter sur un écran',
+    text: `Sur ta TV ou ton ordinateur, ouvre ${TV_URL} dans le navigateur, puis tape ici le code affiché.`,
+    extra: input,
+    actions: [{ label: 'Connecter', value: true, variant: 'primary' }, { label: 'Annuler', value: null }],
+  });
+  if (go) pair(input.value.trim());
+}
+
+// Appairage : l'écran attend dans une salle temporaire « pair-code » ; l'iPhone lui donne la salle permanente, gardée des deux côtés.
+async function pair(code) {
+  if (!/^\d{4}$/.test(code)) return toast('Le code fait 4 chiffres.', 'warning');
+  const room = state.screen?.room || crypto.randomUUID();
+  const ok = await new Promise((resolve) => {
+    const ws = new WebSocket(wsUrl(`pair-${code}`, 'phone'));
+    const timer = setTimeout(() => done(false), 6000);
+    function done(v) { clearTimeout(timer); ws.close(); resolve(v); }
+    ws.onmessage = (ev) => {
+      const m = parse(ev.data);
+      if (m?.type === 'presence' && m.tv > 0) ws.send(JSON.stringify({ type: 'adopt', room }));
+      if (m?.type === 'adopted') done(true);
+    };
+    ws.onerror = () => done(false);
+  });
+  if (!ok) return toast("Écran introuvable : vérifie le code affiché et que l'écran est connecté à internet.", 'warning');
+  socket?.close();
+  state.screen = { room, on: true };
+  save();
+  connectScreen();
+  toast('Écran connecté', 'success');
+}
+
+function forgetScreen() {
+  if (socket?.readyState === 1) socket.send(JSON.stringify({ type: 'forget' }));
+  state.screen = null;
+  save();
+  socket?.close();
+  setTv(0);
+  render();
+  toast('Écran oublié', 'info');
+}
+
+const loadText = (e, kg) => (e.load === 'pdc' ? 'Poids du corps' : kg == null ? 'Charge à choisir' : kgLabel(e, kg).replace(/^./, (c) => c.toUpperCase()));
+const repsText = (e, reps) => `${reps} ${e.unit === 's' ? 's' : 'rép.'}`;
+
+// Aperçu d'une séance à venir : exercices avec la charge conseillée, matériel à préparer.
+function preview(s, nextWeek) {
+  const entries = s.items.map((item) => {
+    const e = byId.get(item.ex);
+    const it = effective(item);
+    return { e, it, kg: e.load === 'pdc' ? null : tipFor(e, history(e.id))?.kg ?? null };
+  });
+  return {
+    when: s.day === weekday() && !nextWeek ? "Aujourd'hui" : DAYS[s.day],
+    items: entries.map(({ e, it, kg }) => ({ name: e.name, detail: `${it.sets} × ${it.reps}${e.unit === 's' ? ' s' : ''} · ${loadText(e, kg)}` })),
+    gear: gearList(entries, state.config.loads),
+  };
+}
+
+// Bilan chiffré d'une séance (écran projeté, fin de séance).
+function summaryData(items) {
+  const sets = sessionSets(state.active.session);
+  const planned = items.reduce((n, x) => n + x.it.sets, 0);
+  const volume = Math.round([...sets.values()].reduce((v, x) => v + (x.kg || 0) * x.reps, 0));
+  return {
+    stats: [[`${sets.size}/${planned}`, planned > 1 ? 'séries' : 'série'], [`${activeMinutes(state.active.session)} min`, 'effort'], [kgText(volume), 'volume']],
+    records: [...sets.values()].filter((x) => x.pr && byId.has(x.ex)).map((x) => `${byId.get(x.ex).name} : ${setText(byId.get(x.ex), x.kg, x.reps)}`),
+  };
+}
+
+// Instantané de la séance pour l'écran projeté (contrat v1, décrit dans tv/tv.js).
+function live() {
+  const base = { v: 1, at: Date.now(), voice: voiceOn(), upcoming: null, progress: null, ex: null, set: null, done: [], rest: null, next: null, record: null, summary: null, say: null };
+  if (!state.plan) return { ...base, phase: 'idle', title: 'Muscu auto' };
+  if (!state.active) {
+    if (state.ended && Date.now() - state.ended.t < 15 * 60000) return { ...base, phase: 'done', title: state.ended.title, summary: state.ended.summary };
+    const { index, nextWeek } = focusOf(state.plan, doneThisWeek());
+    const s = state.plan[index];
+    return { ...base, phase: 'idle', title: `${DAYS[s.day]} · ${s.name}`, upcoming: preview(s, nextWeek) };
+  }
+  const s = state.plan[state.active.day];
+  const sid = state.active.session;
+  const items = s.items.map(exercise);
+  let i = Math.min(state.listMode ? nextItem(items) : ui.at ?? nextItem(items), items.length);
+  // Exercice fini (l'iPhone demande le ressenti) : l'écran montre déjà le suivant, à préparer pendant le repos.
+  if (i < items.length && nextSet(items[i]) == null) {
+    const k = items.findIndex((y, j) => j > i && nextSet(y) != null);
+    i = k < 0 ? nextItem(items) : k;
+  }
+  const title = `${DAYS[s.day]} · ${s.name}`;
+  const progress = { ex: Math.min(i + 1, items.length), exCount: items.length, sets: items.reduce((n, x) => n + x.done.size, 0),
+    setCount: items.reduce((n, x) => n + x.it.sets, 0), minutes: activeMinutes(sid) };
+  const say = lastSay && Date.now() - lastSay.t < 10000 ? { id: lastSay.id, text: lastSay.text } : null;
+  if (state.active.paused) return { ...base, phase: 'paused', title, progress };
+  if (i >= items.length) return { ...base, phase: 'done', title, progress, summary: summaryData(items), say };
+  const x = items[i];
+  const { e, it } = x;
+  const n = nextSet(x);
+  const logged = sessionSets(sid);
+  const picked = n && ui.pick?.key === `${sid}|${e.id}|${n}` ? ui.pick : null;
+  const kg = picked ? picked.kg : startKg(x);
+  const reps = picked ? picked.reps : n && targetReps(it, x.past, kg, n, e.unit);
+  const bar = barPlan(e, kg);
+  const last = n && x.past.at(-1)?.sets.find((t) => t.set === n);
+  const approach = n === 1 ? warmup(e, kg, state.config.loads) : [];
+  const pr = [...logged.values()].filter((t) => t.pr && Date.now() - Date.parse(t.t) < 15000).at(-1);
+  const after = items[i + 1];
+  return {
+    ...base, phase: rest ? 'rest' : 'work', title, progress, say,
+    ex: { id: e.id, name: e.name, img: e.img, mus: e.mus, mus2: e.mus2, cues: (e.cues || [CUES[e.zone]]).slice(0, 3),
+      badge: x.tip.learning ? `Apprentissage ${x.tip.learning}/${LEARNING}` : null, note: x.tip.note },
+    set: n && { n, of: it.sets, target: repsText(e, reps), load: loadText(e, kg), plates: bar.plates || null, change: bar.change || null,
+      last: last ? `La dernière fois : ${setText(e, last.kg, last.reps)}` : null,
+      approach: approach.length ? `Approche : ${approach.map(([w, r]) => `${kgText(w)} × ${r}`).join(' · ')}` : null },
+    done: [...x.done.values()].sort((a, b) => a.set - b.set).map((t) => ({ n: t.set, text: setText(e, t.kg, t.reps), t: clock(t.t), record: !!logged.get(`${e.id}-${t.set}`)?.pr })),
+    rest: rest ? { end: restEnd, total: restTotal, say: restSay() } : null,
+    next: after ? { name: after.e.name, img: after.e.img, detail: `${after.it.sets} × ${after.it.reps}${after.e.unit === 's' ? ' s' : ''} · ${loadText(after.e, startKg(after))}` } : null,
+    record: pr ? { id: pr.t, text: `Record : ${setText(byId.get(pr.ex), pr.kg, pr.reps)}` } : null,
+  };
+}
+
+// --- Bilan pour Claude ---
+// Les 4 dernières semaines en texte, à coller dans Claude pour un avis de coach.
+function claudeText() {
+  const since = new Date(Date.now() - 28 * 864e5).toISOString();
+  const skip = cancelled(log);
+  const c = state.config;
+  const lines = [
+    'Voici mes 4 dernières semaines de musculation à domicile (appli Muscu auto). Analyse ma progression, ma régularité et mes ressentis, signale ce qui pourrait mener à une blessure, puis propose 3 ajustements concrets.',
+    '',
+    `Profil : ${LEVELS[c.level].label.toLowerCase()}, objectif ${GOALS[c.goal].label.toLowerCase()}, ${plural(c.days.length, 'séance')} par semaine (${c.days.map((d) => DAYS[d].toLowerCase()).join(', ')}), ${c.minutes} min.`,
+    `Matériel : ${c.equipment.map((q) => TAGS[q]).join(', ')}.`,
+    c.zones.length ? `Zones fragiles : ${c.zones.map((z) => ZONES[z]).join(', ')}.` : null,
+  ];
+  for (const st of log.filter((x) => x.type === 'start' && x.t >= since && !skip.has(x.session))) {
+    const entries = log.filter((x) => x.session === st.session);
+    const sets = entries.filter((x) => x.type === 'set' && byId.has(x.ex));
+    if (!sets.length) continue;
+    const fit = entries.find((x) => x.type === 'readiness');
+    lines.push('', `${new Date(st.t).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} · ${st.name}${fit ? ` · forme ${{ normal: 'bonne', hold: 'moyenne', light: 'basse' }[fit.level]}` : ''}`);
+    for (const id of new Set(sets.map((x) => x.ex))) {
+      const e = byId.get(id);
+      const last = new Map(sets.filter((x) => x.ex === id).map((x) => [x.set, x])); // la dernière saisie d'une série fait foi
+      const feel = entries.findLast((x) => x.ex === id && x.type === 'feel')?.feel;
+      const tech = entries.findLast((x) => x.ex === id && x.type === 'tech')?.ok;
+      lines.push(`- ${e.name} : ${[...last.values()].map((x) => setText(e, x.kg, x.reps)).join(', ')}${feel ? ` · ressenti ${FEELS.find(([v]) => v === feel)[1].toLowerCase()}` : ''}${tech === false ? ' · technique à revoir' : ''}`);
+    }
+  }
+  return lines.filter((l) => l != null).join('\n').replace(/ /g, ' ');
+}
+
+async function copyForClaude() {
+  try {
+    await navigator.clipboard.writeText(claudeText());
+    toast('Copié : colle-le dans une conversation avec Claude.', 'success');
+  } catch {
+    toast('Copie impossible sur cet appareil.', 'error');
+  }
+}
+
 // --- Sauvegarde automatique ---
 // Le journal est copié sur le serveur (push/worker.js) après chaque séance. Le code de récupération (identifiant aléatoire)
 // permet de le restaurer sur un autre iPhone : quiconque l'a peut lire le journal, il reste donc privé.
@@ -1282,6 +1796,7 @@ render();
 setTimeout(cloudBackup, 3000);
 // iOS peut renouveler ou révoquer l'abonnement push (mise à jour de l'appli…) : le serveur reçoit le dernier à chaque ouverture.
 if (pushOn()) subscribePush(state.config).catch(() => {});
+connectScreen();
 if (updated) toast(`Appli à jour : version du ${new Date(document.lastModified).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`, 'success');
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   const controlled = !!navigator.serviceWorker.controller; // au tout premier lancement, l'installation n'est pas une mise à jour

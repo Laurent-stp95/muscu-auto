@@ -1,0 +1,338 @@
+// Écran projeté (TV, ordinateur) : affiche la séance envoyée par l'iPhone, qui reste la source de vérité.
+// Relais WebSocket du serveur (push/worker.js, objet Screen). L'écran tient seul le chrono du repos : il sonne et annonce
+// même si l'iPhone se verrouille et coupe la connexion. Navigateurs de TV (Chromium 68+) : ES2018 au plus
+// (pas de ?., ??, flat, Object.fromEntries, replaceChildren, catch sans variable).
+//
+// Instantané reçu (s, version 1), construit par live() dans app.js :
+// { v: 1, at: Date.now() du téléphone à l'envoi, phase: 'idle'|'work'|'rest'|'paused'|'done', title, voice: bool,
+//   upcoming: { when, items: [{ name, detail }], gear: [texte] } | null,       // phase idle
+//   progress: { ex, exCount, sets, setCount, minutes } | null,
+//   ex: { id, name, img: ['img/…'], mus: [id], mus2: [id], cues: [texte], badge, note } | null,
+//   set: { n, of, target, load, plates, change, last, approach } | null,     // pendant le repos : la série qui suit
+//   done: [{ n, text, t, record }], rest: { end: ms (horloge du téléphone), total: ms, say } | null,
+//   next: { name, detail, img? } | null, record: { id, text } | null,       // img facultatif : préchargée
+//   summary: { stats: [[valeur, libellé]], records: [texte] } | null,      // phase done
+//   say: { id, text } | null }
+// Messages du serveur : presence { tv, phone } ; state { s, age? } (age : état gardé par le serveur, renvoyé à la connexion) ;
+// adopt { room } (appairage : la salle permanente) ; forget (l'iPhone oublie l'écran). Envoyé : adopted, et « ping » toutes les 30 s.
+
+const KEY = 'muscu-auto-screen';
+const UUID = /^[0-9a-f-]{36}$/;
+const FRONT = [1, 2, 3, 4, 6, 10, 13, 14]; // muscles visibles de face (wger is_front), comme app.js
+const VOICES = ['Amélie', 'Thomas', 'Audrey', 'Aurélie'];
+const $ = (id) => document.getElementById(id);
+
+let started = false, room = null, sock = null, online = false, phones = 0, delay = 1000, retry = 0, ping = 0, codeTimer = 0;
+let s = null; // dernier instantané
+let rest = null; // repos en cours : { key: rest.end du téléphone, end: fin sur notre horloge, total, say, voice }
+let over = null; // dernier repos terminé (sa clé) : jamais relancé ni resonné
+let tickTimer = 0, said = null, recorded = null, bannerTimer = 0, audio = null, lock = null;
+
+// Maquette en rem sur une base 1920 × 1080 : même rendu de 1280 × 720 à la 4K.
+function scale() { document.documentElement.style.fontSize = Math.min(innerWidth / 1920, innerHeight / 1080) * 24 + 'px'; }
+addEventListener('resize', scale);
+scale();
+
+function h(tag, props, ...kids) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...kids.filter((k) => k != null && k !== ''));
+  return node;
+}
+
+// Texte réécrit seulement s'il change ; vide = élément masqué.
+function text(id, value) {
+  const node = $(id), v = value == null ? '' : String(value);
+  if (node.textContent !== v) node.textContent = v;
+  node.hidden = !v;
+}
+
+// Liste reconstruite seulement si son contenu change.
+function list(id, items, make) {
+  const node = $(id), key = JSON.stringify(items || []);
+  node.hidden = !(items && items.length);
+  if (node.dataset.key === key) return;
+  node.dataset.key = key;
+  node.textContent = '';
+  (items || []).forEach((it) => node.append(make(it)));
+}
+
+// --- Connexion ---
+
+// Serveur : PUSH.url (https → wss). ?server=… n'est pris en compte qu'en local, pour tester avec wrangler dev.
+function serverUrl() {
+  const dev = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && new URLSearchParams(location.search).get('server');
+  return (dev || PUSH.url).replace(/^http/, 'ws');
+}
+
+function connect(name) {
+  if (sock) { sock.onclose = sock.onmessage = null; sock.close(); } // changement de salle : l'ancienne ne se reconnecte pas
+  clearTimeout(retry);
+  clearInterval(ping);
+  const ws = sock = new WebSocket(serverUrl() + '/screen?room=' + name + '&role=tv');
+  setOnline(false);
+  ws.onopen = () => {
+    delay = 1000;
+    ping = setInterval(() => ws.send('ping'), 30000); // le serveur répond seul, sans se réveiller
+    setOnline(true);
+  };
+  ws.onmessage = (e) => {
+    let m;
+    try { m = JSON.parse(e.data) || {}; } catch (err) { return; } // « pong »
+    if (m.type === 'presence') { phones = m.phone; render(); }
+    else if (m.type === 'state') onState(m);
+    else if (m.type === 'adopt' && !room && UUID.test(m.room)) adopt(m.room);
+    else if (m.type === 'forget' && room) forget();
+  };
+  // Coupure (réseau, serveur redéployé) : reconnexion de plus en plus espacée, 1 s → 30 s.
+  ws.onclose = () => {
+    clearInterval(ping);
+    setOnline(false);
+    retry = setTimeout(() => connect(name), delay);
+    delay = Math.min(delay * 2, 30000);
+  };
+}
+
+function setOnline(v) {
+  online = v;
+  if (!v) phones = 0;
+  document.body.classList.toggle('offline', !v);
+  render();
+}
+
+// Pas de salle : un code à 4 chiffres (salle temporaire pair-XXXX), renouvelé toutes les 10 min.
+function pair() {
+  const code = String(Math.floor(Math.random() * 1e4)).padStart(4, '0');
+  list('code', code.split(''), (d) => h('span', {}, d));
+  $('code').setAttribute('aria-label', 'Code ' + code.split('').join(' '));
+  clearTimeout(codeTimer);
+  codeTimer = setTimeout(pair, 600000);
+  connect('pair-' + code);
+}
+
+// Appairage réussi : salle permanente gardée, l'écran s'y reconnecte et reçoit aussitôt le dernier état.
+function adopt(id) {
+  sock.send(JSON.stringify({ type: 'adopted' }));
+  store(id);
+  room = id;
+  clearTimeout(codeTimer);
+  connect(id);
+}
+
+// L'iPhone oublie l'écran : retour au code.
+function forget() {
+  store(null);
+  room = null;
+  s = rest = null;
+  clearTimeout(tickTimer);
+  pair();
+}
+
+function stored() {
+  try { const v = localStorage.getItem(KEY); return UUID.test(v) ? v : null; } catch (e) { return null; }
+}
+function store(v) {
+  try { if (v) localStorage.setItem(KEY, v); else localStorage.removeItem(KEY); } catch (e) { /* stockage bloqué : appairage à refaire au prochain lancement */ }
+}
+
+// --- Instantané ---
+
+function onState(m) {
+  const age = m.age || 0, next = m.s && m.s.v === 1 ? m.s : null;
+  const r = next && next.phase === 'rest' ? next.rest : null;
+  // Repos en cours qui disparaît : l'iPhone l'a fini juste avant nous (moins de 3 s, il ne sonne pas quand l'écran est là),
+  // ou il a été passé, ou rallongé (nouvelle fin) : sans bip.
+  if (rest && !(r && r.end === rest.key)) endRest(!r && rest.end - Date.now() < 3000);
+  if (rest && r) { rest.say = r.say; rest.voice = next.voice; } // charge changée pendant le repos : l'annonce suit
+  // Nouveau repos : les horloges diffèrent, la fin se recale sur l'heure de réception (moins l'ancienneté d'un état renvoyé).
+  if (r && !rest && r.end !== over) {
+    const end = Date.now() - age + (r.end - next.at);
+    if (end > Date.now()) rest = { key: r.end, end, total: r.total, say: r.say, voice: next.voice };
+    else over = r.end; // déjà fini à la réception : pas de bip en retard
+  }
+  s = next;
+  const fresh = age < 10000; // état gardé depuis plus longtemps par le serveur : ni annonce ni bandeau en retard
+  if (s && s.say && s.say.id !== said) { said = s.say.id; if (fresh && s.voice) speak(s.say.text); }
+  if (s && s.record && s.record.id !== recorded) { recorded = s.record.id; if (fresh) banner(s.record.text); }
+  if (s && s.next && s.next.img) s.next.img.forEach((src) => { new Image().src = '../' + src; }); // exercice suivant préchargé
+  render();
+  tick();
+}
+
+// Chrono : texte mis à jour à chaque changement de seconde ; l'anneau tourne seul en CSS.
+function tick() {
+  clearTimeout(tickTimer);
+  if (!rest) return;
+  const ms = rest.end - Date.now();
+  if (ms <= 0) { endRest(true); render(); return; }
+  const left = Math.ceil(ms / 1000);
+  text('count', Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0'));
+  tickTimer = setTimeout(tick, ms - (left - 1) * 1000 + 10);
+}
+
+// Fin du repos : triple bip puis l'annonce de la série suivante, une seule fois par repos.
+function endRest(ring) {
+  clearTimeout(tickTimer);
+  const r = rest;
+  over = r.key;
+  rest = null;
+  if (!ring) return;
+  beep();
+  if (r.voice && r.say) setTimeout(() => speak(r.say), 800);
+}
+
+// Anneau : une animation CSS sur toute la durée du repos, décalée du temps écoulé (rien à calculer à chaque image).
+// Relancée à chaque affichage : même position, et juste même si la vue était masquée.
+function ring() {
+  const arc = $('arc'), total = rest.total || 1;
+  arc.style.animation = 'none';
+  arc.getBoundingClientRect();
+  arc.style.animation = 'ring ' + total + 'ms linear ' + (rest.end - Date.now() - total) + 'ms both';
+}
+
+// --- Affichage : squelette fixe dans index.html, seuls les textes qui changent sont réécrits ---
+
+function render() {
+  if (!started) return;
+  // Repos fini ici avant que l'iPhone le dise : la série suivante passe à l'écran.
+  const phase = !s ? null : s.phase === 'rest' && !rest ? 'work' : s.phase;
+  const live = phase === 'work' || phase === 'rest' || phase === 'paused';
+  const idle = phase === 'idle' && !!s.upcoming;
+  const view = !room ? 'pair' : live || idle || phase === 'done' ? 'session' : 'wait';
+  ['start', 'pair', 'wait', 'session'].forEach((v) => { $(v).hidden = v !== view; });
+  if (view !== 'session') return;
+  const p = live ? s.progress : null;
+  text('title', s.title);
+  list('segs', p && Array.from({ length: p.exCount }, (_, i) => (i + 1 < p.ex ? 'on' : i + 1 === p.ex ? 'now' : '')), (c) => h('i', { className: c }));
+  const status = live && phones === 0 ? 'iPhone déconnecté : le chrono continue' : !online ? 'Connexion au serveur…' : '';
+  text('status', status);
+  text('prog', p && !status ? p.sets + '/' + p.setCount + ' séries · ' + p.minutes + ' min' : '');
+  $('live').hidden = !(live && s.ex);
+  $('idle').hidden = !idle;
+  $('done').hidden = phase !== 'done';
+  $('pause').hidden = phase !== 'paused';
+  $('foot').hidden = !live;
+  if (live) renderLive(phase);
+  else if (idle) renderIdle(s.upcoming);
+  else renderDone(s.summary || {});
+}
+
+function renderLive(phase) {
+  const ex = s.ex || {}, set = s.set || {}, resting = phase === 'rest';
+  list('shots', ex.img, (src) => h('img', { src: '../' + src, alt: '' }));
+  bodies(ex.mus || [], ex.mus2 || []);
+  text('ex-name', ex.name);
+  text('badge', ex.badge);
+  list('cues', ex.cues, (c) => h('li', {}, c));
+  $('state').classList.toggle('resting', resting);
+  if (resting) ring();
+  text('label', set.n ? (resting ? 'Prochaine : série ' : 'Série ') + set.n + ' sur ' + set.of : '');
+  text('target', set.target);
+  text('load', set.load);
+  $('load').classList.toggle('long', String(set.load || '').length > 9);
+  text('plates', set.plates);
+  text('change', set.change);
+  text('last', resting ? '' : set.last);
+  text('approach', resting ? '' : set.approach);
+  text('note', resting ? '' : ex.note);
+  const done = s.done || [], d = done[done.length - 1];
+  $('prev').hidden = !d;
+  text('prev-text', d ? 'Série ' + d.n + ' : ' + d.text + (d.t ? ' · ' + d.t : '') : '');
+  text('prev-record', d && d.record ? 'Record' : '');
+  $('next').hidden = !s.next;
+  text('next-name', s.next ? s.next.name : '');
+  text('next-detail', s.next && s.next.detail ? ' · ' + s.next.detail : '');
+}
+
+// Muscles travaillés : silhouettes de face et de dos, principaux en rouge, secondaires en orange (comme la fiche de l'appli).
+function bodies(mus, mus2) {
+  const node = $('bodies'), key = JSON.stringify([mus, mus2]);
+  if (node.dataset.key === key) return;
+  node.dataset.key = key;
+  node.textContent = '';
+  [true, false].forEach((front) => {
+    const img = (src) => h('img', { src: '../muscles/' + src, alt: '' });
+    const layer = (ids, dir) => ids.filter((m) => FRONT.includes(m) === front).map((m) => img(dir + '/muscle-' + m + '.svg'));
+    node.append(h('div', { className: 'body' }, img('muscular_system_' + (front ? 'front' : 'back') + '.svg'), ...layer(mus2, 'secondary'), ...layer(mus, 'main')));
+  });
+}
+
+function renderIdle(u) {
+  text('when', u.when);
+  list('items', u.items, (it) => h('li', {}, h('span', { className: 'name' }, it.name), h('span', { className: 'detail' }, it.detail)));
+  list('gear', u.gear, (g) => h('li', {}, g));
+  $('gear-card').hidden = !(u.gear && u.gear.length);
+}
+
+function renderDone(sum) {
+  list('stats', sum.stats, (st) => h('div', { className: 'stat' }, h('strong', {}, st[0]), h('span', {}, st[1])));
+  list('records', sum.records, (r) => h('li', {}, r));
+  $('recs').hidden = !(sum.records && sum.records.length);
+}
+
+// Heure en haut à droite, à chaque minute pile.
+function clock() {
+  text('clock', new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
+  setTimeout(clock, 60000 - Date.now() % 60000 + 50);
+}
+clock();
+
+function banner(msg) {
+  text('record-text', msg);
+  $('record').classList.add('show');
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(() => $('record').classList.remove('show'), 5000);
+}
+
+// --- Son, voix, écran allumé ---
+
+// Triple bip de fin de repos, comme beep() d'app.js.
+function beep() {
+  if (!audio) return;
+  [0, 0.25, 0.5].forEach((at) => {
+    const osc = audio.createOscillator(), gain = audio.createGain();
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.3, audio.currentTime + at);
+    gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + at + 0.2);
+    osc.connect(gain).connect(audio.destination);
+    osc.start(audio.currentTime + at);
+    osc.stop(audio.currentTime + at + 0.2);
+  });
+}
+
+// Voix française de l'appareil : Amélie, Thomas, Audrey, Aurélie, sinon toute voix française.
+function speak(say) {
+  const synth = window.speechSynthesis;
+  if (!synth || !say) return;
+  const u = new SpeechSynthesisUtterance(say);
+  u.lang = 'fr-FR';
+  const fr = synth.getVoices().filter((v) => /^fr/i.test(v.lang));
+  u.voice = VOICES.map((name) => fr.find((v) => v.name.startsWith(name))).find(Boolean) || fr.find((v) => /fr.FR/i.test(v.lang)) || fr[0] || null;
+  if (synth.speaking || synth.pending) synth.cancel(); // la nouvelle annonce remplace l'ancienne
+  synth.speak(u);
+}
+
+function awake() {
+  if (!navigator.wakeLock || lock) return;
+  navigator.wakeLock.request('screen').then((l) => { lock = l; l.addEventListener('release', () => { lock = null; }); }, () => {});
+}
+document.addEventListener('visibilitychange', () => { if (started && document.visibilityState === 'visible') awake(); });
+
+function fullscreen() {
+  const el = document.documentElement, go = el.requestFullscreen || el.webkitRequestFullscreen;
+  try { const p = go && go.call(el); if (p && p.catch) p.catch(() => {}); } catch (e) { /* refusé : on reste en fenêtre */ }
+}
+
+// Premier geste obligatoire : sans lui, navigateurs et TV bloquent le son et la voix.
+function start() {
+  if (started) return;
+  started = true;
+  try { audio = new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch (e) { /* pas de WebAudio : pas de bip */ }
+  const synth = window.speechSynthesis;
+  if (synth) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; synth.speak(u); synth.getVoices(); } // débloque la voix, charge la liste
+  awake();
+  fullscreen();
+  room = stored();
+  if (room) connect(room); else pair();
+}
+$('start').addEventListener('click', start);
+addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.keyCode === 13) start(); }); // touche OK de la télécommande

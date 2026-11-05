@@ -11,6 +11,15 @@ VAPID_PUBLIC = "BMHQQZb51_wO96yAlf32lOcSgk5GNZrfrCGsq0EC-FuhjX8LOs4m4IxR8ot1t1DO
 name = "SUBSCRIBERS"
 class_name = "Subscriber"
 
+# Écran projeté : une salle WebSocket par objet (GET /screen).
+[[durable_objects.bindings]]
+name = "SCREENS"
+class_name = "Screen"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Subscriber"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Screen"]

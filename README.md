@@ -7,6 +7,7 @@ Ouvrir `index.html` via un serveur (`python3 -m http.server`), aucune dépendanc
 - `liste.json` : les exercices retenus (nom français, zone, matériel, consignes).
 - `extract.py` : reconstruit `data.js` et `img/` depuis `liste.json` et les données wger.
 - `plan.js` : génération des séances et règles de progression ; `app.js` : interface.
+- `tv/` : écran projeté (TV, ordinateur), piloté par l'iPhone ; `push/` : serveur Cloudflare (notifications, sauvegarde, relais de l'écran). Tests du relais : `node push/screen-test.mjs <url du serveur>`.
 
 ## Sources et licences
 
