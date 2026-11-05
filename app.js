@@ -562,7 +562,7 @@ function week() {
   return h('div', { className: 'screen' },
     h('header', { className: 'stack tight' },
       h('div', { className: 'top' }, h('h1', {}, 'Ma semaine'),
-        h('div', { className: 'row' }, button(null, projectSheet, { variant: 'plain', icon: 'tv', ariaLabel: 'Projeter sur un écran', className: `btn plain${projected() ? ' on' : ''}` }), button('Réglages', openSettings, { variant: 'plain' }))),
+        h('div', { className: 'row' }, button(null, projectSheet, { variant: 'plain', icon: 'tv', ariaLabel: 'Projeter sur un écran', className: 'btn plain screen-btn' }), button('Réglages', openSettings, { variant: 'plain' }))),
       h('p', { className: 'meta' }, `Semaine ${Math.min(n, CYCLE_WEEKS)} sur ${CYCLE_WEEKS} du cycle`)),
     weekProgress(plan, done, focus),
     deload && banner('leaf', 'Semaine allégée',
@@ -1453,6 +1453,8 @@ setInterval(() => { if (socket?.readyState === 1) socket.send('ping'); }, 30000)
 function setTv(n) {
   if (tvCount === n) return;
   tvCount = n;
+  // Couleur « connecté » portée par body : juste aussi sur les écrans gardés en mémoire.
+  document.body.classList.toggle('projecting', projected());
   document.querySelector('.projector')?.replaceWith(projector());
 }
 
@@ -1475,7 +1477,7 @@ function announce(text) {
 
 function projector() {
   const label = !state.screen?.on ? 'Projeter sur un écran' : projected() ? "Projeté sur l'écran" : "En attente de l'écran…";
-  return button(label, projectSheet, { variant: 'plain', icon: 'tv', className: `btn plain projector${projected() ? ' on' : ''}` });
+  return button(label, projectSheet, { variant: 'plain', icon: 'tv', className: 'btn plain projector' });
 }
 
 async function projectSheet() {
