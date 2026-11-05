@@ -2,9 +2,10 @@
 // et sauvegarde automatique du journal.
 // Un Durable Object par iPhone (id aléatoire tiré par l'appli) : abonnement, réglages, prochaine échéance en alarme.
 // Les push partent sans contenu : le service worker de l'appli demande ensuite le message (GET /message), pas de chiffrement à gérer.
-import { nextReminder } from './schedule.js';
+import { nextReminder, missedSessions } from './schedule.js';
 
 const ORIGIN = 'https://laurent-stp95.github.io';
+const plural = (n, one, many) => `${n} ${n > 1 ? many : one}`;
 const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
 export default {
@@ -188,12 +189,18 @@ export class Subscriber {
     return json({ error: 'introuvable' }, 404);
   }
 
-  // Une seule alarme par Durable Object : la plus proche entre l'annonce du repos, sa fin et le prochain rappel.
+  // Une seule alarme par Durable Object : la plus proche entre l'annonce du repos, sa fin, le prochain rappel et le bilan du dimanche.
   async schedule() {
-    const [notice, rest, reminder] = [await this.storage.get('restNotice'), await this.storage.get('rest'), await this.nextReminder()];
-    const at = Math.min(notice || Infinity, rest || Infinity, reminder?.at || Infinity);
+    const [notice, rest, reminder, weekly] = [await this.storage.get('restNotice'), await this.storage.get('rest'), await this.nextReminder(), await this.nextWeekly()];
+    const at = Math.min(notice || Infinity, rest || Infinity, reminder?.at || Infinity, weekly?.at || Infinity);
     if (at === Infinity) await this.storage.deleteAlarm();
     else await this.storage.setAlarm(at);
+  }
+
+  // Bilan de la semaine : dimanche 19 h, heure de l'iPhone.
+  async nextWeekly(now = Date.now()) {
+    const [reminders, tz] = [await this.storage.get('reminders'), await this.storage.get('tz')];
+    return reminders?.weekly ? nextReminder({ days: [6], time: '19:00', before: 0 }, tz, now) : null;
   }
 
   async nextReminder(now = Date.now()) {
@@ -220,7 +227,15 @@ export class Subscriber {
       await this.storage.put('lastReminder', reminder.at);
       const reminders = await this.storage.get('reminders');
       const name = reminders.sessions?.[reminder.day];
-      await this.send({ title: `Séance dans ${reminders.before} min`, body: `${DAYS[reminder.day]}${name ? ` · ${name}` : ''}. Pense à t'échauffer.`, tag: 'reminder' });
+      // Deux séances prévues ou plus passées sans entraînement : le rappel invite à reprendre en douceur.
+      const missed = missedSessions(reminders.days, await this.storage.get('tz'), reminders.last, now);
+      const body = missed >= 2 ? `${plural(missed, 'séance manquée', 'séances manquées')} : on reprend en douceur, l'appli adapte les charges.` : "Pense à t'échauffer.";
+      await this.send({ title: `Séance dans ${reminders.before} min`, body: `${DAYS[reminder.day]}${name ? ` · ${name}` : ''}. ${body}`, tag: 'reminder' });
+    }
+    const weekly = await this.nextWeekly(now - 60000);
+    if (weekly && weekly.at <= now + 1000 && (await this.storage.get('lastWeekly')) !== weekly.at) {
+      await this.storage.put('lastWeekly', weekly.at);
+      await this.send({ title: 'Ton bilan de la semaine', body: 'Séances, records et charges en hausse : touche pour voir.', tag: 'weekly', url: '#bilan' });
     }
     await this.schedule();
   }

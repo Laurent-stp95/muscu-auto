@@ -40,12 +40,16 @@ self.addEventListener('push', (ev) => ev.waitUntil((async () => {
     const id = await (await (await caches.open('muscu-auto-push')).match('id'))?.text();
     if (id) message = await (await fetch(`${PUSH.url}/message?id=${id}`, { cache: 'no-store' })).json();
   } catch { /* hors ligne : message générique */ }
-  await self.registration.showNotification(message.title, { body: message.body, tag: message.tag, icon: 'icon-192.png', badge: 'icon-192.png' });
+  await self.registration.showNotification(message.title, { body: message.body, tag: message.tag, icon: 'icon-192.png', badge: 'icon-192.png', data: { url: message.url } });
 })()));
 
-// Toucher la notification : rouvre l'appli (ou la lance).
+// Toucher la notification : rouvre l'appli (ou la lance). Bilan de la semaine : directement sur Progrès.
 self.addEventListener('notificationclick', (ev) => {
   ev.notification.close();
-  ev.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-    .then((clients) => (clients[0] ? clients[0].focus() : self.clients.openWindow('./'))));
+  const bilan = (ev.notification.data || {}).url === '#bilan';
+  ev.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+    if (!clients[0]) return self.clients.openWindow(bilan ? './#bilan' : './');
+    if (bilan) clients[0].postMessage('bilan');
+    return clients[0].focus();
+  }));
 });

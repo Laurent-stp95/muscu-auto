@@ -12,7 +12,7 @@
 //   done: [{ n, text, t, record }], rest: { end: ms (horloge du téléphone), total: ms, say } | null,
 //   next: { name, detail, img? } | null, record: { id, text } | null,       // img facultatif : préchargée
 //   summary: { stats: [[valeur, libellé]], records: [texte] } | null,      // phase done
-//   say: { id, text } | null }
+//   say: { id, text } | null, label: texte | absent }                         // label : remplace « Série n sur N » (échauffement)
 // Messages du serveur : presence { tv, phone } ; state { s, age? } (age : état gardé par le serveur, renvoyé à la connexion) ;
 // adopt { room } (appairage : la salle permanente) ; forget (l'iPhone oublie l'écran). Envoyé : adopted, et « ping » toutes les 30 s.
 
@@ -222,13 +222,14 @@ function render() {
 function renderLive(phase) {
   const ex = s.ex || {}, set = s.set || {}, resting = phase === 'rest';
   list('shots', ex.img, (src) => h('img', { src: '../' + src, alt: '' }));
+  document.querySelector('.visual').classList.toggle('bare', !(ex.img && ex.img.length));
   bodies(ex.mus || [], ex.mus2 || []);
   text('ex-name', ex.name);
   text('badge', ex.badge);
   list('cues', ex.cues, (c) => h('li', {}, c));
   $('state').classList.toggle('resting', resting);
   if (resting) ring();
-  text('label', set.n ? (resting ? 'Prochaine : série ' : 'Série ') + set.n + ' sur ' + set.of : '');
+  text('label', s.label || (set.n ? (resting ? 'Prochaine : série ' : 'Série ') + set.n + ' sur ' + set.of : ''));
   text('target', set.target);
   text('load', set.load);
   $('load').classList.toggle('long', String(set.load || '').length > 9);

@@ -70,6 +70,10 @@
   .bodies { display: grid; grid-auto-flow: column; gap: .5rem; align-self: end; }
   .body { position: relative; width: 5rem; height: 9.225rem; }
   .body img { position: absolute; top: 0; left: 0; width: 100%; }
+  /* Sans image (échauffement) : les silhouettes, en plus grand, au centre */
+  .visual.bare { grid-template-columns: minmax(0, 1fr); }
+  .visual.bare .bodies { align-self: center; justify-self: center; gap: 2rem; }
+  .visual.bare .body { width: 8rem; height: 14.76rem; }
   .ex-head { display: flex; align-items: center; min-width: 0; }
   .ex-head h2 { overflow: hidden; font-size: 2.25rem; font-weight: 700; line-height: 1.15; white-space: nowrap; text-overflow: ellipsis; }
   .badge { flex: none; margin-left: 1rem; padding: .25rem .875rem; border-radius: 2rem; background: rgba(200, 68, 29, .3); color: var(--accent-ink); font-size: 1.125rem; font-weight: 600; white-space: nowrap; }
@@ -254,6 +258,6 @@
 </button>
 
 <script src="../push-config.js"></script>
-<script src="tv.js?v=3"></script> <!-- v à changer avec tv.js -->
+<script src="tv.js?v=5"></script> <!-- v à changer avec tv.js -->
 </body>
 </html>

@@ -383,12 +383,29 @@ function gearList(entries, loads) {
   });
 }
 
+// Durée estimée d'un exercice, en minutes : séries × (45 s d'effort + repos) + 2 min de mise en place (charge, réglages).
+const itemMinutes = (it) => (it.sets * (45 + it.rest) + 120) / 60;
+const sessionMinutes = (items) => Math.round(items.reduce((m, it) => m + (it.sets ? itemMinutes(it) : 0), 0));
+
+// Séance express : tenir en `minutes`. Les 2 premiers exercices (les plus lourds) restent entiers ; on retire d'abord
+// une série aux suivants (2 minimum), puis les exercices d'isolation en partant de la fin, puis les autres.
+// items = [{ ex, sets, rest }] ; retourne { [ex]: séries gardées } (0 = exercice retiré aujourd'hui).
+function express(exos, items, minutes) {
+  const zone = new Map(exos.map((e) => [e.id, e.zone]));
+  const keep = items.map((it) => ({ ...it }));
+  const over = () => sessionMinutes(keep) > minutes;
+  for (const it of keep.slice(2)) if (over() && it.sets > 2) it.sets -= 1;
+  const tail = keep.slice(2).reverse();
+  for (const it of [...tail.filter((x) => ISOLATION_ZONES.includes(zone.get(x.ex))), ...tail.filter((x) => !ISOLATION_ZONES.includes(zone.get(x.ex)))]) if (over()) it.sets = 0;
+  return Object.fromEntries(keep.map((it) => [it.ex, it.sets]));
+}
+
 // Courbe indicative sur `weeks` semaines au rythme du niveau.
 function project(kg, level, weeks = 8) {
   return Array.from({ length: weeks }, (_, w) => roundHalf(kg * (1 + LEVELS[level].weekly) ** (w + 1)));
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { plates, plateChange, recordKind, daysOff, comeback, gearList, targetReps, generate, exerciseCount, backToBack, swap, repair, renew, available, cancelled, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
-    kgLabel, range, SLOTS, SESSIONS, GOALS, LEVELS, ZONES, CUES, TAGS, BODYWEIGHT, MAX_DAYS, LEARNING, CYCLE_WEEKS };
+  module.exports = { express, sessionMinutes, plates, plateChange, recordKind, daysOff, comeback, gearList, targetReps, generate, exerciseCount, backToBack, swap, repair, renew, available, cancelled, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
+    kgLabel, range, ISOLATION_ZONES, SLOTS, SESSIONS, GOALS, LEVELS, ZONES, CUES, TAGS, BODYWEIGHT, MAX_DAYS, LEARNING, CYCLE_WEEKS };
 }

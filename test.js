@@ -183,5 +183,16 @@ assert.match(tip(squat, log, { comeback: 0.9 }).note, /Reprise/);
 assert.deepStrictEqual(P.gearList([{ e: squat, kg: 41.5 }, { e: squat, kg: 59 }, { e: curl, kg: 10 }], LOADS),
   [`Smith machine (jusqu'à 20\u00a0kg de chaque côté)`, `Haltères 10\u00a0kg`]);
 
+// Séance express : les 2 premiers exercices restent entiers, l'isolation part d'abord, la durée tient.
+const day = generate(EXOS, { ...base, minutes: 60 })[0].items;
+const fit20 = P.express(EXOS, day, 20);
+assert.deepStrictEqual(day.slice(0, 2).map((it) => fit20[it.ex]), day.slice(0, 2).map((it) => it.sets));
+assert.ok(P.sessionMinutes(day.map((it) => ({ ...it, sets: fit20[it.ex] }))) <= 20 || day.slice(2).every((it) => fit20[it.ex] === 0));
+const iso = day.slice(2).filter((it) => P.ISOLATION_ZONES.includes(byId.get(it.ex).zone));
+const other = day.slice(2).filter((it) => !P.ISOLATION_ZONES.includes(byId.get(it.ex).zone));
+if (iso.length && other.some((it) => fit20[it.ex] > 0)) assert.ok(iso.every((it) => fit20[it.ex] === 0));
+const roomy = P.express(EXOS, day, 999);
+assert.ok(day.every((it) => roomy[it.ex] === it.sets));
+
 for (const x of plan) console.log(x.day, x.name, x.items.map((it) => byId.get(it.ex).name).join(' | '));
 console.log('OK');

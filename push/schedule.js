@@ -34,3 +34,16 @@ export function nextReminder(reminders, timeZone, now) {
   }
   return null;
 }
+
+// Séances prévues passées sans entraînement : jours de `days` (0 = lundi) strictement entre la dernière séance et aujourd'hui.
+export function missedSessions(days, timeZone, lastIso, now) {
+  if (!lastIso || !days?.length) return 0;
+  const today = localDay(now, timeZone);
+  let count = 0;
+  for (let ts = Date.parse(lastIso) + 864e5, i = 0; i < 60; ts += 864e5, i++) {
+    const d = localDay(ts, timeZone);
+    if (d.y === today.y && d.m === today.m && d.d === today.d) break;
+    if (days.includes(d.weekday)) count++;
+  }
+  return count;
+}
