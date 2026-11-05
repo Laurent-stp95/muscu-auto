@@ -257,15 +257,15 @@ function suggest(e, item, past, { loads, learned: done = past.length, deload = f
   const same = (kg, note, extra) => ({ kg, note, mode: 'normal', plafond: false, learning: null, ...extra });
   if (!last) {
     return same(e.load === 'smith' ? null : list[0] ?? null, e.load === 'smith'
-      ? `Apprentissage 1/${LEARNING} : commence léger (barre seule si besoin) et garde au moins 3 répétitions en réserve.`
-      : `Apprentissage 1/${LEARNING} : concentre-toi sur le geste, garde au moins 3 répétitions en réserve.`, { learning: 1 });
+      ? `Séance 1 sur ${LEARNING} pour apprendre le geste : commence léger (barre seule si besoin), garde au moins 3 répétitions en réserve. La charge augmentera ensuite.`
+      : `Séance 1 sur ${LEARNING} pour apprendre le geste : concentre-toi sur le mouvement, garde au moins 3 répétitions en réserve.`, { learning: 1 });
   }
   const kg = e.load === 'pdc' ? null : topKg(last) || null;
   const lighter = (ratio) => (kg == null ? null : e.load === 'smith' ? below(list, kg * ratio) : below(list, Math.min(kg * ratio, kg - 0.01)) ?? kg);
   if (last.feel === 'pain') return same(lighter(0.8), 'Douleur signalée : charge réduite. Si elle revient, arrête cet exercice.');
   if (back) return same(lighter(back), `Reprise après une pause : charge −${Math.round((1 - back) * 100)} % aujourd'hui, la progression repart ensuite.`);
   if (deload) return same(lighter(0.9), 'Semaine allégée : moitié moins de séries, charge −10 %. Laisse ton corps récupérer.');
-  if (done < LEARNING) return same(kg, `Apprentissage ${done + 1}/${LEARNING} : même charge, soigne la technique.`, { learning: done + 1 });
+  if (done < LEARNING) return same(kg, `Séance ${done + 1} sur ${LEARNING} pour apprendre le geste : même charge que la dernière fois, soigne la technique. La charge augmentera ensuite.`, { learning: done + 1 });
   if (last.tech === false) return same(kg, 'Technique à revoir : même charge. Filme-toi pour vérifier.');
   const missed = (s) => s.sets.some((x) => x.reps < lo);
   if (missed(last) && past.length > 1 && missed(past.at(-2))) return same(lighter(0.9), "Deux séances sous l'objectif : charge allégée.");

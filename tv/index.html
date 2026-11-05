@@ -131,6 +131,14 @@
   .record .icon { width: 3rem; height: 3rem; margin-right: 1.25rem; }
   .record-title { font-size: 2rem; font-weight: 700; }
 
+  /* Plein écran : bouton rond en bas à droite, visible seulement quand la souris bouge (souris cachée sinon) */
+  .fs { position: fixed; right: 2vw; bottom: 2vh; z-index: 10; display: grid; place-items: center; width: 3.5rem; height: 3.5rem; padding: 0; border: 0; border-radius: 50%; background: var(--fill); color: var(--fg); opacity: 0; cursor: pointer; transition: opacity .3s; }
+  .fs .icon { width: 1.5rem; height: 1.5rem; }
+  .fs .exit, .full .fs .enter { display: none; }
+  .full .fs .exit { display: block; }
+  .pointer .fs, .fs:focus { opacity: 1; }
+  .pointer .session { cursor: auto; }
+
   /* Fenêtre étroite ou portrait (moins de 4/3) : colonnes empilées, carte d'état en premier, la page défile si besoin */
   @media not all and (min-aspect-ratio: 4/3) {
     .view { overflow-y: auto; }
@@ -161,12 +169,14 @@
   <img class="app-icon small" src="../icon-192.png" alt="">
   <p class="msg">Lance une séance sur ton iPhone.</p>
   <p class="net muted">Connexion au serveur…</p>
+  <button class="btn repair" type="button">Nouveau code d'association</button>
 </div>
 
 <div id="stopped" class="view center" hidden>
   <img class="app-icon small" src="../icon-192.png" alt="">
   <p class="msg">Rien n'est projeté pour l'instant</p>
   <p class="lead">Pour afficher ta séance ici, touche Projeter dans Muscu auto sur ton iPhone.</p>
+  <button class="btn repair" type="button">Nouveau code d'association</button>
 </div>
 
 <div id="session" class="view session" hidden>
@@ -238,7 +248,12 @@
   <div><p class="record-title">Nouveau record</p><p id="record-text"></p></div>
 </div>
 
+<button id="fs" class="fs" type="button" aria-label="Plein écran" hidden>
+  <svg class="icon enter" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+  <svg class="icon exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
+</button>
+
 <script src="../push-config.js"></script>
-<script src="tv.js"></script>
+<script src="tv.js?v=3"></script> <!-- v à changer avec tv.js -->
 </body>
 </html>

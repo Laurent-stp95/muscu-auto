@@ -915,7 +915,7 @@ function focusView(s, d) {
     h('div', { className: 'stack tight center' },
       h('h2', { className: 'title' }, e.name),
       h('p', { className: 'meta' }, n ? `Série ${n} sur ${it.sets} · ${it.reps}${e.unit === 's' ? ' s' : ' rép.'}` : plural(x.done.size, 'série faite', 'séries faites')),
-      tip.learning && h('div', {}, h('span', { className: 'badge' }, `Apprentissage ${tip.learning}/${LEARNING}`))),
+      tip.learning && h('div', {}, h('span', { className: 'badge' }, 'Apprentissage du geste'))),
     restPanel(),
     n ? setPanel(x, n, i, items.length)
       : [h('p', { className: 'note' }, icon('checkCircle'), "Exercice terminé. Comment ça s'est passé ?"), ...feedback(e, d, i),
@@ -950,7 +950,6 @@ function setPanel(x, n, i, count) {
     (v) => { pick.kg = v; if (!pick.touched) { pick.reps = planned(); reps.set(pick.reps); } showPlates(); broadcast(); });
   const last = past.at(-1)?.sets.find((s) => s.set === n);
   const approach = n === 1 ? warmup(e, pick.kg, loads) : [];
-  const note = tip.learning ? tip.note.replace(/^Apprentissage \d\/\d : (.)/, (_, c) => c.toUpperCase()) : tip.note;
   return [
     h('div', { className: 'focus-pick' }, reps.node, load && load.node),
     platesLine, changeLine,
@@ -966,7 +965,7 @@ function setPanel(x, n, i, count) {
       ui.pick = null;
       render();
     }, { variant: 'primary', size: 'large', icon: 'check', className: 'btn primary large focus-go' }),
-    h('p', { className: 'tip' }, note),
+    h('p', { className: 'tip' }, tip.note),
     h('ul', { className: 'cue' }, (e.cues || [CUES[e.zone]]).slice(0, 2).map((c) => h('li', {}, c)))];
 }
 
@@ -1054,13 +1053,11 @@ function block(item, d, i) {
   const { e, it, past, tip, done } = exercise(item);
   const side = e.load === 'smith' && tip.kg != null ? plates(tip.kg, state.config.loads) : null;
   const approach = warmup(e, tip.kg, state.config.loads);
-  // Le badge dit déjà « Apprentissage n/2 » : la consigne commence directement.
-  const note = tip.learning ? tip.note.replace(/^Apprentissage \d\/\d : (.)/, (_, c) => c.toUpperCase()) : tip.note;
   const hint = h('p', { className: 'caption' }, 'Répétitions en gris = prévues : touche ✓ si la série est faite comme prévu. Pour corriger, change la valeur et valide à nouveau.');
   return h('section', { className: 'card' },
-    h('div', { className: 'card-head' }, h('h2', { className: 'title' }, e.name), tip.learning && h('span', { className: 'badge' }, `Apprentissage ${tip.learning}/${LEARNING}`)),
+    h('div', { className: 'card-head' }, h('h2', { className: 'title' }, e.name), tip.learning && h('span', { className: 'badge' }, 'Apprentissage du geste')),
     h('p', { className: 'meta' }, `${prescriptionText(e, it)} · garde ${rir(e, state.config.level)} rép. en réserve`),
-    h('p', { className: 'tip' }, tip.kg != null && h('strong', {}, `${kgLabel(e, tip.kg)} · `), note),
+    h('p', { className: 'tip' }, tip.kg != null && h('strong', {}, `${kgLabel(e, tip.kg)} · `), tip.note),
     side && h('p', { className: 'meta' }, side.length ? `De chaque côté : ${side.map((w) => w.toLocaleString('fr-FR')).join(' + ')}\u00a0kg` : 'Barre seule, sans disque'),
     approach.length > 0 && h('p', { className: 'meta' }, `Approche : ${approach.map(([kg, reps]) => `${kgText(kg)}\u00a0×\u00a0${reps}`).join(' · ')}`),
     e.main && h('p', { className: 'note' }, icon('video'), e.load === 'smith' ? 'Avant la première série lourde : règle les butées et filme-toi.' : 'Filme ta première série pour vérifier le geste.'),
@@ -1612,7 +1609,7 @@ function live() {
   return {
     ...base, phase: rest ? 'rest' : 'work', title, progress, say,
     ex: { id: e.id, name: e.name, img: e.img, mus: e.mus, mus2: e.mus2, cues: (e.cues || [CUES[e.zone]]).slice(0, 3),
-      badge: x.tip.learning ? `Apprentissage ${x.tip.learning}/${LEARNING}` : null, note: x.tip.note },
+      badge: x.tip.learning ? 'Apprentissage du geste' : null, note: x.tip.note },
     set: n && { n, of: it.sets, target: repsText(e, reps), load: loadText(e, kg), plates: bar.plates || null, change: bar.change || null,
       last: last ? `La dernière fois : ${setText(e, last.kg, last.reps)}` : null,
       approach: approach.length ? `Approche : ${approach.map(([w, r]) => `${kgText(w)} × ${r}`).join(' · ')}` : null },

@@ -118,7 +118,7 @@ function adopt(id) {
   connect(id);
 }
 
-// L'iPhone oublie l'écran : retour au code.
+// L'iPhone oublie l'écran, ou « Nouveau code » sur l'écran (autre iPhone, association perdue) : retour au code.
 function forget() {
   store(null);
   room = null;
@@ -198,7 +198,10 @@ function render() {
   const live = phase === 'work' || phase === 'rest' || phase === 'paused';
   const idle = phase === 'idle' && !!s.upcoming;
   const view = !room ? 'pair' : phase === 'stopped' ? 'stopped' : live || idle || phase === 'done' ? 'session' : 'wait';
-  ['start', 'pair', 'wait', 'stopped', 'session'].forEach((v) => { $(v).hidden = v !== view; });
+  ['start', 'pair', 'wait', 'stopped', 'session'].forEach((v) => { if ($(v)) $(v).hidden = v !== view; }); // élément absent : HTML d'une autre version en cache
+  // Écran d'attente : « Nouveau code » a le focus, la touche OK de la télécommande suffit.
+  const repair = document.querySelector('#' + view + ' .repair');
+  if (repair && document.activeElement !== repair) repair.focus();
   if (view !== 'session') return;
   const p = live ? s.progress : null;
   text('title', s.title);
@@ -322,6 +325,31 @@ function fullscreen() {
   try { const p = go && go.call(el); if (p && p.catch) p.catch(() => {}); } catch (e) { /* refusé : on reste en fenêtre */ }
 }
 
+// Plein écran à la demande (masque la barre du navigateur) : bouton, double-clic ou touche F ; Échap en sort.
+const fsOn = () => document.fullscreenElement || document.webkitFullscreenElement;
+function toggleFullscreen() {
+  if (!fsOn()) return fullscreen();
+  const exit = document.exitFullscreen || document.webkitExitFullscreen;
+  try { const p = exit.call(document); if (p && p.catch) p.catch(() => {}); } catch (e) { /* déjà sorti */ }
+}
+if (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen) {
+  $('fs').hidden = false;
+  $('fs').addEventListener('click', toggleFullscreen);
+  addEventListener('dblclick', toggleFullscreen);
+  addEventListener('keydown', (e) => { if (e.key === 'f' || e.key === 'F') toggleFullscreen(); });
+  ['fullscreenchange', 'webkitfullscreenchange'].forEach((t) => document.addEventListener(t, () => {
+    document.body.classList.toggle('full', !!fsOn());
+    $('fs').setAttribute('aria-label', fsOn() ? 'Quitter le plein écran' : 'Plein écran');
+  }));
+}
+// Souris (ordinateur, télécommande à pointeur) : bouton et curseur visibles 3 s après chaque mouvement.
+let pointerTimer = 0;
+addEventListener('mousemove', () => {
+  document.body.classList.add('pointer');
+  clearTimeout(pointerTimer);
+  pointerTimer = setTimeout(() => document.body.classList.remove('pointer'), 3000);
+});
+
 // Premier geste obligatoire : sans lui, navigateurs et TV bloquent le son et la voix.
 function start() {
   if (started) return;
@@ -335,4 +363,5 @@ function start() {
   if (room) connect(room); else pair();
 }
 $('start').addEventListener('click', start);
+document.querySelectorAll('.repair').forEach((b) => b.addEventListener('click', forget));
 addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.keyCode === 13) start(); }); // touche OK de la télécommande
