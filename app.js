@@ -496,7 +496,9 @@ const weekday = (date = new Date()) => (date.getDay() + 6) % 7; // 0 = lundi
 
 // Séances faites cette semaine (depuis lundi), par jour : { t, sets }. Une séance abandonnée ou vide ne compte pas.
 function doneThisWeek() {
-  const since = monday(new Date()).toISOString();
+  // « Repartir de zéro cette semaine » : les séances d'avant la remise à zéro ne comptent plus pour la semaine (le suivi les garde).
+  const reset = log.findLast((x) => x.type === 'week-reset')?.t || '';
+  const since = [monday(new Date()).toISOString(), reset].sort().at(-1);
   const skip = cancelled(log);
   const ended = new Set(log.filter((x) => x.type === 'end').map((x) => x.session));
   const done = new Map();
@@ -585,8 +587,22 @@ function week() {
         h('span', { className: 'caption' }, lastCopy ? `Dernière copie il y a ${plural(daysAgo(lastCopy), 'jour')}` : "Ton suivi n'existe que sur cet iPhone")),
       icon('chevron', 'chev')),
     plan.map((s, d) => dayCard(s, d, d === focus.index, done, focus.nextWeek)),
+    (done.size > 0 || state.active) && button('Repartir de zéro cette semaine', resetWeek, { variant: 'gray', size: 'large' }),
     !state.active && (freshCycle() || ended) && button('Générer une autre variante', reroll, { variant: 'gray', size: 'large' }),
     !state.active && !freshCycle() && !ended && h('p', { className: 'caption center' }, "Exercices fixes jusqu'à la fin du cycle, pour apprendre les gestes et progresser. « Remplacer » reste possible."));
+}
+
+// Toutes les séances de la semaine redeviennent à faire ; les séries déjà faites restent dans le suivi (courbes, records, historique).
+async function resetWeek() {
+  const text = `Toutes les séances de la semaine redeviennent à faire. Les séries déjà faites restent dans ton suivi.${state.active ? ' La séance en cours sera terminée et enregistrée.' : ''}`;
+  if (!await ask({ title: 'Repartir de zéro cette semaine ?', text, confirm: 'Repartir de zéro' })) return;
+  if (state.active) closeSession();
+  record({ type: 'week-reset' });
+  ui.at = ui.pick = null;
+  save();
+  show('week');
+  scrollTo(0, 0);
+  toast('Semaine remise à zéro', 'success');
 }
 
 function replace(d, i) {
@@ -1214,9 +1230,10 @@ async function cameraCoach(f) {
   const hint = h('p', { className: 'cam-hint' }, 'Préparation de la caméra…');
   const ok = button('Valider', () => close(true), { variant: 'primary', size: 'large', disabled: true });
   const dialog = h('dialog', { className: 'sheet camera' }, h('div', { className: 'sheet-body' },
-    h('div', { className: 'cam-view' }, video, canvas, count), hint,
-    h('p', { className: 'caption' }, kind === 'knee' ? "Pose l'iPhone de côté, à 2 ou 3 m, ton corps entier dans l'image." : "Pose l'iPhone de côté, bras et épaules bien visibles."),
-    h('div', { className: 'stack' }, ok, button('Fermer', () => close(false), { variant: 'gray', size: 'large' }))));
+    h('div', { className: 'cam-view' }, video, canvas, count),
+    h('div', { className: 'cam-panel' }, hint,
+      h('p', { className: 'caption' }, kind === 'knee' ? "iPhone debout, de côté, à 2 ou 3 m : de la tête aux pieds dans l'image." : "iPhone de côté : épaules, bras et mains dans l'image."),
+      ok, button('Fermer', () => close(false), { variant: 'gray', size: 'large' }))));
   let stream = null, closed = false, reps = 0;
   function close(keep) {
     closed = true;
@@ -1231,7 +1248,7 @@ async function cameraCoach(f) {
   audio ||= new (window.AudioContext || window.webkitAudioContext)();
   let model;
   try {
-    [stream, model] = await Promise.all([navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false }), poseModel()]);
+    [stream, model] = await Promise.all([navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } }, audio: false }), poseModel()]);
   } catch (err) {
     hint.textContent = err?.name === 'NotAllowedError' ? "Caméra refusée : autorise-la dans les Réglages de l'iPhone, Steady." : 'Caméra ou suivi du corps indisponible (connexion nécessaire la première fois).';
     return;
@@ -1239,15 +1256,21 @@ async function cameraCoach(f) {
   if (closed) return stream.getTracks().forEach((track) => track.stop());
   video.srcObject = stream;
   await video.play().catch(() => {});
-  hint.textContent = 'Vas-y : je compte.';
   const counter = repCounter(COUNTER[kind]);
   const ctx = canvas.getContext('2d');
-  let smooth = null;
+  const whole = kind === 'knee' ? [0, 27, 28] : [11, 12, 15, 16]; // tête et chevilles, ou épaules et poignets
+  let smooth = null, lost = 0, said = 'Vas-y : je compte.';
+  const tell = (text, warn = false) => { hint.textContent = text; hint.classList.toggle('warn', warn); };
   const frame = () => {
     if (closed) return;
     if (video.readyState >= 2 && video.videoWidth) {
       const w = (canvas.width = video.videoWidth), hh = (canvas.height = video.videoHeight);
       const p = model.detectForVideo(video, performance.now()).landmarks?.[0];
+      // Corps pas entier dans l'image depuis plus d'une seconde : on demande de reculer.
+      const visible = p && whole.every((k) => (p[k].visibility ?? 1) > 0.5);
+      lost = visible ? 0 : lost || performance.now();
+      if (lost && performance.now() - lost > 1000) tell(kind === 'knee' ? 'Recule un peu : la tête et les pieds doivent être dans l\'image.' : 'Recule un peu : épaules et mains doivent être dans l\'image.', true);
+      else if (!lost) tell(said);
       if (p) {
         const at = (k) => ({ x: p[k].x * w, y: p[k].y * hh, v: p[k].visibility ?? 1 });
         ctx.lineWidth = 4;
@@ -1266,9 +1289,10 @@ async function cameraCoach(f) {
             count.textContent = String(reps);
             ok.disabled = false;
             ok.lastChild.textContent = `Valider ${plural(reps, 'répétition')}`;
-            const said = repFeedback(kind, ev);
-            hint.textContent = said.text;
-            speak(said.voice, true);
+            const feedback = repFeedback(kind, ev);
+            said = feedback.text;
+            tell(said);
+            speak(feedback.voice, true);
           }
         }
       }
