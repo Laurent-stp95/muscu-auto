@@ -563,13 +563,16 @@ function weekProgress(plan, done, focus) {
     focus.nextWeek && h('p', { className: 'caption' }, `Prochaine séance ${DAYS[plan[0].day].toLowerCase()}`));
 }
 
+// Dernière copie du journal : fichier ou sauvegarde automatique, la plus récente.
+function lastCopy() { return [state.lastExport, cloudOn() && state.cloud?.t].filter(Boolean).sort().at(-1); }
+
 function week() {
   const { plan } = state;
   const { week: n, deload, ended } = cycle();
   const done = doneThisWeek();
   const focus = focusOf(plan, done);
-  const lastCopy = [state.lastExport, cloudOn() && state.cloud?.t].filter(Boolean).sort().at(-1);
-  const backupDue = log.length > 0 && (!lastCopy || daysAgo(lastCopy) >= BACKUP_DAYS);
+  const copied = lastCopy();
+  const backupDue = log.length > 0 && (!copied || daysAgo(copied) >= BACKUP_DAYS);
   return h('div', { className: 'screen' },
     h('header', { className: 'stack tight' },
       h('div', { className: 'top' }, h('h1', {}, 'Ma semaine'),
@@ -806,7 +809,7 @@ function expressText() {
 // Historique d'un exercice, relu une seule fois par état du journal (il ne fait que grandir, ou change d'objet à l'import).
 let histories = { log: null, n: 0, byEx: new Map(), clean: null };
 function fresh() { if (histories.log !== log || histories.n !== log.length) histories = { log, n: log.length, byEx: new Map(), clean: null }; }
-function history(id) {
+function historyOf(id) {
   fresh();
   if (!histories.byEx.has(id)) histories.byEx.set(id, exerciseHistory(log, id));
   return histories.byEx.get(id);
@@ -933,7 +936,7 @@ function session() {
   const s = state.plan[state.active.day];
   if (state.active.paused) return pausedScreen(s);
   const list = !!state.listMode;
-  const warmBanner = () => (warm ? warmCard() : banner('flame', 'Échauffement · 5 min',
+  const warmBanner = () => (warm ? warmCard() : banner('flame', `Échauffement · ${warmMinutes()} min`,
     h('p', {}, "Un mouvement général puis la mobilité des zones du jour, guidés et minutés. Les séries d'approche sont indiquées sur chaque mouvement lourd."),
     h('div', {}, warmButton())));
   // Barre collante : Pause et Arrêter restent à portée pendant tout le défilement.
@@ -953,7 +956,7 @@ function session() {
       // Fin de liste = fin de séance : le bouton est là où on en a besoin, sans remonter.
       button('Terminer la séance', stopSession, { variant: 'primary', size: 'large' })]
       : warm ? warmCard()
-      : [!sessionSets(state.active.session).size && h('div', { className: 'stack' }, h('p', { className: 'note' }, icon('flame'), 'Avant la première série, échauffe-toi : 5 minutes guidées et minutées.'), warmButton()),
+      : [!sessionSets(state.active.session).size && h('div', { className: 'stack' }, h('p', { className: 'note' }, icon('flame'), `Avant la première série, échauffe-toi : ${warmMinutes()} minutes guidées et minutées.`), warmButton()),
         focusView(s, state.active.day)]);
 }
 
@@ -970,7 +973,7 @@ function exercise(item) {
   const e = byId.get(item.ex);
   const sid = state.active.session;
   const it = effective(item, true);
-  const all = history(e.id);
+  const all = historyOf(e.id);
   const past = all.filter((x) => x.session !== sid);
   const fit = state.active.readiness;
   const tip = suggest(e, it, past, { loads: state.config.loads, learned: learned(log, e.id, past), deload: cycle().deload || fit === 'light', hold: fit === 'hold', comeback: comeback(state.active.off) });
@@ -1212,7 +1215,7 @@ function startEar() {
   // Safari s'arrête après un silence : on relance. Impossible (appli en arrière-plan) : micro « coupé », signalé jusqu'à la relance.
   rec.onend = () => { if (ear === rec) setTimeout(() => { if (ear !== rec) return; try { rec.start(); } catch { ear = null; refreshStatus(); broadcast(); } }, 150); };
   ear = rec;
-  try { rec.start(); } catch { ear = null; refreshStatus(); return toast('Micro indisponible pour le moment : touche « Micro » pour réessayer.', 'warning'); }
+  try { rec.start(); } catch { ear = null; refreshStatus(); return toast('Micro indisponible pour le moment : touche « Micro coupé » pour réessayer.', 'warning'); }
   refreshStatus();
   broadcast();
 }
@@ -1238,7 +1241,7 @@ const COMMANDS = [
   { id: 'passer', say: 'passer le repos', help: 'termine le repos' },
   { id: 'rallonger', say: 'plus trente', help: 'ajoute 30 secondes de repos' },
   { id: 'prochain', say: 'prochain exercice', help: 'passe à l’exercice suivant' },
-  { id: 'ressenti', say: 'c’était facile (bien, dur)', help: 'note le ressenti en fin d’exercice et passe au suivant' },
+  { id: 'ressenti', say: 'c’était facile (bien, dur, douloureux)', help: 'note le ressenti en fin d’exercice et passe au suivant' },
   { id: 'pause', say: 'mets en pause', help: 'met la séance en pause' },
   { id: 'terminer', say: 'terminer la séance', help: 'enregistre la séance quand toutes les séries sont faites' },
 ];
@@ -1586,7 +1589,7 @@ function logSet(e, n, kg, reps, mode) {
   const value = e.load === 'pdc' ? 0 : kg;
   const sid = state.active.session;
   const already = journal().some((x) => x.session === sid && x.ex === e.id && x.pr);
-  const pr = !already && recordKind(history(e.id), sid, { kg: value, reps });
+  const pr = !already && recordKind(historyOf(e.id), sid, { kg: value, reps });
   record({ type: 'set', ex: e.id, set: n, kg: value, reps, ...(mode !== 'normal' && { mode }), ...(pr && { pr }) });
   const entry = log.at(-1);
   // Erreur de doigt : « Annuler » pendant 5 s retire la série (entrée undo, le journal garde la trace).
@@ -1840,7 +1843,7 @@ function progress() {
   const sessions = new Set(sets.map((x) => x.session)).size;
   const cards = [...new Set(sets.map((x) => x.ex))]
     .filter((id) => byId.has(id))
-    .map((id) => ({ e: byId.get(id), past: history(id) }))
+    .map((id) => ({ e: byId.get(id), past: historyOf(id) }))
     .sort((a, b) => b.past.at(-1).t.localeCompare(a.past.at(-1).t));
   const capped = cards.filter(({ e, past }) => tipFor(e, past)?.plafond).map(({ e }) => e.name);
   return h('div', { className: 'screen' },
@@ -1857,7 +1860,7 @@ function progress() {
     sessions > 0 && historyCard(),
     h('section', { className: 'card' },
       h('h2', {}, 'Mes données'),
-      h('p', { className: 'meta' }, `Chaque saisie est horodatée et reste sur cet appareil. ${state.lastExport ? `Dernière sauvegarde : ${new Date(state.lastExport).toLocaleDateString('fr-FR')}.` : 'Jamais sauvegardé.'}`),
+      h('p', { className: 'meta' }, `Chaque saisie est horodatée et reste sur cet appareil. ${lastCopy() ? `Dernière sauvegarde : ${new Date(lastCopy()).toLocaleDateString('fr-FR')}.` : 'Jamais sauvegardé.'}`),
       h('div', { className: 'row' },
         button('Sauvegarder', backup, { variant: 'primary', icon: 'save' }),
         button('Exporter CSV', exportCsv),
@@ -1880,7 +1883,7 @@ function weekReview() {
     const e = byId.get(id);
     if (e.load === 'pdc') return [];
     const top = Math.max(...now.filter((x) => x.ex === id).map((x) => x.kg || 0));
-    const old = history(id).filter((s) => s.t < since).at(-1);
+    const old = historyOf(id).filter((s) => s.t < since).at(-1);
     const was = old && Math.max(...old.sets.map((x) => x.kg || 0));
     return was && top > was ? [`${e.name} : ${kgText(was)} → ${kgText(top)}`] : [];
   });
@@ -2356,7 +2359,7 @@ function preview(s, nextWeek) {
   const entries = s.items.map((item) => {
     const e = byId.get(item.ex);
     const it = effective(item);
-    return { e, it, kg: e.load === 'pdc' ? null : tipFor(e, history(e.id))?.kg ?? null };
+    return { e, it, kg: e.load === 'pdc' ? null : tipFor(e, historyOf(e.id))?.kg ?? null };
   });
   return {
     when: s.day === weekday() && !nextWeek ? "Aujourd'hui" : DAYS[s.day],
@@ -2492,7 +2495,7 @@ async function cloudBackup(force = false) {
     if (!res.ok) throw new Error(String(res.status));
     state.cloud = { on: true, t: new Date().toISOString(), n: log.length };
     save();
-    if (force) { render(); toast('Journal sauvegardé sur ton serveur', 'success'); }
+    if (force) { render(); toast('Journal sauvegardé sur le serveur de Steady', 'success'); }
   } catch {
     if (force) toast('Sauvegarde impossible : vérifie ta connexion.', 'error');
   }
@@ -2516,7 +2519,7 @@ function cloudEditor() {
       cloudOn() && h('div', { className: 'line' },
         h('span', { className: 'meta' }, state.cloud?.t ? `Dernière : ${dateTime(state.cloud.t)}` : 'Pas encore sauvegardé'),
         button('Sauvegarder', () => cloudBackup(true), { size: 'compact' }))),
-    h('p', { className: 'caption' }, 'Après chaque séance, ton journal est copié sur ton serveur Cloudflare. Rien d\'autre n\'y est envoyé.'),
+    h('p', { className: 'caption' }, 'Après chaque séance, ton journal est copié sur le serveur de Steady. Rien d\'autre n\'y est envoyé.'),
     cloudOn() && code && h('div', { className: 'group' },
       h('span', { className: 'label' }, 'Code de récupération, pour restaurer ton suivi sur un nouvel iPhone. Ne le partage pas.'),
       h('div', { className: 'row' }, h('code', { className: 'code' }, code), button('Copier', copy, { size: 'compact' }))),
@@ -2566,7 +2569,7 @@ const showUpdate = () => { updateBar.hidden = false; placeBars(); };
 // --- Réseau ---
 // Hors ligne, tout marche (données sur l'iPhone, appli en cache) sauf les vidéos : bandeau tant que ça dure, message à chaque bascule.
 const offlineBar = h('div', { className: 'offline', hidden: navigator.onLine, role: 'status' }, icon('offline'),
-  h('div', { className: 'stack tight' }, h('strong', {}, 'Hors ligne'), h('span', { className: 'caption' }, "Tout fonctionne, sauf les vidéos. Tes saisies restent sur l'iPhone.")));
+  h('div', { className: 'stack tight' }, h('strong', {}, 'Hors ligne'), h('span', { className: 'caption' }, "Tes séances marchent et tes saisies restent sur l'iPhone. L'écran projeté, la sauvegarde et les vidéos attendent le réseau.")));
 addEventListener('offline', () => { offlineBar.hidden = false; placeBars(); toast('Hors ligne : tout reste utilisable, sauf les vidéos', 'offline'); });
 addEventListener('online', () => { offlineBar.hidden = true; placeBars(); toast('De retour en ligne', 'success'); });
 

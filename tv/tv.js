@@ -463,7 +463,7 @@ function mirrorFrame(me) {
   if (key !== mirror.key || kind !== mirror.kind) {
     Object.assign(mirror, { key: key, kind: kind, reps: 0, data: [], smooth: null, counter: kind ? repCounter(COUNTER[kind]) : null, hips: [] });
     $('mirror-count').textContent = kind ? '0' : '';
-    mirrorSay(kind ? 'Je compte tes répétitions.' : (key ? 'Comptage disponible pour les squats, les fentes et les développés.' : 'Miroir actif.'));
+    mirrorSay(kind ? 'Je compte tes répétitions.' : (key ? 'Comptage disponible pour les squats, les fentes, les pompes et les développés.' : 'Miroir actif.'));
   }
   if (video.readyState >= 2 && video.videoWidth) {
     const w = canvas.width = video.videoWidth, hh = canvas.height = video.videoHeight;
