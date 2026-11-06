@@ -194,5 +194,18 @@ if (iso.length && other.some((it) => fit20[it.ex] > 0)) assert.ok(iso.every((it)
 const roomy = P.express(EXOS, day, 999);
 assert.ok(day.every((it) => roomy[it.ex] === it.sets));
 
+// Série annulée : retirée de l'historique et de la reprise, le journal garde tout.
+const ud = sess(squat, 40, [10, 8]);
+const ud2 = [{ ...ud[0], t: '2026-11-20T10:00:00Z' }, { ...ud[1], t: '2026-11-20T10:01:00Z' }];
+assert.deepStrictEqual(exerciseHistory([...ud2, { t: '2026-11-20T10:02:00Z', type: 'undo', target: ud2[1].t }], squat.id)[0].sets.map((x) => x.reps), [10]);
+assert.strictEqual(P.daysOff([ud2[0], { t: '2026-11-20T10:00:30Z', type: 'undo', target: ud2[0].t }], Date.now()), null);
+
+// Poussée / tirage : au renouvellement, un excès de poussée devient du dos.
+const heavy = generate(EXOS, { ...base, days: [0, 1, 2, 3], minutes: 75 });
+const pp = P.pushPull(EXOS, heavy);
+P.balance(EXOS, heavy, { ...base, days: [0, 1, 2, 3], minutes: 75 }, () => 0);
+const after = P.pushPull(EXOS, heavy);
+assert.ok(after.push - after.pull < 2 || after.push - after.pull < pp.push - pp.pull);
+
 for (const x of plan) console.log(x.day, x.name, x.items.map((it) => byId.get(it.ex).name).join(' | '));
 console.log('OK');

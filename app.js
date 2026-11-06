@@ -694,7 +694,7 @@ async function start(d) {
   if (!state.active) {
     const fit = await fitnessCheck(state.plan[d]);
     if (!fit) return;
-    state.active = { session: new Date().toISOString(), day: d, readiness: fit.level, off: daysOff(log) };
+    state.active = { session: new Date().toISOString(), day: d, readiness: fit.level, off: daysOff(journal()) };
     if (fit.minutes) {
       state.active.express = fit.minutes;
       state.active.cut = express(EXOS, state.plan[d].items.map((item) => effective(item, true)), fit.minutes);
@@ -744,28 +744,35 @@ function expressText() {
 }
 
 // Historique d'un exercice, relu une seule fois par état du journal (il ne fait que grandir, ou change d'objet à l'import).
-let histories = { log: null, n: 0, byEx: new Map() };
+let histories = { log: null, n: 0, byEx: new Map(), clean: null };
+function fresh() { if (histories.log !== log || histories.n !== log.length) histories = { log, n: log.length, byEx: new Map(), clean: null }; }
 function history(id) {
-  if (histories.log !== log || histories.n !== log.length) histories = { log, n: log.length, byEx: new Map() };
+  fresh();
   if (!histories.byEx.has(id)) histories.byEx.set(id, exerciseHistory(log, id));
   return histories.byEx.get(id);
+}
+// Journal tel qu'on le lit : sans les séries annulées (le journal enregistré, lui, garde tout).
+function journal() {
+  fresh();
+  return (histories.clean ||= withoutUndone(log));
 }
 
 const sessionSets = (sid) => {
   const sets = new Map();
-  for (const x of log) if (x.session === sid && x.type === 'set') sets.set(`${x.ex}-${x.set}`, x);
+  for (const x of journal()) if (x.session === sid && x.type === 'set') sets.set(`${x.ex}-${x.set}`, x);
   return sets;
 };
 
 // Durée d'effort : de l'ouverture à maintenant (ou au début de la pause en cours), pauses déduites.
 function activeMinutes(sid) {
-  let paused = 0, since = null;
+  let paused = 0, since = null, end = null;
   for (const x of log) {
     if (x.session !== sid) continue;
     if (x.type === 'pause') since = Date.parse(x.t);
     if (x.type === 'resume' && since) { paused += Date.parse(x.t) - since; since = null; }
+    if (x.type === 'end') end = Date.parse(x.t); // séance terminée : sa durée s'arrête là
   }
-  return Math.max(1, Math.round(((since ?? Date.now()) - Date.parse(sid) - paused) / 60000));
+  return Math.max(1, Math.round(((since ?? end ?? Date.now()) - Date.parse(sid) - paused) / 60000));
 }
 
 // Bilan : séries faites, durée d'effort, volume, exercices pas commencés.
@@ -1166,7 +1173,7 @@ function barPlan(e, kg) {
   if (e.load !== 'smith' || kg == null) return {};
   const loads = state.config.loads;
   let side = [];
-  for (const x of log) if (x.session === state.active.session && x.type === 'set' && byId.get(x.ex)?.load === 'smith') side = plateChange(side, x.kg, loads)?.side ?? side;
+  for (const x of journal()) if (x.session === state.active.session && x.type === 'set' && byId.get(x.ex)?.load === 'smith') side = plateChange(side, x.kg, loads)?.side ?? side;
   const move = plateChange(side, kg, loads);
   if (!move) return {};
   return { plates: move.side.length ? `De chaque côté : ${platesText(move.side)}` : 'Barre seule, sans disque',
@@ -1203,14 +1210,21 @@ function feedback(e, d, i) {
 function logSet(e, n, kg, reps, mode) {
   const value = e.load === 'pdc' ? 0 : kg;
   const sid = state.active.session;
-  const already = log.some((x) => x.session === sid && x.ex === e.id && x.pr);
+  const already = journal().some((x) => x.session === sid && x.ex === e.id && x.pr);
   const pr = !already && recordKind(history(e.id), sid, { kg: value, reps });
   record({ type: 'set', ex: e.id, set: n, kg: value, reps, ...(mode !== 'normal' && { mode }), ...(pr && { pr }) });
-  if (pr) {
-    toast(`Record : ${setText(e, value, reps)}`, 'success');
-    announce(`Nouveau record : ${setSpeech(e, value, reps)} !`);
-  }
+  const entry = log.at(-1);
+  // Erreur de doigt : « Annuler » pendant 5 s retire la série (entrée undo, le journal garde la trace).
+  toast(pr ? `Record : ${setText(e, value, reps)}` : `Série ${n} enregistrée`, 'success', () => undoSet(entry));
+  if (pr) announce(`Nouveau record : ${setSpeech(e, value, reps)} !`);
   return pr;
+}
+function undoSet(entry) {
+  record({ type: 'undo', target: entry.t, ex: entry.ex, set: entry.set });
+  stopRest();
+  ui.pick = null;
+  render();
+  toast(`Série ${entry.set} retirée`, 'info');
 }
 const setText = (e, kg, reps) => (e.load === 'pdc' ? `${reps}\u00a0${unitText(e)}` : `${kgLabel(e, kg)}\u00a0×\u00a0${reps}${e.unit === 's' ? '\u00a0s' : ''}`);
 // Texte d'une série pour la voix : « 10 répétitions à 42,5 kilos ».
@@ -1289,6 +1303,7 @@ async function onFeel(e, value, d, i, buttons) {
   record({ type: 'feel', ex: e.id, feel: value });
   buttons.forEach((b) => { b.ariaPressed = String(b.dataset.feel === value); });
   if (value !== 'pain') return;
+  await painZone(e);
   if (!await ask({ title: 'Douleur notée', text: 'Écarter cet exercice et le remplacer ? Tu pourras le réintégrer dans Réglages. Si la douleur persiste, consulte un professionnel de santé.', confirm: 'Écarter et remplacer', cancel: "Garder pour aujourd'hui", danger: true })) return;
   const item = state.plan[d].items[i];
   const before = { ...item };
@@ -1297,6 +1312,24 @@ async function onFeel(e, value, d, i, buttons) {
   else toast(`Exercice écarté : ${e.name}`, 'info', () => { state.config.avoid = state.config.avoid.filter((x) => x !== e.id); Object.assign(item, before); save(); render(); });
   save();
   render();
+}
+
+// Carte des douleurs : où ça fait mal. Deux fois la même zone en 8 semaines : proposition de l'ajouter aux zones fragiles
+// (les exercices à risque pour elle sont alors écartés du programme).
+async function painZone(e) {
+  const zone = await choose({ title: 'Où as-tu mal ?', text: 'Noté dans ton suivi, pour repérer une zone qui revient.',
+    actions: [...Object.entries(ZONES).map(([value, label]) => ({ label, value })), { label: 'Ailleurs', value: 'other' }] });
+  if (!zone) return;
+  record({ type: 'pain', ex: e.id, zone });
+  const since = new Date(Date.now() - 56 * 864e5).toISOString();
+  const times = log.filter((x) => x.type === 'pain' && x.zone === zone && x.t >= since && !cancelled(log).has(x.session)).length;
+  if (zone === 'other' || times < 2 || state.config.zones.includes(zone)) return;
+  if (!await ask({ title: `${ZONES[zone]} : ${times}e douleur en 8 semaines`, text: `Ajouter « ${ZONES[zone]} » à tes zones fragiles ? Les exercices à risque pour cette zone seront écartés du programme. Si la douleur persiste, consulte un professionnel de santé.`,
+    confirm: 'Ajouter aux zones fragiles', cancel: 'Pas maintenant' })) return;
+  state.config.zones = [...state.config.zones, zone];
+  repair(EXOS, state.plan, state.config);
+  save();
+  toast(`${ZONES[zone]} ajoutée aux zones fragiles`, 'success');
 }
 
 // --- Minuteur de repos et écran allumé ---
@@ -1420,7 +1453,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 
 function progress() {
   const skip = cancelled(log);
-  const sets = log.filter((x) => x.type === 'set' && byId.has(x.ex) && !skip.has(x.session)); // exercices retirés et séances abandonnées : pas comptés
+  const sets = journal().filter((x) => x.type === 'set' && byId.has(x.ex) && !skip.has(x.session)); // exercices retirés et séances abandonnées : pas comptés
   const sessions = new Set(sets.map((x) => x.session)).size;
   const cards = [...new Set(sets.map((x) => x.ex))]
     .filter((id) => byId.has(id))
@@ -1437,6 +1470,8 @@ function progress() {
     capped.length >= 2 && banner('warning', `${capped.length} exercices au plafond`,
       h('p', {}, `${capped.join(', ')} : ton matériel ne permet plus de progresser. Des charges plus lourdes (haltères réglables, par exemple) relanceraient la progression ; ajoute-les dans Réglages quand tu les as.`)),
     cards.map(({ e, past }) => progressCard(e, past)),
+    painCard(),
+    sessions > 0 && historyCard(),
     h('section', { className: 'card' },
       h('h2', {}, 'Mes données'),
       h('p', { className: 'meta' }, `Chaque saisie est horodatée et reste sur cet appareil. ${state.lastExport ? `Dernière sauvegarde : ${new Date(state.lastExport).toLocaleDateString('fr-FR')}.` : 'Jamais sauvegardé.'}`),
@@ -1451,7 +1486,7 @@ function progress() {
 function weekReview() {
   const skip = cancelled(log);
   const since = monday(new Date()).toISOString(), before = new Date(Date.parse(since) - 7 * 864e5).toISOString();
-  const sets = (from, to) => log.filter((x) => x.type === 'set' && x.t >= from && x.t < to && !skip.has(x.session) && byId.has(x.ex));
+  const sets = (from, to) => journal().filter((x) => x.type === 'set' && x.t >= from && x.t < to && !skip.has(x.session) && byId.has(x.ex));
   const now = sets(since, '9'), prev = sets(before, since);
   const volume = (list) => Math.round(list.reduce((v, x) => v + (x.kg || 0) * x.reps, 0));
   const done = doneThisWeek().size;
@@ -1473,12 +1508,63 @@ function weekReview() {
     prev.length > 0 && h('p', { className: 'caption' }, `Semaine dernière : ${plural(prev.length, 'série')}, ${kgText(volume(prev))}.`),
     records.length > 0 && h('p', { className: 'note' }, icon('flag'), `${records.length > 1 ? 'Records' : 'Record'} : ${records.join(' · ')}`),
     up.length > 0 && h('p', { className: 'note' }, icon('chart'), `Charges en hausse : ${up.join(' · ')}`),
+    balanceNote(),
     !now.length && h('p', { className: 'caption' }, 'Pas encore de série cette semaine.'));
+}
+
+// Poussée / tirage sur 2 semaines : trop de poussée use les épaules ; le prochain cycle rééquilibre (balance() dans plan.js).
+function balanceNote() {
+  const since = new Date(Date.now() - 14 * 864e5).toISOString(), skip = cancelled(log);
+  const sets = journal().filter((x) => x.type === 'set' && x.t >= since && byId.has(x.ex) && !skip.has(x.session));
+  const push = sets.filter((x) => PUSH_ZONES.includes(byId.get(x.ex).zone)).length, pull = sets.filter((x) => PULL_ZONES.includes(byId.get(x.ex).zone)).length;
+  if (push < 6 || push <= pull * 1.3) return null;
+  return h('p', { className: 'note' }, icon('warning'), `Tu pousses plus que tu ne tires : ${push} séries contre ${pull} en 2 semaines. Pour tes épaules, le prochain cycle remplacera un exercice de poussée par du dos.`);
+}
+
+// Douleurs notées par zone, sur 8 semaines.
+function painCard() {
+  const since = new Date(Date.now() - 56 * 864e5).toISOString(), skip = cancelled(log);
+  const pains = log.filter((x) => x.type === 'pain' && x.t >= since && !skip.has(x.session));
+  if (!pains.length) return null;
+  const zones = [...new Set(pains.map((x) => x.zone))].map((z) => {
+    const list = pains.filter((x) => x.zone === z);
+    return { z, n: list.length, last: list.at(-1).t, ex: [...new Set(list.map((x) => byId.get(x.ex)?.name).filter(Boolean))] };
+  }).sort((a, b) => b.n - a.n);
+  return h('section', { className: 'card' },
+    h('h2', {}, 'Douleurs, 8 dernières semaines'),
+    h('div', { className: 'list' }, zones.map(({ z, n, last, ex }) => h('div', { className: 'line' },
+      h('span', { className: 'stack tight' }, h('strong', {}, z === 'other' ? 'Ailleurs' : ZONES[z]), h('span', { className: 'caption' }, ex.join(', '))),
+      h('span', { className: 'meta' }, `${plural(n, 'fois', 'fois')} · ${new Date(last).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`)))),
+    h('p', { className: 'caption' }, 'Une zone qui revient peut être ajoutée aux zones fragiles dans Réglages. Si une douleur persiste, consulte un professionnel de santé.'));
+}
+
+// Historique : séances terminées, de la plus récente à la plus ancienne ; le détail se construit à l'ouverture.
+function historyCard() {
+  const skip = cancelled(log), clean = journal();
+  const ended = new Set(log.filter((x) => x.type === 'end').map((x) => x.session));
+  const starts = log.filter((x) => x.type === 'start' && ended.has(x.session) && !skip.has(x.session)).reverse();
+  const rows = starts.map((st) => ({ st, sets: clean.filter((x) => x.session === st.session && x.type === 'set' && byId.has(x.ex)) })).filter((r) => r.sets.length);
+  const shown = rows.slice(0, ui.historyCount || 10);
+  return h('section', { className: 'card' },
+    h('h2', {}, 'Historique'),
+    h('div', { className: 'list' }, shown.map(({ st, sets }) => {
+      const last = new Map(sets.map((x) => [`${x.ex}-${x.set}`, x])); // la dernière saisie d'une série fait foi
+      const volume = Math.round([...last.values()].reduce((v, x) => v + (x.kg || 0) * x.reps, 0));
+      const prs = [...last.values()].filter((x) => x.pr).length;
+      return lazy('ex', h('summary', {}, h('span', { className: 'stack tight' },
+        h('strong', {}, `${new Date(st.t).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} · ${st.name}`),
+        h('span', { className: 'meta' }, [`${activeMinutes(st.session)} min`, plural(last.size, 'série'), volume > 0 && kgText(volume), prs > 0 && plural(prs, 'record')].filter(Boolean).join(' · '))), icon('chevron', 'chev')),
+        () => h('div', { className: 'ex-body' }, [...new Set([...last.values()].map((x) => x.ex))].map((id) => {
+          const e = byId.get(id);
+          return h('p', {}, h('strong', {}, e.name), h('br'), h('span', { className: 'meta' }, [...last.values()].filter((x) => x.ex === id).sort((a, b) => a.set - b.set).map((x) => setText(e, x.kg, x.reps) + (x.pr ? ' · record' : '')).join(' · ')));
+        })));
+    })),
+    rows.length > shown.length && h('div', {}, button(`Voir ${Math.min(10, rows.length - shown.length)} séances de plus`, () => { ui.historyCount = shown.length + 10; render(); }, { variant: 'plain' })));
 }
 
 function tipFor(e, past) {
   const item = state.plan.flatMap((s) => s.items).find((it) => it.ex === e.id);
-  return item && suggest(e, effective(item), past, { loads: state.config.loads, learned: learned(log, e.id, past), deload: cycle().deload, comeback: comeback(daysOff(log)) });
+  return item && suggest(e, effective(item), past, { loads: state.config.loads, learned: learned(log, e.id, past), deload: cycle().deload, comeback: comeback(daysOff(journal())) });
 }
 
 function progressCard(e, past) {
@@ -1594,7 +1680,7 @@ const keyBytes = (b64url) => Uint8Array.from(atob(b64url.replace(/-/g, '+').repl
 const reminderPayload = (c) => {
   const n = c.notify || NOTIFY;
   // last : dernière série enregistrée, pour le rappel de reprise après des séances manquées ; weekly : bilan du dimanche soir.
-  const last = log.findLast((x) => x.type === 'set' && !cancelled(log).has(x.session))?.t || null;
+  const last = journal().findLast((x) => x.type === 'set' && !cancelled(log).has(x.session))?.t || null;
   return { on: n.reminders, days: c.days, time: n.time, before: n.before, sessions: Object.fromEntries((state.plan || []).map((s) => [s.day, s.name])),
     weekly: n.weekly !== false, last };
 };
@@ -1863,7 +1949,7 @@ function claudeText() {
     c.zones.length ? `Zones fragiles : ${c.zones.map((z) => ZONES[z]).join(', ')}.` : null,
   ];
   for (const st of log.filter((x) => x.type === 'start' && x.t >= since && !skip.has(x.session))) {
-    const entries = log.filter((x) => x.session === st.session);
+    const entries = journal().filter((x) => x.session === st.session);
     const sets = entries.filter((x) => x.type === 'set' && byId.has(x.ex));
     if (!sets.length) continue;
     const fit = entries.find((x) => x.type === 'readiness');

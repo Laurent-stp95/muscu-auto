@@ -166,10 +166,32 @@ function repair(exos, plan, config) {
   return plan;
 }
 
-// Fin de cycle : mêmes mouvements principaux (la progression continue), exercices secondaires renouvelés.
+// Fin de cycle : mêmes mouvements principaux (la progression continue), exercices secondaires renouvelés, poussée / tirage rééquilibrés.
 function renew(exos, plan, config, rand) {
   const byId = new Map(exos.map((e) => [e.id, e]));
   plan.forEach((s, d) => s.items.forEach((it, i) => { if (!byId.get(it.ex)?.main) swap(exos, plan, config, d, i, rand); }));
+  return balance(exos, plan, config, rand);
+}
+
+// Poussée (pectoraux, épaules, triceps) contre tirage (dos, biceps) : trop de poussée use les épaules.
+const PUSH_ZONES = ['chest', 'shoulders', 'triceps'], PULL_ZONES = ['back', 'biceps'];
+const pushPull = (exos, plan) => {
+  const zone = new Map(exos.map((e) => [e.id, e.zone]));
+  const items = plan.flatMap((s) => s.items);
+  return { push: items.filter((it) => PUSH_ZONES.includes(zone.get(it.ex))).length, pull: items.filter((it) => PULL_ZONES.includes(zone.get(it.ex))).length };
+};
+// Tant que la semaine compte 2 exercices de poussée de plus que de tirage, le dernier exercice secondaire de poussée devient un exercice de dos.
+function balance(exos, plan, config, rand) {
+  const zone = new Map(exos.map((e) => [e.id, e.zone]));
+  for (let guard = 0; guard < 4; guard++) {
+    const { push, pull } = pushPull(exos, plan);
+    if (push - pull < 2) break;
+    const spot = plan.flatMap((s, d) => s.items.map((it, i) => ({ it, d, i }))).filter(({ it, i }) => i >= 2 && PUSH_ZONES.includes(zone.get(it.ex))).at(-1);
+    if (!spot) break;
+    const slot = spot.it.slot;
+    spot.it.slot = 'back';
+    if (!swap(exos, plan, config, spot.d, spot.i, rand)) { spot.it.slot = slot; break; }
+  }
   return plan;
 }
 
@@ -192,6 +214,13 @@ function cycleWeek(cycle, now = new Date()) {
 // { t, type: 'start'|'set'|'feel'|'tech'|'pause'|'resume'|'cancel'|'restore'|'reintegrate'|'end', session?, ex?, set?, kg?, reps?, mode?, feel?, ok? }.
 // Une correction = nouvelle entrée ; la dernière saisie d'une série fait foi.
 
+// Séries annulées (« Annuler » juste après la validation) : une entrée undo { target: t de la série } les retire de la lecture ;
+// le journal lui-même ne change jamais.
+function withoutUndone(log) {
+  const undone = new Set(log.filter((x) => x.type === 'undo').map((x) => x.target));
+  return undone.size ? log.filter((x) => !(x.type === 'set' && undone.has(x.t))) : log;
+}
+
 // Séances abandonnées : marquées dans le journal (jamais effacées), la dernière entrée cancel/restore fait foi.
 function cancelled(log) {
   const last = new Map();
@@ -203,7 +232,7 @@ function cancelled(log) {
 function exerciseHistory(log, exId) {
   const skip = cancelled(log);
   const sessions = new Map();
-  for (const entry of log) {
+  for (const entry of withoutUndone(log)) {
     if (entry.ex !== exId || !entry.session || skip.has(entry.session)) continue;
     const s = sessions.get(entry.session) || { session: entry.session, t: entry.t, sets: {}, feel: null, tech: null, mode: 'normal' };
     if (entry.type === 'set') {
@@ -361,7 +390,7 @@ function recordKind(history, sid, set) {
 // Jours écoulés depuis la dernière série enregistrée (hors séance `current` et séances abandonnées), null si aucune.
 function daysOff(log, now = Date.now(), current = null) {
   const skip = cancelled(log);
-  const last = log.findLast((x) => x.type === 'set' && x.session && x.session !== current && !skip.has(x.session));
+  const last = withoutUndone(log).findLast((x) => x.type === 'set' && x.session && x.session !== current && !skip.has(x.session));
   return last ? Math.floor((now - Date.parse(last.t)) / DAY) : null;
 }
 // Reprise après une pause : charges réduites le temps d'une séance (2 semaines : −10 %, 4 semaines : −20 %).
@@ -406,6 +435,6 @@ function project(kg, level, weeks = 8) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { express, sessionMinutes, plates, plateChange, recordKind, daysOff, comeback, gearList, targetReps, generate, exerciseCount, backToBack, swap, repair, renew, available, cancelled, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
+  module.exports = { withoutUndone, balance, pushPull, PUSH_ZONES, PULL_ZONES, express, sessionMinutes, plates, plateChange, recordKind, daysOff, comeback, gearList, targetReps, generate, exerciseCount, backToBack, swap, repair, renew, available, cancelled, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
     kgLabel, range, ISOLATION_ZONES, SLOTS, SESSIONS, GOALS, LEVELS, ZONES, CUES, TAGS, BODYWEIGHT, MAX_DAYS, LEARNING, CYCLE_WEEKS };
 }
