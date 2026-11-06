@@ -78,7 +78,7 @@ function connect(name) {
   ws.onmessage = (e) => {
     let m;
     try { m = JSON.parse(e.data) || {}; } catch (err) { return; } // « pong »
-    if (m.type === 'presence') { phones = m.phone; render(); }
+    if (m.type === 'presence') { if (m.phone > phones && mirror) tellMirror(true); phones = m.phone; render(); } // iPhone (re)connecté : il apprend que le miroir compte
     else if (m.type === 'state') onState(m);
     else if (m.type === 'adopt' && !room && UUID.test(m.room)) adopt(m.room);
     else if (m.type === 'forget' && room) forget();

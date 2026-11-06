@@ -1037,7 +1037,7 @@ function nextWarm() {
   warm.total = m.s * 1000;
   warm.end = Date.now() + warm.total;
   // Projeté : l'écran annonce le mouvement suivant à la fin du précédent ; le premier passe par announce().
-  const text = `${m.name}, ${m.s} secondes. ${m.cue}`;
+  const text = micOpen() ? `${m.name}. ${m.cue}` : `${m.name}, ${m.s} secondes. ${m.cue}`;
   if (warm.i === 0) announce(text); else speak(text);
   warm.timer = setInterval(() => {
     const left = Math.ceil((warm.end - Date.now()) / 1000);
@@ -1155,7 +1155,7 @@ function validateSet({ x, n, i, count, pick }) {
   // Dernière série de l'exercice : on reste dessus pour le ressenti, « Exercice suivant » fait avancer.
   if (x.done.size + 1 >= it.sets) ui.at = i;
   if (n < it.sets || i + 1 < count) startRest(it.rest);
-  else announce("Dernière série faite. Bravo ! Termine la séance pour l'enregistrer.");
+  else announce('Dernière série faite. Bravo !');
   ui.pick = null;
   render();
 }
@@ -1176,16 +1176,16 @@ function focusTarget() {
 }
 
 // --- Commande vocale ---
-// Mains libres en mode focus : « dix » valide la série à 10 répétitions, « valide » la valide telle qu'affichée (compte du miroir) ;
-// « passer », « plus trente », « suivant », « annuler », « pause » ; en fin d'exercice « facile », « bien », « dur », « douleur » ;
-// toutes les séries faites, « terminer » enregistre la séance.
-// Garde-fous contre les faux déclenchements : le micro est sourd pendant que l'iPhone ou l'écran parle (et juste après),
-// une phrase de plus de 4 mots est ignorée (les annonces sont longues), un nombre dit pendant le repos ou quand le miroir compte aussi.
+// Mains libres en mode focus, par une liste fermée de phrases (COMMANDS) : « dix répétitions validées », « série validée »,
+// « passer le repos », « plus trente », « prochain exercice », « annuler la série », « c'était facile / bien / dur »,
+// « mets en pause », « terminer la séance ». Garde-fous : micro sourd pendant que l'iPhone ou l'écran parle, aucune annonce
+// ne contient de nombre ni de phrase de commande tant que le micro écoute.
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const WORDS = { 'dix-sept': 17, 'dix-huit': 18, 'dix-neuf': 19, un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10,
   onze: 11, douze: 12, treize: 13, quatorze: 14, quinze: 15, seize: 16, vingt: 20, trente: 30 };
-const FEEL_WORDS = [['facile', 'easy'], ['bien', 'ok'], ['difficile', 'hard'], ['dur', 'hard'], ['douleur', 'pain'], ['mal', 'pain']];
 let ear = null, earWanted = false, spokeAt = 0, quietUntil = 0;
+// Micro ouvert : rien de ce que disent l'iPhone ou l'écran ne contient de nombre (il pourrait être pris pour ta réponse).
+const micOpen = () => !!ear;
 // Durée estimée d'une annonce (environ 14 caractères par seconde) : le micro reste sourd jusque-là.
 const hush = (text) => { quietUntil = Math.max(quietUntil, Date.now() + 1500 + String(text || '').length * 70); };
 
@@ -1229,52 +1229,76 @@ function stopEar(forget = true) {
 // Retour dans l'appli après un verrouillage : on tente de relancer le micro (sinon « Micro coupé » reste affiché).
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && earWanted && !ear && state.active) startEar(); });
 
+// Phrases de commande : une liste fermée, que ni le coach ni l'écran ne prononcent jamais (vérifié avant chaque annonce, voir speak).
+// Valider demande le nombre suivi de « validées » : un nombre seul, ou une bribe d'annonce, ne valide plus rien.
+const COMMANDS = [
+  { id: 'valider', re: /^(.+?) (répétitions? |reps? )?validée?s?$/, say: 'dix répétitions validées', help: 'valide la série à 10 répétitions' },
+  { id: 'telle', re: /^série validée$/, say: 'série validée', help: 'valide la série telle qu’affichée (compte du miroir)' },
+  { id: 'annuler', re: /^annuler la (dernière )?série$/, say: 'annuler la série', help: 'retire la dernière série' },
+  { id: 'passer', re: /^passer le repos$/, say: 'passer le repos', help: 'termine le repos' },
+  { id: 'rallonger', re: /^(plus trente|trente secondes de plus|plus 30)$/, say: 'plus trente', help: 'ajoute 30 secondes de repos' },
+  { id: 'prochain', re: /^prochain exercice$/, say: 'prochain exercice', help: 'passe à l’exercice suivant' },
+  { id: 'ressenti', re: /^(c'était|ressenti) (facile|bien|dur|difficile|douloureux)$/, say: 'c’était facile (bien, dur)', help: 'note le ressenti en fin d’exercice et passe au suivant' },
+  { id: 'pause', re: /^(mets|mettre) en pause$/, say: 'mets en pause', help: 'met la séance en pause' },
+  { id: 'terminer', re: /^terminer la séance$/, say: 'terminer la séance', help: 'enregistre la séance quand toutes les séries sont faites' },
+];
+const FEELINGS = { facile: 'easy', bien: 'ok', dur: 'hard', difficile: 'hard', douloureux: 'pain' };
+const tidy = (t) => t.toLowerCase().replace(/[’]/g, "'").replace(/[.,!?;:«»"]/g, ' ').replace(/\s+/g, ' ').trim();
+const commandIn = (t) => COMMANDS.find((c) => c.re.test(tidy(t)));
+
 function hear(text, alternatives = [text]) {
   if (!state.active || ui.view !== 'session') return;
-  const t = text.toLowerCase().replace(/[.,!?]/g, ' ').trim();
-  const words = t.split(/\s+/).filter(Boolean);
-  if (!words.length) return;
+  if (!tidy(text)) return;
   if (Date.now() < quietUntil || Date.now() - spokeAt < 1200) return heard(text, 'pendant une annonce');
-  if (words.length > 4) return heard(text, 'phrase trop longue');
-  if (/annul/.test(t)) {
-    heard(text);
-    const last = journal().findLast((x) => x.session === state.active.session && x.type === 'set');
-    return last && undoSet(last);
-  }
-  if (/pass/.test(t)) { heard(text, rest ? '' : 'pas de repos en cours'); return rest && stopRest(); }
-  if (/plus\s*(30|trente)|rallonge/.test(t)) { heard(text, rest ? '' : 'pas de repos en cours'); return rest && extendRest(30); }
-  if (/pause/.test(t)) { heard(text); return pause(); }
+  // La première variante de la reconnaissance qui forme une commande connue.
+  const alt = alternatives.find((a) => commandIn(a));
+  if (!alt) return heard(text, 'phrase inconnue');
+  const t = tidy(alt), cmd = commandIn(alt);
   const items = activeItems();
   const i = Math.min(ui.at ?? nextItem(items), items.length);
-  if (/termin/.test(t)) {
-    if (nextItem(items) < items.length) return heard(text, 'il reste des séries'); // on ne termine pas par erreur
+  const x = items[i];
+  if (cmd.id === 'annuler') {
+    const last = journal().findLast((y) => y.session === state.active.session && y.type === 'set');
+    heard(alt, last ? '' : 'aucune série');
+    return last && undoSet(last);
+  }
+  if (cmd.id === 'passer' || cmd.id === 'rallonger') {
+    heard(alt, rest ? '' : 'pas de repos en cours');
+    if (rest) cmd.id === 'passer' ? stopRest() : extendRest(30);
+    return;
+  }
+  if (cmd.id === 'pause') { heard(alt); return pause(); }
+  if (cmd.id === 'terminer') {
+    if (nextItem(items) < items.length) return heard(alt, 'il reste des séries'); // on ne termine pas par erreur
+    heard(alt);
     closeSession();
     show('week');
     announce('Séance enregistrée. Bravo !');
     return toast('Séance enregistrée', 'success');
   }
-  if (/suivant/.test(t)) { heard(text); return moveTo(i + 1); }
-  // Exercice fini (l'iPhone demande le ressenti) : un mot suffit, et on passe au suivant.
-  const x = items[i];
-  const feel = x && !nextSet(x) && FEEL_WORDS.find(([w]) => words.includes(w));
-  if (feel) {
-    heard(text);
-    if (feel[1] === 'pain') return onFeel(x.e, 'pain', state.active.day, x.k, []);
-    record({ type: 'feel', ex: x.e.id, feel: feel[1] });
+  if (cmd.id === 'prochain') { heard(alt); return moveTo(i + 1); }
+  if (cmd.id === 'ressenti') {
+    if (!x || nextSet(x)) return heard(alt, 'termine d’abord les séries de l’exercice');
+    heard(alt);
+    const feel = FEELINGS[t.split(' ').at(-1)];
+    if (feel === 'pain') return onFeel(x.e, 'pain', state.active.day, x.k, []);
+    record({ type: 'feel', ex: x.e.id, feel });
     tick(660);
     return moveTo(i + 1);
   }
   const f = focusTarget();
-  if (!f) return heard(text, 'aucune série à valider');
-  if (rest) return heard(text, 'pendant le repos'); // la série suivante n'est pas encore faite
-  if (/valid|série faite|c'est (bon|fait)|^ok$/.test(t)) { heard(text); return voiceValidate(f, f.pick.reps); }
-  if (ui.mirror) return heard(text, 'le miroir compte'); // les nombres entendus peuvent être ceux du miroir
-  // Le nombre peut être dans une des variantes proposées par la reconnaissance (« 10 », « dix », « dis »…).
-  const n = alternatives.map((alt) => numberIn(alt.toLowerCase())).find((v) => v > 0 && v <= 100);
-  if (!n) return heard(text, 'pas compris');
-  heard(text);
+  if (!f) return heard(alt, 'aucune série à valider');
+  if (rest) return heard(alt, 'pendant le repos'); // la série suivante n'est pas encore faite
+  if (cmd.id === 'telle') { heard(alt); return voiceValidate(f, f.pick.reps); }
+  const said = t.match(cmd.re)[1];
+  const n = onlyNumber(said) ? numberIn(said) : 0;
+  if (!(n > 0 && n <= 100)) return heard(alt, 'nombre pas compris');
+  heard(alt);
   voiceValidate(f, n);
 }
+const FILLER = ['répétitions', 'répétition', 'rép', 'reps', 'fois', 'et'];
+const onlyNumber = (t) => t.toLowerCase().replace(/[.,!?]/g, ' ').split(/\s+/).filter(Boolean)
+  .every((w) => /^\d+$/.test(w) || w in WORDS || w === 'dis' || w === 'dit' || w.split('-').every((p) => p in WORDS) || FILLER.includes(w));
 function numberIn(t) {
   const words = t.replace(/[.,!?]/g, ' ').split(/\s+/).filter(Boolean);
   return Number((t.match(/\d+/) || [])[0]) || WORDS[words.join('-')] || words.map((w) => WORDS[w] || ({ dis: 10, dit: 10 })[w]).find(Boolean) || 0;
@@ -1288,6 +1312,13 @@ function heard(text, why = '') {
   node.textContent = lastHeard.text;
   node.classList.toggle('ignored', !!why);
 }
+// Les phrases que comprend le micro, rappelées d'un geste.
+function voiceHelp() {
+  choose({ title: 'Ce que comprend le micro', text: 'Dis la phrase telle quelle, après ta série. Le coach et l’écran ne la prononcent jamais.',
+    extra: h('div', { className: 'list' }, COMMANDS.map((c) => h('div', { className: 'line' }, h('span', { className: 'stack tight' }, h('strong', {}, `« ${c.say} »`), h('span', { className: 'caption' }, c.help))))),
+    actions: [{ label: 'Fermer', value: null }] });
+}
+
 function moveTo(i) {
   ui.at = Math.min(i, activeItems().length);
   ui.pick = null;
@@ -1300,7 +1331,7 @@ function voiceValidate(f, reps) {
   tick(660);
   lastNotice = { id: String(Date.now()), text: `Série ${f.n} validée · ${repsText(f.x.e, reps)}`, t: Date.now() };
   validateSet(f);
-  announce(`Noté, ${reps}.`);
+  announce('Noté.'); // micro ouvert : le nombre est sur l'écran, pas dans la voix
 }
 
 // --- Caméra qui compte (prototype) ---
@@ -1414,7 +1445,7 @@ async function cameraCoach(f) {
             const feedback = repFeedback(kind, ev);
             said = feedback.text;
             tell(said);
-            speak(feedback.voice, true);
+            speak(micOpen() ? feedback.voice.replace(/^\d+,?\s*/, '') : feedback.voice, true); // micro ouvert : pas le numéro
           }
         }
       }
@@ -1465,7 +1496,7 @@ function startTempo(reps, mode) {
   speak(hold ? 'Descends en 3 secondes, pause 2 secondes, puis pousse.' : 'Descends en 3 secondes, puis pousse.', true);
   for (let r = 0; r < reps; r++) {
     const t0 = lead + r * rep;
-    at(t0, () => { tempo.rep = r + 1; showTempo(); speak(String(r + 1), true); });
+    at(t0, () => { tempo.rep = r + 1; showTempo(); if (!micOpen()) speak(String(r + 1), true); }); // micro ouvert : bips seuls
     for (let d = 0; d < down; d += 1000) at(t0 + d, () => tick(440));
     at(t0 + down + hold, () => tick(880));
   }
@@ -1550,7 +1581,7 @@ function logSet(e, n, kg, reps, mode) {
   const entry = log.at(-1);
   // Erreur de doigt : « Annuler » pendant 5 s retire la série (entrée undo, le journal garde la trace).
   toast(pr ? `Record : ${setText(e, value, reps)}` : `Série ${n} enregistrée`, 'success', () => undoSet(entry));
-  if (pr) announce(`Nouveau record : ${setSpeech(e, value, reps)} !`);
+  if (pr) announce(micOpen() ? 'Nouveau record !' : `Nouveau record : ${setSpeech(e, value, reps)} !`);
   return pr;
 }
 function undoSet(entry) {
@@ -1758,6 +1789,8 @@ const extendRest = (seconds) => startRest(Math.ceil((restEnd - Date.now()) / 100
 function restSay() {
   const u = upNext();
   if (!u) return 'Repos terminé.';
+  // Micro ouvert : sans aucun nombre (série, répétitions, charge restent affichés sur l'écran).
+  if (micOpen()) return u.n === 1 ? `Repos terminé. Exercice suivant : ${u.x.e.name}.` : 'Repos terminé. Série suivante, à toi.';
   const what = setSpeech(u.x.e, u.kg, u.reps);
   return u.n === 1 ? `Repos terminé. Exercice suivant : ${u.x.e.name}. ${what}.` : `Repos terminé. Série ${u.n} sur ${u.x.it.sets} : ${what}.`;
 }
@@ -1768,6 +1801,7 @@ const voiceOn = () => state.config?.voice !== false;
 function speak(text, here = false) {
   const synth = window.speechSynthesis;
   if (!text || !synth || !voiceOn() || (projected() && !here)) return;
+  if (micOpen() && saysCommand(text)) return; // ne jamais se valider soi-même
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'fr-FR';
   const fr = synth.getVoices().filter((v) => /^fr/i.test(v.lang));
@@ -2146,9 +2180,8 @@ function statusBar(list = state.listMode) {
     pill(!state.screen?.on || projected() ? 'Écran' : 'Écran…', 'tv', projected(), projectSheet),
     Recognition && !list && pill(earWanted && !ear ? 'Micro coupé' : 'Micro', 'mic', !!ear, () => (ear ? stopEar() : startEar()), earWanted && !ear),
     projected() && !list && pill('Miroir', 'camera', ui.mirror, toggleMirror)),
-    ear && (lastHeard && Date.now() - lastHeard.t < 10000 // gardé 10 s, même si l'écran se redessine (série validée)
-      ? h('p', { className: `caption heard${lastHeard.why ? ' ignored' : ''}` }, lastHeard.text)
-      : h('p', { className: 'caption heard' }, 'Micro prêt : dis le nombre de répétitions après ta série.')));
+    ear && h('button', { type: 'button', className: `caption heard${lastHeard && Date.now() - lastHeard.t < 10000 && lastHeard.why ? ' ignored' : ''}`, onclick: voiceHelp },
+      lastHeard && Date.now() - lastHeard.t < 10000 ? lastHeard.text : 'Micro prêt : dis « dix répétitions validées ». Toutes les phrases ›'));
 }
 function refreshStatus() { document.querySelector('.status-bar')?.replaceWith(statusBar()); }
 
@@ -2172,7 +2205,10 @@ function broadcast() {
 }
 
 // Annonce vocale : lue par l'iPhone, ou par l'écran projeté s'il est connecté.
+// Une phrase d'annonce contient-elle une commande (en entier, ou une de ses phrases) ? Sert de garde-fou à speak et à l'écran.
+const saysCommand = (text) => [text, ...String(text).split(/[.!?:;,]/)].some((part) => commandIn(part));
 function announce(text) {
+  if (micOpen() && saysCommand(text)) return; // l'écran ne doit pas la dire non plus
   lastSay = { id: String(Date.now()), text, t: Date.now() };
   hush(text);
   speak(text);
@@ -2302,7 +2338,7 @@ function live() {
     return { ...base, phase: 'rest', title, say, label: `Échauffement · ${warm.i + 1} sur ${warm.list.length}`,
       ex: { id: 0, name: m.name, img: [], mus: m.mus, mus2: [], cues: [m.cue], badge: null, note: null },
       set: { n: null, of: null, target: `${m.s} s`, load: null, plates: null, change: null, last: null, approach: null },
-      rest: { end: warm.end, total: warm.total, say: next ? `Mouvement suivant : ${next.name}, ${next.s} secondes.` : 'Échauffement terminé. Place aux séries.' },
+      rest: { end: warm.end, total: warm.total, say: next ? `Mouvement suivant : ${next.name}${micOpen() ? '' : `, ${next.s} secondes`}.` : 'Échauffement terminé. Place aux séries.' },
       next: next ? { name: next.name, detail: `${next.s} s` } : null };
   }
   if (i >= items.length) return { ...base, phase: 'done', title, progress, summary: summaryData(items), say };
