@@ -161,12 +161,6 @@
   .pointer .fs, .fs:focus { opacity: 1; }
   .pointer .session { cursor: auto; }
 
-  /* Test provisoire « Vidéo iPhone » (WebRTC), hors séance : en haut à gauche, discret */
-  .rtc { position: fixed; top: 3vh; left: 3vw; z-index: 8; color: var(--muted); font-size: 1.125rem; }
-  .rtc.yes b { color: var(--ok); }
-  .rtc.no b { color: #ffd60a; }
-  #session:not([hidden]) ~ .rtc { display: none; }
-
   /* Fenêtre étroite ou portrait (moins de 4/3) : colonnes empilées, carte d'état en premier, la page défile si besoin */
   @media not all and (min-aspect-ratio: 4/3) {
     .view { overflow-y: auto; }
@@ -293,9 +287,7 @@
   <svg class="icon exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
 </button>
 
-<p id="rtc" class="rtc" hidden></p>
-
 <script src="../push-config.js"></script>
-<script src="tv.js?v=12"></script> <!-- v à changer avec tv.js -->
+<script src="tv.js?v=13"></script> <!-- v à changer avec tv.js -->
 </body>
 </html>

@@ -552,44 +552,7 @@ function gate(e) { if (e.type === 'pointerdown' || e.key === 'Enter' || e.keyCod
 ['pointerdown', 'keydown'].forEach((t) => addEventListener(t, gate, true));
 document.querySelectorAll('.repair').forEach((b) => b.addEventListener('click', forget));
 
-// Test provisoire « Vidéo iPhone » : la TV saura-t-elle recevoir la caméra de l'iPhone en WebRTC (sans serveur vidéo) ?
-// Vérifie WebRTC, un codec vidéo (H.264 ou VP8, ceux de Safari iOS) et un candidat réseau local ; mDNS (.local) : la TV
-// masque son adresse comme Safari, signe qu'elle sait aussi lire celles de l'iPhone. À retirer quand la vidéo sera faite.
-function browserName() {
-  const ua = navigator.userAgent, m = ua.match(/Tizen [\d.]+|Web0S|webOS|Android TV|Chrome\/\d+|Firefox\/\d+|Version\/[\d.]+ Safari/g);
-  return m ? m.join(' · ').replace(/\//g, ' ') : ua.slice(0, 60);
-}
-async function videoTest() {
-  const out = $('rtc');
-  const say = (ok, detail) => {
-    out.textContent = '';
-    out.append(h('b', { textContent: 'Vidéo iPhone : ' + (ok ? 'compatible' : 'non compatible') }), ' · ' + detail + ' · ' + browserName());
-    out.className = 'rtc ' + (ok ? 'yes' : 'no');
-    out.hidden = false;
-  };
-  if (!window.RTCPeerConnection) return say(false, 'pas de WebRTC');
-  let pc = null;
-  try {
-    pc = new RTCPeerConnection();
-    const offer = await pc.createOffer({ offerToReceiveVideo: true });
-    const codec = /H264/i.test(offer.sdp) ? 'H.264' : /VP8/i.test(offer.sdp) ? 'VP8' : '';
-    if (!codec) return say(false, 'aucun codec vidéo');
-    await pc.setLocalDescription(offer);
-    const cand = await new Promise((done) => {
-      const timer = setTimeout(() => done(''), 4000);
-      pc.onicecandidate = (e) => { if (e.candidate && / typ host/.test(e.candidate.candidate)) { clearTimeout(timer); done(e.candidate.candidate); } };
-    });
-    if (!cand) return say(false, codec + ' · pas de réseau local');
-    say(true, codec + (/\.local /.test(cand) ? ' · mDNS' : ' · IP'));
-  } catch (err) {
-    say(false, err.name || 'erreur');
-  } finally {
-    if (pc) pc.close();
-  }
-}
-
 // Au chargement : salle mémorisée, sinon code d'association.
 awake();
 room = stored();
 if (room) connect(room); else pair();
-videoTest();
