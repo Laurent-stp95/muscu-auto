@@ -22,7 +22,7 @@ const FRONT = [1, 2, 3, 4, 6, 10, 13, 14]; // muscles visibles de face (wger is_
 const VOICES = ['Amélie', 'Thomas', 'Audrey', 'Aurélie'];
 const $ = (id) => document.getElementById(id);
 
-let started = false, room = null, sock = null, online = false, phones = 0, delay = 1000, retry = 0, ping = 0, codeTimer = 0;
+let unlocked = false, room = null, sock = null, online = false, phones = 0, delay = 1000, retry = 0, ping = 0, codeTimer = 0;
 let s = null; // dernier instantané
 let rest = null; // repos en cours : { key: rest.end du téléphone, end: fin sur notre horloge, total, say, voice }
 let over = null; // dernier repos terminé (sa clé) : jamais relancé ni resonné
@@ -193,13 +193,12 @@ function ring() {
 // --- Affichage : squelette fixe dans index.html, seuls les textes qui changent sont réécrits ---
 
 function render() {
-  if (!started) return;
   // Repos fini ici avant que l'iPhone le dise : la série suivante passe à l'écran.
   const phase = !s ? null : s.phase === 'rest' && !rest ? 'work' : s.phase;
   const live = phase === 'work' || phase === 'rest' || phase === 'paused';
   const idle = phase === 'idle' && !!s.upcoming;
   const view = !room ? 'pair' : phase === 'stopped' ? 'stopped' : live || idle || phase === 'done' ? 'session' : 'wait';
-  ['start', 'pair', 'wait', 'stopped', 'session'].forEach((v) => { if ($(v)) $(v).hidden = v !== view; }); // élément absent : HTML d'une autre version en cache
+  ['pair', 'wait', 'stopped', 'session'].forEach((v) => { if ($(v)) $(v).hidden = v !== view; }); // élément absent : HTML d'une autre version en cache
   // Écran d'attente : « Nouveau code » a le focus, la touche OK de la télécommande suffit.
   const repair = document.querySelector('#' + view + ' .repair');
   if (repair && document.activeElement !== repair) repair.focus();
@@ -320,7 +319,7 @@ function awake() {
   if (!navigator.wakeLock || lock) return;
   navigator.wakeLock.request('screen').then((l) => { lock = l; l.addEventListener('release', () => { lock = null; }); }, () => {});
 }
-document.addEventListener('visibilitychange', () => { if (started && document.visibilityState === 'visible') awake(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') awake(); });
 
 function fullscreen() {
   const el = document.documentElement, go = el.requestFullscreen || el.webkitRequestFullscreen;
@@ -471,18 +470,25 @@ addEventListener('mousemove', () => {
   pointerTimer = setTimeout(() => document.body.classList.remove('pointer'), 3000);
 });
 
-// Premier geste obligatoire : sans lui, navigateurs et TV bloquent le son et la voix.
-function start() {
-  if (started) return;
-  started = true;
-  try { audio = new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch (e) { /* pas de WebAudio : pas de bip */ }
+// Le son et la voix ont besoin d'un premier geste (navigateurs et TV les bloquent sans) : la page s'affiche et se connecte tout de suite,
+// un bandeau invite à toucher OK ; ce premier geste débloque le son, le plein écran et l'écran allumé, sans rien déclencher d'autre.
+function unlock(e) {
+  if (unlocked) return;
+  unlocked = true;
+  if (e && e.preventDefault) { e.preventDefault(); e.stopPropagation(); } // OK sur « Nouveau code » ne doit pas le déclencher
+  try { audio = new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch (err) { /* pas de WebAudio : pas de bip */ }
   const synth = window.speechSynthesis;
   if (synth) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; synth.speak(u); synth.getVoices(); } // débloque la voix, charge la liste
+  $('sound').hidden = true;
   awake();
   fullscreen();
-  room = stored();
-  if (room) connect(room); else pair();
+  ['pointerdown', 'keydown'].forEach((t) => removeEventListener(t, gate, true));
 }
-$('start').addEventListener('click', start);
+function gate(e) { if (e.type === 'pointerdown' || e.key === 'Enter' || e.keyCode === 13 || e.key === ' ') unlock(e); }
+['pointerdown', 'keydown'].forEach((t) => addEventListener(t, gate, true));
 document.querySelectorAll('.repair').forEach((b) => b.addEventListener('click', forget));
-addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.keyCode === 13) start(); }); // touche OK de la télécommande
+
+// Au chargement : salle mémorisée, sinon code d'association.
+awake();
+room = stored();
+if (room) connect(room); else pair();

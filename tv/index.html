@@ -33,7 +33,9 @@
   .app-icon.small { width: 4.5rem; height: 4.5rem; border-radius: 1rem; }
 
   /* Accueil : un geste pour débloquer le son. Bouton façon Apple TV : blanc et agrandi quand il a le focus. */
-  #start { cursor: pointer; }
+  /* Son à activer : bandeau en haut, au-dessus de tout, jusqu'au premier geste */
+  .sound { position: fixed; top: 4vh; left: 50%; z-index: 11; display: flex; align-items: center; padding: .75rem 1.5rem; border: 0; border-radius: 2rem; background: var(--fill); color: var(--fg); font: inherit; font-size: 1.25rem; font-weight: 600; cursor: pointer; transform: translateX(-50%); animation: fade .3s 1s both; }
+  .sound .icon { width: 1.5rem; height: 1.5rem; margin-right: .75rem; color: var(--accent-ink); }
   .btn { min-width: 12rem; padding: 1rem 3rem; border: 0; border-radius: var(--r-m); background: var(--fill); color: var(--fg); font: inherit; font-size: 1.75rem; font-weight: 700; cursor: pointer; transition: transform .15s, background-color .15s, color .15s; }
   .btn:focus { outline: none; background: var(--fg); color: #000; transform: scale(1.08); }
 
@@ -165,14 +167,12 @@
 </style>
 </head>
 <body>
-<div id="start" class="view center">
-  <img class="app-icon" src="../icon-192.png" alt="">
-  <h1 class="headline">Steady</h1>
-  <p class="lead">Appuie sur OK pour activer le son.</p>
-  <button id="ok" class="btn" type="button" autofocus>OK</button>
-</div>
+<button id="sound" class="sound" type="button">
+  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+  Appuie sur OK pour activer le son
+</button>
 
-<div id="pair" class="view center" hidden>
+<div id="pair" class="view center">
   <img class="app-icon small" src="../icon-192.png" alt="">
   <div id="code" class="code" role="img"></div>
   <p class="lead">Sur ton iPhone, dans Steady : Séance → Projeter, puis tape ce code.</p>
@@ -277,6 +277,6 @@
 </button>
 
 <script src="../push-config.js"></script>
-<script src="tv.js?v=6"></script> <!-- v à changer avec tv.js -->
+<script src="tv.js?v=7"></script> <!-- v à changer avec tv.js -->
 </body>
 </html>

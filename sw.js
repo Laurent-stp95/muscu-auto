@@ -18,6 +18,8 @@ self.addEventListener('activate', (ev) => ev.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', (ev) => {
   const url = new URL(ev.request.url);
   if (ev.request.method !== 'GET' || url.origin !== location.origin) return; // vidéos wger.de : réseau seulement
+  // Page TV (autre appareil, toujours en ligne) : réseau seulement, pour ne jamais mélanger une ancienne et une nouvelle version.
+  if (url.pathname.includes('/tv/')) return;
   ev.respondWith(caches.open(CACHE).then(async (cache) => {
     const hit = await cache.match(ev.request, { ignoreSearch: true });
     // Par l'URL : une requête de navigation ne peut pas être recopiée avec d'autres options.
