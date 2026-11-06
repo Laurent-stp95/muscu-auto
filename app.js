@@ -53,6 +53,8 @@ const ICONS = {
   play: '<path d="M7 4.5v15l12-7.5z"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
   tv: '<rect x="2.5" y="4.5" width="19" height="13" rx="2.5"/><path d="M8 21h8M12 17.5V21"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
+  camera: '<path d="M3.5 8.5h3.5l2-2.5h6l2 2.5h3.5v10.5h-17z"/><circle cx="12" cy="13.5" r="3.5"/>',
   copy: '<rect x="8.5" y="8.5" width="12" height="12" rx="2.5"/><path d="M15.5 8.5V6a2.5 2.5 0 0 0-2.5-2.5H6A2.5 2.5 0 0 0 3.5 6v7A2.5 2.5 0 0 0 6 15.5h2.5"/>',
 };
 function icon(name, className = '') {
@@ -794,6 +796,7 @@ function sessionSummary() {
 // Pause : minuteur coupé, écran libre de s'éteindre, temps de pause hors durée. Réversible, donc sans confirmation.
 function pause() {
   if (warm) { clearInterval(warm.timer); warm = null; }
+  stopEar();
   record({ type: 'pause' });
   state.active.paused = new Date().toISOString();
   stopRest();
@@ -845,6 +848,7 @@ function closeSession() {
   state.ended = { t: Date.now(), title: `${DAYS[s.day]} · ${s.name}`, summary: summaryData(activeItems()) };
   record({ type: 'end' });
   if (warm) { clearInterval(warm.timer); warm = null; }
+  stopEar();
   state.active = null;
   stopRest();
   wakeLock?.release().catch(() => {});
@@ -880,7 +884,7 @@ function session() {
       h('h1', {}, `${DAYS[s.day]} · ${s.name}`),
       button('Arrêter', stopSession, { variant: 'plain', className: 'btn plain end' })),
     segmented([[false, 'Une série à la fois'], [true, 'Toute la séance']], list, (v) => { state.listMode = v; ui.pick = null; save(); render(); }),
-    projector(),
+    h('div', { className: 'row session-tools' }, projector(), !list && earButton()),
     cycle().deload && h('p', { className: 'note' }, icon('leaf'), 'Semaine allégée : moitié moins de séries, charges −10 %.'),
     state.active.readiness === 'hold' && h('p', { className: 'note' }, icon('info'), "Forme moyenne : pas d'augmentation de charge aujourd'hui."),
     state.active.readiness === 'light' && h('p', { className: 'note' }, icon('leaf'), 'Forme basse : séance allégée, moitié moins de séries et charges −10 %. Écoute ton corps.'),
@@ -1072,22 +1076,206 @@ function setPanel(x, n, i, count) {
     platesLine, changeLine,
     approach.length > 0 && h('p', { className: 'meta center' }, `Approche : ${approach.map(([kg, r]) => `${kgText(kg)}\u00a0×\u00a0${r}`).join(' · ')}`),
     last && h('p', { className: 'caption center' }, `La dernière fois : ${setText(e, last.kg, last.reps)}`),
-    button('Série faite', () => {
-      if (e.load !== 'pdc' && pick.kg == null) return toast('Choisis la charge utilisée.', 'warning');
-      stopTempo();
-      logSet(e, n, pick.kg, pick.reps, tip.mode);
-      // Dernière série de l'exercice : on reste dessus pour le ressenti, « Exercice suivant » fait avancer.
-      if (x.done.size + 1 >= it.sets) ui.at = i;
-      if (n < it.sets || i + 1 < count) startRest(it.rest);
-      else announce("Dernière série faite. Bravo ! Termine la séance pour l'enregistrer.");
-      ui.pick = null;
-      render();
-    }, { variant: 'primary', size: 'large', icon: 'check', className: 'btn primary large focus-go' }),
+    button('Série faite', () => validateSet({ x, n, i, count, pick }), { variant: 'primary', size: 'large', icon: 'check', className: 'btn primary large focus-go' }),
     h('div', { className: 'row focus-tools' },
       (tip.mode === 'tempo' || tip.mode === 'pause') && tempoControl(() => pick.reps, tip.mode),
+      cameraKind(e) && button('Compter avec la caméra', () => cameraCoach(focusTarget()), { variant: 'gray', size: 'compact', icon: 'camera' }),
       filmButton()),
     h('p', { className: 'tip' }, tip.note),
     h('ul', { className: 'cue' }, (e.cues || [CUES[e.zone]]).slice(0, 2).map((c) => h('li', {}, c)))];
+}
+
+// Valide la série affichée par le mode focus : bouton, voix ou caméra.
+function validateSet({ x, n, i, count, pick }) {
+  const { e, it, tip } = x;
+  if (e.load !== 'pdc' && pick.kg == null) return toast('Choisis la charge utilisée.', 'warning');
+  stopTempo();
+  logSet(e, n, pick.kg, pick.reps, tip.mode);
+  // Dernière série de l'exercice : on reste dessus pour le ressenti, « Exercice suivant » fait avancer.
+  if (x.done.size + 1 >= it.sets) ui.at = i;
+  if (n < it.sets || i + 1 < count) startRest(it.rest);
+  else announce("Dernière série faite. Bravo ! Termine la séance pour l'enregistrer.");
+  ui.pick = null;
+  render();
+}
+
+// Série affichée par le mode focus, avec son réglage (ui.pick, créé avec les valeurs prévues) : { x, n, i, count, pick }, null si rien à faire.
+function focusTarget() {
+  if (!state.active || state.active.paused || state.listMode || warm) return null;
+  const items = activeItems();
+  const i = Math.min(ui.at ?? nextItem(items), items.length);
+  const x = items[i], n = x && nextSet(x);
+  if (!n) return null;
+  const key = `${state.active.session}|${x.e.id}|${n}`;
+  if (ui.pick?.key !== key) {
+    const kg = x.e.load === 'pdc' ? 0 : startKg(x) ?? loadable(x.e, state.config.loads)[0] ?? null;
+    ui.pick = { key, kg, reps: targetReps(x.it, x.past, x.e.load === 'pdc' ? null : kg, n, x.e.unit), touched: false };
+  }
+  return { x, n, i, count: items.length, pick: ui.pick };
+}
+
+// --- Commande vocale ---
+// Mains libres en mode focus : « dix » valide la série à 10 répétitions ; « passer », « plus trente », « suivant », « annuler », « pause ».
+// Le micro ignore ce que dit le coach (pendant qu'il parle et 1,5 s après), et un nombre dit pendant le repos.
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const WORDS = { 'dix-sept': 17, 'dix-huit': 18, 'dix-neuf': 19, un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10,
+  onze: 11, douze: 12, treize: 13, quatorze: 14, quinze: 15, seize: 16, vingt: 20, trente: 30 };
+let ear = null, spokeAt = 0;
+
+function startEar() {
+  if (!Recognition) return toast("Commande vocale indisponible sur cet appareil.", 'warning');
+  const rec = new Recognition();
+  rec.lang = 'fr-FR';
+  rec.continuous = true;
+  rec.interimResults = false;
+  rec.onresult = (ev) => { const r = ev.results[ev.results.length - 1]; if (r.isFinal) hear(r[0].transcript); };
+  rec.onerror = (ev) => {
+    if (!['not-allowed', 'service-not-allowed'].includes(ev.error)) return;
+    stopEar();
+    toast("Micro refusé : autorise-le dans les Réglages de l'iPhone, Steady.", 'warning');
+  };
+  rec.onend = () => { if (ear === rec) { try { rec.start(); } catch { stopEar(); } } }; // Safari s'arrête après un silence : on relance
+  ear = rec;
+  try { rec.start(); } catch { ear = null; return toast("Commande vocale indisponible sur cet appareil.", 'warning'); }
+  showEar();
+  toast('Micro actif : dis « dix » pour valider 10 répétitions.', 'info');
+}
+function stopEar() {
+  const rec = ear;
+  ear = null;
+  try { rec?.stop(); } catch { /* déjà arrêté */ }
+  showEar();
+}
+function showEar() {
+  document.querySelectorAll('.ear-btn').forEach((b) => { b.ariaPressed = String(!!ear); b.lastChild.textContent = ear ? 'Micro actif' : 'Commande vocale'; });
+}
+const earButton = () => Recognition && button(ear ? 'Micro actif' : 'Commande vocale', () => (ear ? stopEar() : startEar()),
+  { variant: 'plain', icon: 'mic', className: 'btn plain ear-btn', ariaPressed: String(!!ear) });
+
+function hear(text) {
+  if (!state.active || ui.view !== 'session' || window.speechSynthesis?.speaking || Date.now() - spokeAt < 1500) return;
+  const t = text.toLowerCase().trim();
+  if (/annul/.test(t)) {
+    const last = journal().findLast((x) => x.session === state.active.session && x.type === 'set');
+    return last && undoSet(last);
+  }
+  if (/pass/.test(t)) return rest && stopRest();
+  if (/plus\s*(30|trente)|rallonge/.test(t)) return rest && extendRest(30);
+  if (/pause/.test(t)) return pause();
+  const f = focusTarget();
+  if (/suivant/.test(t)) {
+    const items = activeItems();
+    ui.at = Math.min((f ? f.i : Math.min(ui.at ?? nextItem(items), items.length)) + 1, items.length);
+    ui.pick = null;
+    render();
+    return;
+  }
+  const n = Number((t.match(/\d+/) || [])[0]) || WORDS[t.replace(/\s+/g, '-')] || t.split(/\s+/).map((w) => WORDS[w]).find(Boolean);
+  if (!n || rest || !f) return; // pendant le repos, la série suivante n'est pas encore faite
+  f.pick.reps = n;
+  f.pick.touched = true;
+  tick(660);
+  validateSet(f);
+}
+
+// --- Caméra qui compte (prototype) ---
+// L'iPhone posé de côté suit ton corps (MediaPipe, calcul sur l'appareil, aucune image envoyée), compte les répétitions
+// et vérifie l'amplitude et la vitesse de descente : genou pour les squats et fentes, coude pour les développés.
+// Bibliothèque et modèle (environ 19 Mo) téléchargés à la première utilisation, puis gardés par le navigateur.
+const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1';
+const POSE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+const JOINTS = { knee: [[23, 25, 27], [24, 26, 28]], elbow: [[11, 13, 15], [12, 14, 16]] }; // hanche-genou-cheville, épaule-coude-poignet (gauche, droite)
+const COUNTER = { knee: { top: 160, start: 140, deep: 100 }, elbow: { top: 155, start: 130, deep: 90 } };
+const BONES = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28]];
+const cameraKind = (e) => (e.zone === 'quad' ? 'knee' : ['chest', 'shoulders'].includes(e.zone) ? 'elbow' : null);
+let landmarker = null;
+
+function poseModel() {
+  landmarker ||= (async () => {
+    const { FilesetResolver, PoseLandmarker } = await import(`${MP}/vision_bundle.mjs`);
+    const files = await FilesetResolver.forVisionTasks(`${MP}/wasm`);
+    return PoseLandmarker.createFromOptions(files, { baseOptions: { modelAssetPath: POSE_MODEL, delegate: 'GPU' }, runningMode: 'VIDEO', numPoses: 1 });
+  })().catch((err) => { landmarker = null; throw err; });
+  return landmarker;
+}
+
+function repFeedback(kind, ev) {
+  if (!ev.full) return { text: kind === 'knee' ? "Amplitude incomplète : descends jusqu'aux cuisses parallèles." : 'Amplitude incomplète : descends plus bas.', voice: `${ev.rep}, plus bas` };
+  if (ev.down < 1000) return { text: 'Descente trop rapide : contrôle-la sur 2 à 3 secondes.', voice: `${ev.rep}, plus lent` };
+  return { text: `Répétition ${ev.rep} : bonne amplitude, descente contrôlée.`, voice: String(ev.rep) };
+}
+
+async function cameraCoach(f) {
+  if (!f) return;
+  const kind = cameraKind(f.x.e);
+  const video = h('video', { playsInline: true, muted: true, autoplay: true, className: 'cam-video' });
+  const canvas = h('canvas', { className: 'cam-canvas' });
+  const count = h('strong', { className: 'cam-count' }, '0');
+  const hint = h('p', { className: 'cam-hint' }, 'Préparation de la caméra…');
+  const ok = button('Valider', () => close(true), { variant: 'primary', size: 'large', disabled: true });
+  const dialog = h('dialog', { className: 'sheet camera' }, h('div', { className: 'sheet-body' },
+    h('div', { className: 'cam-view' }, video, canvas, count), hint,
+    h('p', { className: 'caption' }, kind === 'knee' ? "Pose l'iPhone de côté, à 2 ou 3 m, ton corps entier dans l'image." : "Pose l'iPhone de côté, bras et épaules bien visibles."),
+    h('div', { className: 'stack' }, ok, button('Fermer', () => close(false), { variant: 'gray', size: 'large' }))));
+  let stream = null, closed = false, reps = 0;
+  function close(keep) {
+    closed = true;
+    stream?.getTracks().forEach((track) => track.stop());
+    dialog.close();
+    dialog.remove();
+    if (keep && reps) { f.pick.reps = reps; f.pick.touched = true; validateSet(f); }
+  }
+  dialog.addEventListener('cancel', (ev) => { ev.preventDefault(); close(false); });
+  document.body.append(dialog);
+  dialog.showModal();
+  audio ||= new (window.AudioContext || window.webkitAudioContext)();
+  let model;
+  try {
+    [stream, model] = await Promise.all([navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false }), poseModel()]);
+  } catch (err) {
+    hint.textContent = err?.name === 'NotAllowedError' ? "Caméra refusée : autorise-la dans les Réglages de l'iPhone, Steady." : 'Caméra ou suivi du corps indisponible (connexion nécessaire la première fois).';
+    return;
+  }
+  if (closed) return stream.getTracks().forEach((track) => track.stop());
+  video.srcObject = stream;
+  await video.play().catch(() => {});
+  hint.textContent = 'Vas-y : je compte.';
+  const counter = repCounter(COUNTER[kind]);
+  const ctx = canvas.getContext('2d');
+  let smooth = null;
+  const frame = () => {
+    if (closed) return;
+    if (video.readyState >= 2 && video.videoWidth) {
+      const w = (canvas.width = video.videoWidth), hh = (canvas.height = video.videoHeight);
+      const p = model.detectForVideo(video, performance.now()).landmarks?.[0];
+      if (p) {
+        const at = (k) => ({ x: p[k].x * w, y: p[k].y * hh, v: p[k].visibility ?? 1 });
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#c8441d';
+        for (const [a, b] of BONES) { ctx.beginPath(); ctx.moveTo(at(a).x, at(a).y); ctx.lineTo(at(b).x, at(b).y); ctx.stroke(); }
+        // Côté le plus visible de la caméra (de profil, l'autre est caché).
+        const side = JOINTS[kind].map((joint) => joint.map(at)).sort((s1, s2) => Math.min(...s2.map((q) => q.v)) - Math.min(...s1.map((q) => q.v)))[0];
+        if (Math.min(...side.map((q) => q.v)) > 0.5) {
+          ctx.fillStyle = '#fff';
+          side.forEach((q) => { ctx.beginPath(); ctx.arc(q.x, q.y, 7, 0, 2 * Math.PI); ctx.fill(); });
+          const angle = jointAngle(...side);
+          smooth = smooth == null ? angle : smooth * 0.6 + angle * 0.4; // lissage : le suivi tremble d'une image à l'autre
+          const ev = counter.push(smooth, performance.now());
+          if (ev) {
+            reps = ev.rep;
+            count.textContent = String(reps);
+            ok.disabled = false;
+            ok.lastChild.textContent = `Valider ${plural(reps, 'répétition')}`;
+            const said = repFeedback(kind, ev);
+            hint.textContent = said.text;
+            speak(said.voice, true);
+          }
+        }
+      }
+    }
+    requestAnimationFrame(frame);
+  };
+  frame();
 }
 
 // Grand compteur − valeur + : values = liste des valeurs permises ou { min, max, step } ; set() change la valeur sans prévenir.
@@ -1436,6 +1624,8 @@ function speak(text, here = false) {
   u.lang = 'fr-FR';
   const fr = synth.getVoices().filter((v) => /^fr/i.test(v.lang));
   u.voice = ['Amélie', 'Thomas', 'Audrey', 'Aurélie'].map((name) => fr.find((v) => v.name.startsWith(name))).find(Boolean) || fr.find((v) => /fr.FR/i.test(v.lang)) || fr[0] || null;
+  u.onend = () => { spokeAt = Date.now(); };
+  spokeAt = Date.now();
   synth.cancel();
   synth.speak(u);
 }

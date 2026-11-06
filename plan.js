@@ -429,12 +429,40 @@ function express(exos, items, minutes) {
   return Object.fromEntries(keep.map((it) => [it.ex, it.sets]));
 }
 
+// Angle (degrés, 0 à 180) au point b entre les segments b→a et b→c : genou (hanche, genou, cheville) ou coude (épaule, coude, poignet).
+function jointAngle(a, b, c) {
+  const deg = Math.abs(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x)) * 180 / Math.PI;
+  return deg > 180 ? 360 - deg : deg;
+}
+
+// Compteur de répétitions à partir de l'angle d'une articulation suivie par la caméra.
+// Une répétition = en haut (angle ≥ top) → descente (angle < start) → remontée en haut. push(angle, ms) renvoie, à chaque remontée,
+// { rep, depth (angle le plus fermé), down (durée de la descente en ms), full (depth ≤ deep : amplitude atteinte) }, sinon null.
+function repCounter({ top, start, deep }) {
+  let down = false, min = 180, topAt = 0, bottomAt = 0, count = 0;
+  return {
+    push(angle, t) {
+      if (!down) {
+        if (angle >= top) topAt = t;
+        else if (angle < start) { down = true; min = angle; bottomAt = t; }
+        return null;
+      }
+      if (angle < min) { min = angle; bottomAt = t; }
+      if (angle < top) return null;
+      const event = { rep: ++count, depth: Math.round(min), down: bottomAt - topAt, full: min <= deep };
+      down = false;
+      topAt = t;
+      return event;
+    },
+  };
+}
+
 // Courbe indicative sur `weeks` semaines au rythme du niveau.
 function project(kg, level, weeks = 8) {
   return Array.from({ length: weeks }, (_, w) => roundHalf(kg * (1 + LEVELS[level].weekly) ** (w + 1)));
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { withoutUndone, balance, pushPull, PUSH_ZONES, PULL_ZONES, express, sessionMinutes, plates, plateChange, recordKind, daysOff, comeback, gearList, targetReps, generate, exerciseCount, backToBack, swap, repair, renew, available, cancelled, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
+  module.exports = { jointAngle, repCounter, withoutUndone, balance, pushPull, PUSH_ZONES, PULL_ZONES, express, sessionMinutes, plates, plateChange, recordKind, daysOff, comeback, gearList, targetReps, generate, exerciseCount, backToBack, swap, repair, renew, available, cancelled, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
     kgLabel, range, ISOLATION_ZONES, SLOTS, SESSIONS, GOALS, LEVELS, ZONES, CUES, TAGS, BODYWEIGHT, MAX_DAYS, LEARNING, CYCLE_WEEKS };
 }

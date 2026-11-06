@@ -203,6 +203,17 @@
   body.focus-mode .rest { display: none; }
   .big-icon { width: 40px; height: 40px; color: var(--accent); }
   .focus-tools { justify-content: center; }
+  .session-tools { justify-content: center; }
+  .session-tools .projector { align-self: auto; }
+  .ear-btn { color: var(--muted); font-weight: 500; }
+  .ear-btn[aria-pressed="true"] { color: var(--ok-ink); }
+  /* Caméra qui compte : image en miroir (caméra avant), squelette par-dessus, compte en grand */
+  dialog.camera { width: min(100% - 2 * var(--s2), 560px); }
+  .cam-view { position: relative; overflow: hidden; border-radius: var(--r-m); background: #000; }
+  .cam-video, .cam-canvas { display: block; width: 100%; transform: scaleX(-1); }
+  .cam-canvas { position: absolute; top: 0; left: 0; height: 100%; }
+  .cam-count { position: absolute; top: var(--s2); right: var(--s2); min-width: 64px; padding: var(--s1) var(--s3); border-radius: var(--r-m); background: rgb(0 0 0 / .6); color: #fff; font-size: var(--t-large); font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
+  .cam-hint { font-weight: 600; text-align: center; }
   video.replay { max-height: 55dvh; }
   .projector { align-self: center; color: var(--muted); font-weight: 500; }
   body.projecting .screen-btn, body.projecting .projector { color: var(--ok-ink); }
