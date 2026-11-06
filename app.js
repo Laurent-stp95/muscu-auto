@@ -747,6 +747,12 @@ async function start(d) {
       state.active.express = fit.minutes;
       state.active.cut = express(EXOS, state.plan[d].items.map((item) => effective(item, true)), fit.minutes);
     }
+    // Dans le même geste que « Commencer » : l'écran bascule, le micro s'ouvre (iOS n'autorise le micro qu'après un geste).
+    if (state.screen && fit.project !== state.screen.on) {
+      state.screen.on = fit.project;
+      if (fit.project) { socketDelay = 1000; connectScreen(); } else { socket?.close(); setTv(0); }
+    }
+    if (fit.voice) startEar(); else if (state.voiceInput) { state.voiceInput = false; }
     ui.at = ui.pick = null;
     record({ type: 'start', day: state.plan[d].day, name: state.plan[d].name });
     record({ type: 'readiness', sleep: fit.sleep, soreness: fit.soreness, energy: fit.energy, level: fit.level });
@@ -773,6 +779,12 @@ async function fitnessCheck(s) {
     timeButtons.forEach((b, n) => { b.ariaPressed = String(n === i); });
   }));
   if (times.length > 1) groups.push(h('div', { className: 'group' }, h('span', { className: 'label' }, 'Temps disponible'), h('div', { className: 'chips' }, timeButtons)));
+  // Écran et micro activés en même temps que la séance, d'un seul geste ; le choix est gardé pour la prochaine fois.
+  answers.project = !!state.screen?.on;
+  answers.voice = !!state.voiceInput && !!Recognition;
+  const options = [state.screen && toggle("Projeter sur l'écran", answers.project, (v) => { answers.project = v; }),
+    Recognition && toggle('Valider à la voix', answers.voice, (v) => { answers.voice = v; })].filter(Boolean);
+  if (options.length) groups.push(h('div', { className: 'list' }, options));
   const go = await choose({
     title: 'Comment tu te sens ?', text: "La séance s'adapte si ça va moins bien.", extra: h('div', { className: 'stack' }, groups),
     actions: [{ label: 'Commencer la séance', value: true, variant: 'primary' }, { label: 'Annuler', value: null }],
@@ -842,7 +854,7 @@ function sessionSummary() {
 // Pause : minuteur coupé, écran libre de s'éteindre, temps de pause hors durée. Réversible, donc sans confirmation.
 function pause() {
   if (warm) { clearInterval(warm.timer); warm = null; }
-  stopEar();
+  stopEar(false);
   record({ type: 'pause' });
   state.active.paused = new Date().toISOString();
   stopRest();
@@ -857,6 +869,7 @@ function resume() {
   record({ type: 'resume' });
   delete state.active.paused;
   save();
+  if (state.voiceInput && Recognition) startEar();
 }
 
 // Arrêter : terminer (enregistrée), abandonner (marquée, ignorée dans le suivi, annulable 5 s) ou continuer.
@@ -894,7 +907,7 @@ function closeSession() {
   state.ended = { t: Date.now(), title: `${DAYS[s.day]} · ${s.name}`, summary: summaryData(activeItems()) };
   record({ type: 'end' });
   if (warm) { clearInterval(warm.timer); warm = null; }
-  stopEar();
+  stopEar(false);
   state.active = null;
   stopRest();
   wakeLock?.release().catch(() => {});
@@ -930,7 +943,7 @@ function session() {
       h('h1', {}, `${DAYS[s.day]} · ${s.name}`),
       button('Arrêter', stopSession, { variant: 'plain', className: 'btn plain end' })),
     segmented([[false, 'Une série à la fois'], [true, 'Toute la séance']], list, (v) => { state.listMode = v; ui.pick = null; save(); render(); }),
-    h('div', { className: 'row session-tools' }, projector(), !list && earButton(), !list && mirrorButton()),
+    statusBar(list),
     cycle().deload && h('p', { className: 'note' }, icon('leaf'), 'Semaine allégée : moitié moins de séries, charges −10 %.'),
     state.active.readiness === 'hold' && h('p', { className: 'note' }, icon('info'), "Forme moyenne : pas d'augmentation de charge aujourd'hui."),
     state.active.readiness === 'light' && h('p', { className: 'note' }, icon('leaf'), 'Forme basse : séance allégée, moitié moins de séries et charges −10 %. Écoute ton corps.'),
@@ -1163,15 +1176,25 @@ function focusTarget() {
 }
 
 // --- Commande vocale ---
-// Mains libres en mode focus : « dix » valide la série à 10 répétitions ; « passer », « plus trente », « suivant », « annuler », « pause ».
-// Le micro ignore ce que dit le coach (pendant qu'il parle et 1,5 s après), et un nombre dit pendant le repos.
+// Mains libres en mode focus : « dix » valide la série à 10 répétitions, « valide » la valide telle qu'affichée (compte du miroir) ;
+// « passer », « plus trente », « suivant », « annuler », « pause » ; en fin d'exercice « facile », « bien », « dur », « douleur » ;
+// toutes les séries faites, « terminer » enregistre la séance.
+// Garde-fous contre les faux déclenchements : le micro est sourd pendant que l'iPhone ou l'écran parle (et juste après),
+// une phrase de plus de 4 mots est ignorée (les annonces sont longues), un nombre dit pendant le repos ou quand le miroir compte aussi.
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const WORDS = { 'dix-sept': 17, 'dix-huit': 18, 'dix-neuf': 19, un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10,
   onze: 11, douze: 12, treize: 13, quatorze: 14, quinze: 15, seize: 16, vingt: 20, trente: 30 };
-let ear = null, spokeAt = 0;
+const FEEL_WORDS = [['facile', 'easy'], ['bien', 'ok'], ['difficile', 'hard'], ['dur', 'hard'], ['douleur', 'pain'], ['mal', 'pain']];
+let ear = null, earWanted = false, spokeAt = 0, quietUntil = 0;
+// Durée estimée d'une annonce (environ 14 caractères par seconde) : le micro reste sourd jusque-là.
+const hush = (text) => { quietUntil = Math.max(quietUntil, Date.now() + 1500 + String(text || '').length * 70); };
 
 function startEar() {
   if (!Recognition) return toast("Commande vocale indisponible sur cet appareil.", 'warning');
+  earWanted = true;
+  state.voiceInput = true;
+  save();
+  if (ear) return;
   const rec = new Recognition();
   rec.lang = 'fr-FR';
   rec.continuous = true;
@@ -1179,30 +1202,35 @@ function startEar() {
   rec.onresult = (ev) => { const r = ev.results[ev.results.length - 1]; if (r.isFinal) hear(r[0].transcript); };
   rec.onerror = (ev) => {
     if (!['not-allowed', 'service-not-allowed'].includes(ev.error)) return;
-    stopEar();
+    earWanted = false;
+    stopEar(false);
     toast("Micro refusé : autorise-le dans les Réglages de l'iPhone, Steady.", 'warning');
   };
-  rec.onend = () => { if (ear === rec) { try { rec.start(); } catch { stopEar(); } } }; // Safari s'arrête après un silence : on relance
+  // Safari s'arrête après un silence : on relance. Impossible (appli en arrière-plan) : micro « coupé », signalé jusqu'à la relance.
+  rec.onend = () => { if (ear === rec) { try { rec.start(); } catch { ear = null; refreshStatus(); broadcast(); } } };
   ear = rec;
-  try { rec.start(); } catch { ear = null; return toast("Commande vocale indisponible sur cet appareil.", 'warning'); }
-  showEar();
-  toast('Micro actif : dis « dix » pour valider 10 répétitions.', 'info');
+  try { rec.start(); } catch { ear = null; refreshStatus(); return toast('Micro indisponible pour le moment : touche « Micro » pour réessayer.', 'warning'); }
+  refreshStatus();
+  broadcast();
 }
-function stopEar() {
+// forget = false : coupure voulue par l'appli (pause, fin de séance) ; la préférence reste pour la prochaine séance.
+function stopEar(forget = true) {
   const rec = ear;
   ear = null;
+  earWanted = false;
+  if (forget) { state.voiceInput = false; save(); }
   try { rec?.stop(); } catch { /* déjà arrêté */ }
-  showEar();
+  refreshStatus();
+  broadcast();
 }
-function showEar() {
-  document.querySelectorAll('.ear-btn').forEach((b) => { b.ariaPressed = String(!!ear); b.lastChild.textContent = ear ? 'Micro actif' : 'Commande vocale'; });
-}
-const earButton = () => Recognition && button(ear ? 'Micro actif' : 'Commande vocale', () => (ear ? stopEar() : startEar()),
-  { variant: 'plain', icon: 'mic', className: 'btn plain ear-btn', ariaPressed: String(!!ear) });
+// Retour dans l'appli après un verrouillage : on tente de relancer le micro (sinon « Micro coupé » reste affiché).
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && earWanted && !ear && state.active) startEar(); });
 
 function hear(text) {
-  if (!state.active || ui.view !== 'session' || window.speechSynthesis?.speaking || Date.now() - spokeAt < 1500) return;
-  const t = text.toLowerCase().trim();
+  if (!state.active || ui.view !== 'session' || window.speechSynthesis?.speaking || Date.now() - spokeAt < 1500 || Date.now() < quietUntil) return;
+  const t = text.toLowerCase().replace(/[.,!?]/g, ' ').trim();
+  const words = t.split(/\s+/).filter(Boolean);
+  if (!words.length || words.length > 4) return;
   if (/annul/.test(t)) {
     const last = journal().findLast((x) => x.session === state.active.session && x.type === 'set');
     return last && undoSet(last);
@@ -1210,20 +1238,45 @@ function hear(text) {
   if (/pass/.test(t)) return rest && stopRest();
   if (/plus\s*(30|trente)|rallonge/.test(t)) return rest && extendRest(30);
   if (/pause/.test(t)) return pause();
-  const f = focusTarget();
-  if (/suivant/.test(t)) {
-    const items = activeItems();
-    ui.at = Math.min((f ? f.i : Math.min(ui.at ?? nextItem(items), items.length)) + 1, items.length);
-    ui.pick = null;
-    render();
-    return;
+  const items = activeItems();
+  const i = Math.min(ui.at ?? nextItem(items), items.length);
+  if (/termin/.test(t)) {
+    if (nextItem(items) < items.length) return; // des séries restent : on ne termine pas par erreur
+    closeSession();
+    show('week');
+    announce('Séance enregistrée. Bravo !');
+    return toast('Séance enregistrée', 'success');
   }
-  const n = Number((t.match(/\d+/) || [])[0]) || WORDS[t.replace(/\s+/g, '-')] || t.split(/\s+/).map((w) => WORDS[w]).find(Boolean);
-  if (!n || rest || !f) return; // pendant le repos, la série suivante n'est pas encore faite
-  f.pick.reps = n;
+  if (/suivant/.test(t)) return moveTo(i + 1);
+  // Exercice fini (l'iPhone demande le ressenti) : un mot suffit, et on passe au suivant.
+  const x = items[i];
+  const feel = x && !nextSet(x) && FEEL_WORDS.find(([w]) => words.includes(w));
+  if (feel) {
+    if (feel[1] === 'pain') return onFeel(x.e, 'pain', state.active.day, x.k, []);
+    record({ type: 'feel', ex: x.e.id, feel: feel[1] });
+    tick(660);
+    return moveTo(i + 1);
+  }
+  const f = focusTarget();
+  if (!f || rest) return; // pendant le repos, la série suivante n'est pas encore faite
+  if (/valid|série faite|c'est (bon|fait)|^ok$/.test(t)) return voiceValidate(f, f.pick.reps);
+  if (ui.mirror) return; // le miroir compte à voix haute : les nombres entendus sont les siens
+  const n = Number((t.match(/\d+/) || [])[0]) || WORDS[t.replace(/\s+/g, '-')] || words.map((w) => WORDS[w]).find(Boolean);
+  if (n) voiceValidate(f, n);
+}
+function moveTo(i) {
+  ui.at = Math.min(i, activeItems().length);
+  ui.pick = null;
+  render();
+}
+// Validée à la voix : bip, puis confirmation sur l'écran (« Série 2 validée · 10 rép. ») et à voix haute, pour savoir que c'est compris.
+function voiceValidate(f, reps) {
+  f.pick.reps = reps;
   f.pick.touched = true;
   tick(660);
+  lastNotice = { id: String(Date.now()), text: `Série ${f.n} validée · ${repsText(f.x.e, reps)}`, t: Date.now() };
   validateSet(f);
+  announce(`Noté, ${reps}.`);
 }
 
 // --- Caméra qui compte (prototype) ---
@@ -1648,7 +1701,9 @@ function startRest(seconds) {
     }
     stopRest();
     // Écran projeté connecté : c'est lui qui sonne et annonce, l'iPhone reste silencieux.
-    if (!projected()) { beep(); speak(restSay()); }
+    const said = restSay();
+    hush(said);
+    if (!projected()) { beep(); speak(said); }
     toast('Repos terminé : série suivante.', 'timer');
   };
   rest = setInterval(tick, 250);
@@ -1689,6 +1744,7 @@ function speak(text, here = false) {
   u.voice = ['Amélie', 'Thomas', 'Audrey', 'Aurélie'].map((name) => fr.find((v) => v.name.startsWith(name))).find(Boolean) || fr.find((v) => /fr.FR/i.test(v.lang)) || fr[0] || null;
   u.onend = () => { spokeAt = Date.now(); };
   spokeAt = Date.now();
+  hush(text);
   synth.cancel();
   synth.speak(u);
 }
@@ -2009,13 +2065,14 @@ function syncPush() {
 // Relais WebSocket par le serveur (push/worker.js, objet Screen) : l'iPhone envoie un instantané à chaque changement,
 // l'écran ne fait qu'afficher et tient seul le chrono du repos (il sonne et annonce même si l'iPhone se verrouille).
 const TV_URL = 'laurent-stp95.github.io/muscu-auto/tv';
-let socket = null, socketTimer = null, socketDelay = 1000, tvCount = 0, sending = false, lastSay = null;
+let lastNotice = null, socket = null, socketTimer = null, socketDelay = 1000, tvCount = 0, sending = false, lastSay = null;
 const wsUrl = (room, role) => `${PUSH.url.replace(/^http/, 'ws')}/screen?room=${room}&role=${role}`;
 const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
 const projected = () => tvCount > 0;
 
 function connectScreen() {
   clearTimeout(socketTimer);
+  if (socket && socket.readyState > 1) socket = null; // ancienne connexion en train de se fermer : on n'attend pas
   if (!state.screen?.on || socket || document.visibilityState !== 'visible') return;
   const ws = new WebSocket(wsUrl(state.screen.room, 'phone'));
   socket = ws;
@@ -2043,20 +2100,26 @@ function screenReps(m) {
 function toggleMirror() {
   ui.mirror = !ui.mirror;
   if (socket?.readyState === 1) socket.send(JSON.stringify({ type: 'mirror', on: ui.mirror }));
-  document.querySelector('.mirror-btn')?.replaceWith(mirrorButton());
+  refreshStatus();
 }
-const mirrorButton = () => projected() && button(ui.mirror ? 'Miroir actif' : 'Miroir sur l\'écran', toggleMirror,
-  { variant: 'plain', icon: 'camera', className: `btn plain mirror-btn${ui.mirror ? ' on' : ''}` });
+
+// Barre d'état de la séance : écran, micro, miroir, chacun allumé (pastille pleine) ou non, d'un geste.
+function statusBar(list = state.listMode) {
+  const pill = (label, name, on, onclick, warn) => h('button', { type: 'button', className: `chip status${warn ? ' warn' : ''}`, ariaPressed: String(!!on), onclick }, icon(name), label);
+  return h('div', { className: 'chips status-bar' },
+    pill(!state.screen?.on || projected() ? 'Écran' : 'Écran…', 'tv', projected(), projectSheet),
+    Recognition && !list && pill(earWanted && !ear ? 'Micro coupé' : 'Micro', 'mic', !!ear, () => (ear ? stopEar() : startEar()), earWanted && !ear),
+    projected() && !list && pill('Miroir', 'camera', ui.mirror, toggleMirror));
+}
+function refreshStatus() { document.querySelector('.status-bar')?.replaceWith(statusBar()); }
 
 function setTv(n) {
   if (tvCount === n) return;
   tvCount = n;
   // Couleur « connecté » portée par body : juste aussi sur les écrans gardés en mémoire.
   document.body.classList.toggle('projecting', projected());
-  document.querySelector('.projector')?.replaceWith(projector());
   if (!projected()) ui.mirror = false;
-  const mb = document.querySelector('.mirror-btn'), next = mirrorButton();
-  if (mb && next) mb.replaceWith(next); else if (mb) mb.remove(); else if (next && !state.listMode) document.querySelector('.session-tools')?.append(next);
+  refreshStatus();
 }
 
 function send() {
@@ -2072,13 +2135,9 @@ function broadcast() {
 // Annonce vocale : lue par l'iPhone, ou par l'écran projeté s'il est connecté.
 function announce(text) {
   lastSay = { id: String(Date.now()), text, t: Date.now() };
+  hush(text);
   speak(text);
   broadcast();
-}
-
-function projector() {
-  const label = !state.screen?.on ? 'Projeter sur un écran' : projected() ? "Projeté sur l'écran" : "En attente de l'écran…";
-  return button(label, projectSheet, { variant: 'plain', icon: 'tv', className: 'btn plain projector' });
 }
 
 async function projectSheet() {
@@ -2196,6 +2255,8 @@ function live() {
   const progress = { ex: Math.min(i + 1, items.length), exCount: items.length, sets: items.reduce((n, x) => n + x.done.size, 0),
     setCount: items.reduce((n, x) => n + x.it.sets, 0), minutes: activeMinutes(sid) };
   const say = lastSay && Date.now() - lastSay.t < 10000 ? { id: lastSay.id, text: lastSay.text } : null;
+  base.notice = lastNotice && Date.now() - lastNotice.t < 4000 ? { id: lastNotice.id, text: lastNotice.text } : null;
+  base.mic = earWanted ? (ear ? 'on' : 'off') : null; // « off » : micro coupé sur l'iPhone, signalé sur l'écran
   if (state.active.paused) return { ...base, phase: 'paused', title, progress };
   if (warm) {
     const m = warm.list[warm.i], next = warm.list[warm.i + 1];

@@ -33,8 +33,8 @@
   .app-icon.small { width: 4.5rem; height: 4.5rem; border-radius: 1rem; }
 
   /* Accueil : un geste pour débloquer le son. Bouton façon Apple TV : blanc et agrandi quand il a le focus. */
-  /* Son à activer : bandeau en haut, au-dessus de tout, jusqu'au premier geste */
-  .sound { position: fixed; top: 4vh; left: 50%; z-index: 11; display: flex; align-items: center; padding: .75rem 1.5rem; border: 0; border-radius: 2rem; background: var(--fill); color: var(--fg); font: inherit; font-size: 1.25rem; font-weight: 600; cursor: pointer; transform: translateX(-50%); animation: fade .3s 1s both; }
+  /* Son à activer : bandeau en bas, au-dessus de tout, jusqu'au premier geste (les confirmations prennent le haut) */
+  .sound { position: fixed; bottom: 4vh; left: 50%; z-index: 11; display: flex; align-items: center; padding: .75rem 1.5rem; border: 0; border-radius: 2rem; background: var(--fill); color: var(--fg); font: inherit; font-size: 1.25rem; font-weight: 600; cursor: pointer; transform: translateX(-50%); animation: fade .3s 1s both; }
   .sound .icon { width: 1.5rem; height: 1.5rem; margin-right: .75rem; color: var(--accent-ink); }
   .btn { min-width: 12rem; padding: 1rem 3rem; border: 0; border-radius: var(--r-m); background: var(--fill); color: var(--fg); font: inherit; font-size: 1.75rem; font-weight: 700; cursor: pointer; transition: transform .15s, background-color .15s, color .15s; }
   .btn:focus { outline: none; background: var(--fg); color: #000; transform: scale(1.08); }
@@ -131,8 +131,13 @@
   .next { grid-column: 2; text-align: right; }
   .ok { margin-right: .5rem; color: var(--ok); }
 
-  /* Nouveau record : bandeau 5 s */
-  .record { position: fixed; top: 5vh; left: 50%; z-index: 9; display: flex; align-items: center; padding: 1.25rem 2.25rem 1.25rem 1.75rem; border-radius: 2rem; background: var(--accent); color: #fff; box-shadow: 0 1rem 3rem rgba(0, 0, 0, .6); opacity: 0; transform: translate(-50%, -2rem); transition: opacity .3s, transform .3s; pointer-events: none; }
+  /* Série validée à la voix : bandeau vert 2,5 s */
+  .notice { position: fixed; top: 5vh; left: 50%; z-index: 9; display: flex; align-items: center; padding: 1rem 2rem 1rem 1.5rem; border-radius: 2rem; background: #1f7a3a; color: #fff; font-size: 1.75rem; font-weight: 700; box-shadow: 0 1rem 3rem rgba(0, 0, 0, .6); opacity: 0; transform: translate(-50%, -2rem); transition: opacity .3s, transform .3s; pointer-events: none; }
+  .notice.show { opacity: 1; transform: translate(-50%, 0); }
+  .notice .icon { width: 2.25rem; height: 2.25rem; margin-right: 1rem; stroke-width: 2.6; }
+
+  /* Nouveau record : bandeau 5 s, sous la confirmation de série quand les deux arrivent ensemble */
+  .record { position: fixed; top: 15vh; left: 50%; z-index: 9; display: flex; align-items: center; padding: 1.25rem 2.25rem 1.25rem 1.75rem; border-radius: 2rem; background: var(--accent); color: #fff; box-shadow: 0 1rem 3rem rgba(0, 0, 0, .6); opacity: 0; transform: translate(-50%, -2rem); transition: opacity .3s, transform .3s; pointer-events: none; }
   .record.show { opacity: 1; transform: translate(-50%, 0); }
   .record .icon { width: 3rem; height: 3rem; margin-right: 1.25rem; }
   .record-title { font-size: 2rem; font-weight: 700; }
@@ -263,6 +268,11 @@
   </footer>
 </div>
 
+<div id="notice" class="notice" role="status" aria-live="polite">
+  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+  <p id="notice-text"></p>
+</div>
+
 <div id="record" class="record" role="status" aria-live="polite">
   <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4h11l-2 4 2 4H5"/></svg>
   <div><p class="record-title">Nouveau record</p><p id="record-text"></p></div>
@@ -277,6 +287,6 @@
 </button>
 
 <script src="../push-config.js"></script>
-<script src="tv.js?v=7"></script> <!-- v à changer avec tv.js -->
+<script src="tv.js?v=8"></script> <!-- v à changer avec tv.js -->
 </body>
 </html>

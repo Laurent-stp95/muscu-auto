@@ -204,7 +204,11 @@
   .big-icon { width: 40px; height: 40px; color: var(--accent); }
   .focus-tools { justify-content: center; }
   .session-tools { justify-content: center; }
-  .session-tools .projector { align-self: auto; }
+  .status-bar { justify-content: center; }
+  .chip.status { gap: var(--s1); padding: 0 var(--s3); }
+  .chip.status .icon { width: 18px; height: 18px; }
+  .chip.status[aria-pressed="true"] { background: var(--ok); }
+  .chip.status.warn { background: var(--danger-soft); color: var(--danger-ink); }
   .ear-btn { color: var(--muted); font-weight: 500; }
   .ear-btn[aria-pressed="true"], .mirror-btn.on { color: var(--ok-ink); }
   .mirror-btn { color: var(--muted); font-weight: 500; }
@@ -222,8 +226,7 @@
   .cam-hint.warn { color: #ffd60a; }
   .cam-panel { display: grid; gap: var(--s2); }
   video.replay { max-height: 55dvh; }
-  .projector { align-self: center; color: var(--muted); font-weight: 500; }
-  body.projecting .screen-btn, body.projecting .projector { color: var(--ok-ink); }
+  body.projecting .screen-btn { color: var(--ok-ink); }
   .pair-code { font-size: var(--t-title1); font-weight: 600; text-align: center; letter-spacing: .3em; font-variant-numeric: tabular-nums; }
 
   /* Progrès */

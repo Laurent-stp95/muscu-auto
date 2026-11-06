@@ -12,7 +12,7 @@
 //   done: [{ n, text, t, record }], rest: { end: ms (horloge du téléphone), total: ms, say } | null,
 //   next: { name, detail, img? } | null, record: { id, text } | null,       // img facultatif : préchargée
 //   summary: { stats: [[valeur, libellé]], records: [texte] } | null,      // phase done
-//   say: { id, text } | null, label: texte | absent }                         // label : remplace « Série n sur N » (échauffement)
+//   say: { id, text } | null, label: texte | absent, notice: { id, text } | null (série validée à la voix), mic: 'on'|'off'|null }                         // label : remplace « Série n sur N » (échauffement)
 // Messages du serveur : presence { tv, phone } ; state { s, age? } (age : état gardé par le serveur, renvoyé à la connexion) ;
 // adopt { room } (appairage : la salle permanente) ; forget (l'iPhone oublie l'écran). Envoyé : adopted, et « ping » toutes les 30 s.
 
@@ -26,7 +26,7 @@ let unlocked = false, room = null, sock = null, online = false, phones = 0, dela
 let s = null; // dernier instantané
 let rest = null; // repos en cours : { key: rest.end du téléphone, end: fin sur notre horloge, total, say, voice }
 let over = null; // dernier repos terminé (sa clé) : jamais relancé ni resonné
-let tickTimer = 0, said = null, recorded = null, bannerTimer = 0, audio = null, lock = null;
+let tickTimer = 0, said = null, recorded = null, noticed = null, noticeTimer = 0, bannerTimer = 0, audio = null, lock = null;
 
 // Maquette en rem sur une base 1920 × 1080 : même rendu de 1280 × 720 à la 4K.
 function scale() { document.documentElement.style.fontSize = Math.min(innerWidth / 1920, innerHeight / 1080) * 24 + 'px'; }
@@ -154,6 +154,7 @@ function onState(m) {
   const fresh = age < 10000; // état gardé depuis plus longtemps par le serveur : ni annonce ni bandeau en retard
   if (s && s.say && s.say.id !== said) { said = s.say.id; if (fresh && s.voice) speak(s.say.text); }
   if (s && s.record && s.record.id !== recorded) { recorded = s.record.id; if (fresh) banner(s.record.text); }
+  if (s && s.notice && s.notice.id !== noticed) { noticed = s.notice.id; if (fresh) notice(s.notice.text); } // série validée à la voix
   if (s && s.next && s.next.img) s.next.img.forEach((src) => { new Image().src = '../' + src; }); // exercice suivant préchargé
   render();
   tick();
@@ -206,7 +207,8 @@ function render() {
   const p = live ? s.progress : null;
   text('title', s.title);
   list('segs', p && Array.from({ length: p.exCount }, (_, i) => (i + 1 < p.ex ? 'on' : i + 1 === p.ex ? 'now' : '')), (c) => h('i', { className: c }));
-  const status = live && phones === 0 ? 'iPhone déconnecté : le chrono continue' : !online ? 'Connexion au serveur…' : '';
+  const status = live && phones === 0 ? 'iPhone déconnecté : le chrono continue' : !online ? 'Connexion au serveur…'
+    : live && s.mic === 'off' ? 'Micro coupé sur l\'iPhone : touche « Micro coupé » pour le relancer' : '';
   text('status', status);
   text('prog', p && !status ? p.sets + '/' + p.setCount + ' séries · ' + p.minutes + ' min' : '');
   $('live').hidden = !(live && s.ex);
@@ -279,6 +281,14 @@ function clock() {
   setTimeout(clock, 60000 - Date.now() % 60000 + 50);
 }
 clock();
+
+// Confirmation d'une série validée à la voix : bandeau 2,5 s en haut.
+function notice(msg) {
+  text('notice-text', msg);
+  $('notice').classList.add('show');
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => $('notice').classList.remove('show'), 2500);
+}
 
 function banner(msg) {
   text('record-text', msg);
