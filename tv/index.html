@@ -135,6 +135,16 @@
   .record .icon { width: 3rem; height: 3rem; margin-right: 1.25rem; }
   .record-title { font-size: 2rem; font-weight: 700; }
 
+  /* Miroir (webcam de l'ordinateur) : l'image en miroir à la place du visuel, squelette par-dessus, compte en grand */
+  .mirror { position: relative; min-height: 0; overflow: hidden; border-radius: var(--r-l); background: #000; }
+  .mirror video, .mirror canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  .mirror-count { position: absolute; top: 1rem; right: 1rem; min-width: 5rem; padding: .25rem 1rem; border-radius: var(--r-m); background: rgba(0, 0, 0, .6); font-size: 4rem; font-weight: 700; text-align: center; }
+  .mirror-say { position: absolute; left: 1rem; right: 1rem; bottom: 1rem; padding: .5rem 1rem; border-radius: var(--r-m); background: rgba(0, 0, 0, .6); font-size: 1.5rem; font-weight: 600; text-align: center; }
+  .mirror-say.warn { color: #ffd60a; }
+  .mirroring .visual { display: none; }
+  .ex.mirroring { grid-template-rows: minmax(0, 1fr) auto auto; }
+  .fs2 { right: calc(2vw + 4.5rem); }
+
   /* Plein écran : bouton rond en bas à droite, visible seulement quand la souris bouge (souris cachée sinon) */
   .fs { position: fixed; right: 2vw; bottom: 2vh; z-index: 10; display: grid; place-items: center; width: 3.5rem; height: 3.5rem; padding: 0; border: 0; border-radius: 50%; background: var(--fill); color: var(--fg); opacity: 0; cursor: pointer; transition: opacity .3s; }
   .fs .icon { width: 1.5rem; height: 1.5rem; }
@@ -200,6 +210,12 @@
         <div id="shots" class="shots"></div>
         <div id="bodies" class="bodies" aria-hidden="true"></div>
       </div>
+      <div id="mirror" class="mirror" hidden>
+        <video id="mirror-video" playsinline muted></video>
+        <canvas id="mirror-canvas"></canvas>
+        <strong id="mirror-count" class="mirror-count"></strong>
+        <p id="mirror-say" class="mirror-say"></p>
+      </div>
       <div class="ex-head"><h2 id="ex-name"></h2><span id="badge" class="badge"></span></div>
       <ul id="cues" class="cues"></ul>
     </section>
@@ -252,12 +268,15 @@
   <div><p class="record-title">Nouveau record</p><p id="record-text"></p></div>
 </div>
 
+<button id="mirror-btn" class="fs fs2" type="button" aria-label="Miroir : la caméra de l'ordinateur compte tes répétitions" hidden>
+  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 8.5h3.5l2-2.5h6l2 2.5h3.5v10.5h-17z"/><circle cx="12" cy="13.5" r="3.5"/></svg>
+</button>
 <button id="fs" class="fs" type="button" aria-label="Plein écran" hidden>
   <svg class="icon enter" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
   <svg class="icon exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
 </button>
 
 <script src="../push-config.js"></script>
-<script src="tv.js?v=5"></script> <!-- v à changer avec tv.js -->
+<script src="tv.js?v=6"></script> <!-- v à changer avec tv.js -->
 </body>
 </html>

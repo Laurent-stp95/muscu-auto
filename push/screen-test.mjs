@@ -71,6 +71,12 @@ tv.json({ type: 'adopted' });
 await phone.next('adopted');
 assert.ok(!phone.log.some((m) => m.type === 'state'));
 
+// Miroir : l'iPhone l'allume sur l'écran, l'écran renvoie les répétitions comptées.
+phone.json({ type: 'mirror', on: true });
+assert.deepStrictEqual(await tv.next('mirror'), { type: 'mirror', on: true });
+tv.json({ type: 'reps', key: '1747|1', n: 3, data: [{ depth: 92, down: 1800, full: true }] });
+assert.strictEqual((await phone.next('reps')).n, 3);
+
 // Écran qui arrive après : le dernier état tout de suite, avec son ancienneté.
 const late = await client(room, 'tv');
 const replay = await late.next('state');

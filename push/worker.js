@@ -74,11 +74,12 @@ export class Screen {
     try { m = JSON.parse(msg); } catch { return; }
     const [role, room] = this.state.getTags(ws);
     const keep = !room.startsWith('pair-'); // seule une salle permanente garde le dernier état
-    if (role === 'phone' && ['state', 'adopt', 'forget'].includes(m?.type)) {
+    // mirror : l'iPhone allume ou éteint le miroir de l'écran ; reps : le miroir renvoie les répétitions comptées à l'iPhone.
+    if (role === 'phone' && ['state', 'adopt', 'forget', 'mirror'].includes(m?.type)) {
       this.send(msg, 'tv');
       if (keep && m.type === 'state') await this.state.storage.put('last', { s: m.s, t: Date.now() });
       if (keep && m.type === 'forget') await this.state.storage.delete('last');
-    } else if (role === 'tv' && m?.type === 'adopted') this.send(msg, 'phone');
+    } else if (role === 'tv' && ['adopted', 'reps'].includes(m?.type)) this.send(msg, 'phone');
   }
 
   webSocketClose(ws) {

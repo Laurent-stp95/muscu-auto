@@ -218,5 +218,14 @@ play(175, 120, 3000, 500); play(120, 175, 3500, 500); // incomplète et rapide
 assert.deepStrictEqual(events.map((e) => [e.rep, e.full]), [[1, true], [2, false]]);
 assert.ok(events[0].down >= 1600 && events[1].down <= 600);
 
+// Récupération : 6 séries de squat juste faites = quadriceps à 0 %, 80 % après 48 h, rien après 6 jours ; secondaires moins touchés.
+const sq = byId.get(1747);
+const fresh6 = Array.from({ length: 6 }, (_, k) => ({ t: '2026-11-10T18:00:00Z', type: 'set', session: 'r', ex: sq.id, set: k + 1, kg: 40, reps: 10 }));
+const at = (h) => Date.parse('2026-11-10T18:00:00Z') + h * 3600e3;
+assert.strictEqual(P.recovery(fresh6, EXOS, at(0))[10], 0);
+assert.ok(Math.abs(P.recovery(fresh6, EXOS, at(48))[10] - 80) <= 1);
+assert.deepStrictEqual(P.recovery(fresh6, EXOS, at(6 * 24)), {});
+assert.strictEqual(P.recovery([...fresh6, { t: '2026-11-10T18:30:00Z', type: 'cancel', session: 'r' }], EXOS, at(1))[10], undefined);
+
 for (const x of plan) console.log(x.day, x.name, x.items.map((it) => byId.get(it.ex).name).join(' | '));
 console.log('OK');

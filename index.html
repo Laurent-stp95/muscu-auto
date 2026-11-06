@@ -206,7 +206,8 @@
   .session-tools { justify-content: center; }
   .session-tools .projector { align-self: auto; }
   .ear-btn { color: var(--muted); font-weight: 500; }
-  .ear-btn[aria-pressed="true"] { color: var(--ok-ink); }
+  .ear-btn[aria-pressed="true"], .mirror-btn.on { color: var(--ok-ink); }
+  .mirror-btn { color: var(--muted); font-weight: 500; }
   /* Caméra qui compte : image en miroir (caméra avant), squelette par-dessus, compte en grand */
   /* Plein écran : l'image la plus grande possible, sans rogner (contain), pour voir le corps entier ; commandes en bas */
   dialog.sheet.camera { width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); border-radius: 0; background: #000; color: #fff; }

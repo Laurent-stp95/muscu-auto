@@ -152,6 +152,7 @@ function show(view) {
 
 function render() {
   const views = { onboarding, week, session, progress, settings };
+  if (ui.view === 'session' && !state.active) ui.view = 'week'; // séance terminée ailleurs (remise à zéro, autre appareil) : retour au programme
   const node = views[ui.view]();
   if (KEPT.includes(ui.view)) screens.set(ui.view, { node, revision, day: today(), scroll: 0 });
   mount(node);
@@ -575,6 +576,7 @@ function week() {
         h('div', { className: 'row' }, button(null, projectSheet, { variant: 'plain', icon: 'tv', ariaLabel: 'Projeter sur un écran', className: 'btn plain screen-btn' }), button('Réglages', openSettings, { variant: 'plain' }))),
       h('p', { className: 'meta' }, `Semaine ${Math.min(n, CYCLE_WEEKS)} sur ${CYCLE_WEEKS} du cycle`)),
     weekProgress(plan, done, focus),
+    recoveryCard(plan, done, focus),
     deload && banner('leaf', 'Semaine allégée',
       h('p', {}, 'Moitié moins de séries et charges baissées de 10 %. Ce repos fait partie de la progression : il évite la fatigue qui mène aux blessures.')),
     ended && banner('flag', 'Cycle terminé',
@@ -590,6 +592,34 @@ function week() {
     (done.size > 0 || state.active) && button('Repartir de zéro cette semaine', resetWeek, { variant: 'gray', size: 'large' }),
     !state.active && (freshCycle() || ended) && button('Générer une autre variante', reroll, { variant: 'gray', size: 'large' }),
     !state.active && !freshCycle() && !ended && h('p', { className: 'caption center' }, "Exercices fixes jusqu'à la fin du cycle, pour apprendre les gestes et progresser. « Remplacer » reste possible."));
+}
+
+// Carte de récupération : silhouettes où chaque muscle encore fatigué ressort en rouge (plus c'est pâle, plus il est récupéré),
+// récupération par zone, et la séance de la semaine qui tombe le mieux aujourd'hui (muscles les plus récupérés).
+const GROUPS = [['Jambes', [10, 11, 8, 7, 15]], ['Dos', [12, 9, 16]], ['Pectoraux', [4, 3]], ['Épaules', [2]], ['Bras', [1, 13, 5]], ['Abdos', [6, 14]]];
+function recoveryCard(plan, done, focus) {
+  const rec = recovery(journal(), EXOS);
+  if (!Object.keys(rec).length) return null;
+  const pct = (m) => rec[m] ?? 100;
+  const tired = Object.entries(rec).filter(([, p]) => p < 95).map(([m, p]) => [Number(m), p]);
+  const side = (front) => h('div', { className: 'body' }, h('img', { src: `muscles/muscular_system_${front ? 'front' : 'back'}.svg`, alt: '' }),
+    tired.filter(([m]) => FRONT.has(m) === front).map(([m, p]) => h('img', { src: `muscles/main/muscle-${m}.svg`, alt: '', style: `opacity: ${Math.max(0.15, (100 - p) / 100).toFixed(2)}` })));
+  const groups = GROUPS.map(([label, ids]) => [label, Math.min(...ids.map(pct))]).filter(([, p]) => p < 100);
+  const score = (s) => { const ms = s.items.flatMap((it) => byId.get(it.ex).mus); return ms.reduce((t, m) => t + pct(m), 0) / (ms.length || 1); };
+  const open = plan.map((s, d) => ({ s, d })).filter(({ s }) => !done.has(s.day));
+  const best = !state.active && open.length > 1 ? open.reduce((a, b) => (score(b.s) > score(a.s) + 5 ? b : a)) : null; // +5 : pas de changement pour un écart minime
+  const bodies = h('div', { className: 'bodies' }, side(true), side(false));
+  bodies.setAttribute('role', 'img');
+  bodies.setAttribute('aria-label', `Récupération : ${groups.map(([label, p]) => `${label} ${p} %`).join(', ') || 'tout est récupéré'}`);
+  return h('section', { className: 'card' },
+    h('div', { className: 'line-head' }, h('h2', {}, 'Récupération'), h('span', { className: 'meta' }, "aujourd'hui")),
+    h('div', { className: 'anatomy' }, bodies,
+      h('div', { className: 'legend' }, groups.length ? groups.map(([label, p]) => h('span', {},
+        h('i', { className: 'dot', style: `background: ${p >= 80 ? 'var(--ok)' : p >= 50 ? 'var(--warn-ink)' : 'var(--danger)'}` }), `${label} : ${p} %`)) : h('span', {}, 'Tout est récupéré.'))),
+    best && best.d !== focus.index && h('div', { className: 'stack' },
+      h('p', { className: 'note' }, icon('leaf'), `Aujourd'hui, ${DAYS[best.s.day].toLowerCase()} · ${best.s.name} tombe mieux : ses muscles sont les plus récupérés.`),
+      h('div', {}, button(`Faire ${DAYS[best.s.day].toLowerCase()} · ${best.s.name}`, () => start(best.d), { size: 'compact', icon: 'play' }))),
+    h('p', { className: 'caption' }, "Rouge : encore fatigué ; plus c'est pâle, plus c'est récupéré. Estimation d'après tes séries des 5 derniers jours."));
 }
 
 // Toutes les séances de la semaine redeviennent à faire ; les séries déjà faites restent dans le suivi (courbes, records, historique).
@@ -900,7 +930,7 @@ function session() {
       h('h1', {}, `${DAYS[s.day]} · ${s.name}`),
       button('Arrêter', stopSession, { variant: 'plain', className: 'btn plain end' })),
     segmented([[false, 'Une série à la fois'], [true, 'Toute la séance']], list, (v) => { state.listMode = v; ui.pick = null; save(); render(); }),
-    h('div', { className: 'row session-tools' }, projector(), !list && earButton()),
+    h('div', { className: 'row session-tools' }, projector(), !list && earButton(), !list && mirrorButton()),
     cycle().deload && h('p', { className: 'note' }, icon('leaf'), 'Semaine allégée : moitié moins de séries, charges −10 %.'),
     state.active.readiness === 'hold' && h('p', { className: 'note' }, icon('info'), "Forme moyenne : pas d'augmentation de charge aujourd'hui."),
     state.active.readiness === 'light' && h('p', { className: 'note' }, icon('leaf'), 'Forme basse : séance allégée, moitié moins de séries et charges −10 %. Écoute ton corps.'),
@@ -1107,6 +1137,8 @@ function validateSet({ x, n, i, count, pick }) {
   if (e.load !== 'pdc' && pick.kg == null) return toast('Choisis la charge utilisée.', 'warning');
   stopTempo();
   logSet(e, n, pick.kg, pick.reps, tip.mode);
+  // Série comptée par une caméra (iPhone ou miroir de l'écran) : profondeur et descente de chaque répétition, pour le suivi de la technique.
+  if (pick.cam?.length) record({ type: 'cam', ex: e.id, set: n, kind: cameraKind(e), reps: pick.cam });
   // Dernière série de l'exercice : on reste dessus pour le ressenti, « Exercice suivant » fait avancer.
   if (x.done.size + 1 >= it.sets) ui.at = i;
   if (n < it.sets || i + 1 < count) startRest(it.rest);
@@ -1235,12 +1267,13 @@ async function cameraCoach(f) {
       h('p', { className: 'caption' }, kind === 'knee' ? "iPhone debout, de côté, à 2 ou 3 m : de la tête aux pieds dans l'image." : "iPhone de côté : épaules, bras et mains dans l'image."),
       ok, button('Fermer', () => close(false), { variant: 'gray', size: 'large' }))));
   let stream = null, closed = false, reps = 0;
+  const data = []; // { depth, down, full } par répétition, gardé avec la série (suivi de la technique)
   function close(keep) {
     closed = true;
     stream?.getTracks().forEach((track) => track.stop());
     dialog.close();
     dialog.remove();
-    if (keep && reps) { f.pick.reps = reps; f.pick.touched = true; validateSet(f); }
+    if (keep && reps) { f.pick.reps = reps; f.pick.touched = true; f.pick.cam = data; validateSet(f); }
   }
   dialog.addEventListener('cancel', (ev) => { ev.preventDefault(); close(false); });
   document.body.append(dialog);
@@ -1263,7 +1296,8 @@ async function cameraCoach(f) {
   const counter = repCounter(COUNTER[kind]);
   const ctx = canvas.getContext('2d');
   const whole = kind === 'knee' ? [0, 27, 28] : [11, 12, 15, 16]; // tête et chevilles, ou épaules et poignets
-  let smooth = null, lost = 0, said = 'Vas-y : je compte.';
+  const before = technique(f.x.e).at(-1);
+  let smooth = null, lost = 0, said = `Vas-y : je compte.${before ? ` La dernière fois : ${before.depth}° au point bas, descente ${(before.down / 1000).toFixed(1).replace('.', ',')} s.` : ''}`;
   const tell = (text, warn = false) => { hint.textContent = text; hint.classList.toggle('warn', warn); };
   const frame = () => {
     if (closed) return;
@@ -1290,6 +1324,7 @@ async function cameraCoach(f) {
           const ev = counter.push(smooth, performance.now());
           if (ev) {
             reps = ev.rep;
+            data.push({ depth: ev.depth, down: ev.down, full: ev.full });
             count.textContent = String(reps);
             ok.disabled = false;
             ok.lastChild.textContent = `Valider ${plural(reps, 'répétition')}`;
@@ -1780,6 +1815,31 @@ function historyCard() {
     rows.length > shown.length && h('div', {}, button(`Voir ${Math.min(10, rows.length - shown.length)} séances de plus`, () => { ui.historyCount = shown.length + 10; render(); }, { variant: 'plain' })));
 }
 
+// Technique mesurée par la caméra, par séance : angle moyen au point bas (plus petit = plus profond), descente moyenne, répétitions incomplètes.
+function technique(e) {
+  const skip = cancelled(log), sessions = new Map();
+  for (const x of journal()) {
+    if (x.type !== 'cam' || x.ex !== e.id || skip.has(x.session)) continue;
+    const s = sessions.get(x.session) || { t: x.t, reps: [] };
+    s.reps.push(...x.reps);
+    sessions.set(x.session, s);
+  }
+  const avg = (list) => Math.round(list.reduce((a, b) => a + b, 0) / list.length);
+  return [...sessions.values()].map((s) => ({ t: s.t, depth: avg(s.reps.map((r) => r.depth)), down: avg(s.reps.map((r) => r.down)), partial: s.reps.filter((r) => !r.full).length, total: s.reps.length }));
+}
+
+function techniqueBlock(e) {
+  const list = technique(e);
+  if (!list.length) return null;
+  const first = list[0], last = list.at(-1), delta = last.depth - first.depth;
+  return h('div', { className: 'stack' },
+    h('p', { className: 'label' }, 'Technique, mesurée par la caméra'),
+    list.length > 1 && chart(list.map((s) => ({ x: Date.parse(s.t), y: s.depth })), [], '°'),
+    h('p', { className: 'meta' }, [`${last.depth}° au point bas${list.length > 1 && delta ? ` (${Math.abs(delta)}° ${delta < 0 ? 'plus bas' : 'moins bas'} qu'au début)` : ''}`,
+      `descente ${(last.down / 1000).toFixed(1).replace('.', ',')} s`, `${plural(last.partial, 'répétition incomplète', 'répétitions incomplètes')} sur ${last.total}`].join(' · ')),
+    list.length > 1 && h('p', { className: 'caption' }, 'Plus la courbe descend, plus tu descends bas.'));
+}
+
 function tipFor(e, past) {
   const item = state.plan.flatMap((s) => s.items).find((it) => it.ex === e.id);
   return item && suggest(e, effective(item), past, { loads: state.config.loads, learned: learned(log, e.id, past), deload: cycle().deload, comeback: comeback(daysOff(journal())) });
@@ -1800,6 +1860,7 @@ function progressCard(e, past) {
     h('h2', { className: 'title' }, e.name),
     chart(points, ahead, withKg ? 'kg' : unitText(e)),
     fixed != null && h('p', { className: 'caption' }, `Charge fixe (${kgLabel(e, fixed)}) : la courbe suit tes répétitions.`),
+    techniqueBlock(e),
     h('p', { className: 'meta' }, `Dernière séance (${new Date(last.t).toLocaleDateString('fr-FR')}) : ${last.sets.map((x) => (e.load !== 'pdc' ? `${x.reps} × ${kgLabel(e, x.kg)}` : `${x.reps} ${unitText(e)}`)).join(' · ')}${last.tech === false ? ' · technique à revoir' : ''}`),
     tip && h('p', { className: 'tip' }, tip.kg != null && h('strong', {}, `Prochaine : ${kgLabel(e, tip.kg)} · `), tip.note),
     ahead.length > 0 && h('p', { className: 'caption' }, `Repère ${LEVELS[level].label.toLowerCase()} : environ ${kgText(ahead.at(-1))} dans 8 semaines si tout se passe bien. Indicatif : la technique et l'absence de douleur passent avant.`));
@@ -1959,7 +2020,7 @@ function connectScreen() {
   const ws = new WebSocket(wsUrl(state.screen.room, 'phone'));
   socket = ws;
   ws.onopen = () => { socketDelay = 1000; send(); };
-  ws.onmessage = (ev) => { const m = parse(ev.data); if (m?.type === 'presence') setTv(m.tv); };
+  ws.onmessage = (ev) => { const m = parse(ev.data); if (m?.type === 'presence') setTv(m.tv); if (m?.type === 'reps') screenReps(m); };
   ws.onerror = () => ws.close();
   ws.onclose = () => {
     if (socket === ws) socket = null;
@@ -1972,12 +2033,30 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 addEventListener('online', connectScreen);
 setInterval(() => { if (socket?.readyState === 1) socket.send('ping'); }, 30000); // le serveur répond seul, sans se réveiller
 
+// Miroir de l'écran (webcam du Mac) : il compte les répétitions de la série affichée et les envoie ; elles remplissent le compteur.
+function screenReps(m) {
+  const f = focusTarget();
+  if (!f || m.key !== `${f.x.e.id}|${f.n}` || !(m.n > 0)) return;
+  Object.assign(f.pick, { reps: m.n, touched: true, cam: Array.isArray(m.data) ? m.data.slice(0, 100) : null });
+  render();
+}
+function toggleMirror() {
+  ui.mirror = !ui.mirror;
+  if (socket?.readyState === 1) socket.send(JSON.stringify({ type: 'mirror', on: ui.mirror }));
+  document.querySelector('.mirror-btn')?.replaceWith(mirrorButton());
+}
+const mirrorButton = () => projected() && button(ui.mirror ? 'Miroir actif' : 'Miroir sur l\'écran', toggleMirror,
+  { variant: 'plain', icon: 'camera', className: `btn plain mirror-btn${ui.mirror ? ' on' : ''}` });
+
 function setTv(n) {
   if (tvCount === n) return;
   tvCount = n;
   // Couleur « connecté » portée par body : juste aussi sur les écrans gardés en mémoire.
   document.body.classList.toggle('projecting', projected());
   document.querySelector('.projector')?.replaceWith(projector());
+  if (!projected()) ui.mirror = false;
+  const mb = document.querySelector('.mirror-btn'), next = mirrorButton();
+  if (mb && next) mb.replaceWith(next); else if (mb) mb.remove(); else if (next && !state.listMode) document.querySelector('.session-tools')?.append(next);
 }
 
 function send() {
@@ -2141,7 +2220,7 @@ function live() {
   const after = items[i + 1];
   return {
     ...base, phase: rest ? 'rest' : 'work', title, progress, say,
-    ex: { id: e.id, name: e.name, img: e.img, mus: e.mus, mus2: e.mus2, cues: (e.cues || [CUES[e.zone]]).slice(0, 3),
+    ex: { id: e.id, name: e.name, img: e.img, mus: e.mus, mus2: e.mus2, cam: cameraKind(e), cues: (e.cues || [CUES[e.zone]]).slice(0, 3),
       badge: x.tip.learning ? 'Apprentissage du geste' : null, note: x.tip.note },
     set: n && { n, of: it.sets, target: repsText(e, reps), load: loadText(e, kg), plates: bar.plates || null, change: bar.change || null,
       last: last ? `La dernière fois : ${setText(e, last.kg, last.reps)}` : null,

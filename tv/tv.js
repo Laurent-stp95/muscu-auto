@@ -82,6 +82,7 @@ function connect(name) {
     else if (m.type === 'state') onState(m);
     else if (m.type === 'adopt' && !room && UUID.test(m.room)) adopt(m.room);
     else if (m.type === 'forget' && room) forget();
+    else if (m.type === 'mirror') setMirror(!!m.on);
   };
   // Coupure (réseau, serveur redéployé) : reconnexion de plus en plus espacée, 1 s → 30 s.
   ws.onclose = () => {
@@ -324,6 +325,125 @@ document.addEventListener('visibilitychange', () => { if (started && document.vi
 function fullscreen() {
   const el = document.documentElement, go = el.requestFullscreen || el.webkitRequestFullscreen;
   try { const p = go && go.call(el); if (p && p.catch) p.catch(() => {}); } catch (e) { /* refusé : on reste en fenêtre */ }
+}
+
+// --- Miroir : la webcam de l'ordinateur (page ouverte sur le Mac recopié sur la TV) suit le corps, compte les répétitions
+// de la série affichée et vérifie l'amplitude ; le compte part vers l'iPhone, qui remplit son compteur. Calcul sur l'appareil,
+// aucune image envoyée. Squats et fentes (genou), développés (coude) : s.ex.cam. Bibliothèque chargée seulement si on l'active.
+const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1';
+const POSE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+const JOINTS = { knee: [[23, 25, 27], [24, 26, 28]], elbow: [[11, 13, 15], [12, 14, 16]] };
+const COUNTER = { knee: { top: 160, start: 140, deep: 100 }, elbow: { top: 155, start: 130, deep: 90 } };
+const BONES = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28]];
+let mirror = null; // { stream, model, counter, key, reps, data, smooth }
+let landmarker = null;
+
+// Mêmes calculs que plan.js (jointAngle, repCounter), réécrits ici en ES2018 pour les navigateurs de TV.
+function jointAngle(a, b, c) {
+  const deg = Math.abs(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x)) * 180 / Math.PI;
+  return deg > 180 ? 360 - deg : deg;
+}
+function repCounter(o) {
+  let down = false, min = 180, topAt = 0, bottomAt = 0, count = 0;
+  return function push(angle, t) {
+    if (!down) {
+      if (angle >= o.top) topAt = t;
+      else if (angle < o.start) { down = true; min = angle; bottomAt = t; }
+      return null;
+    }
+    if (angle < min) { min = angle; bottomAt = t; }
+    if (angle < o.top) return null;
+    count++;
+    const ev = { rep: count, depth: Math.round(min), down: bottomAt - topAt, full: min <= o.deep };
+    down = false;
+    topAt = t;
+    return ev;
+  };
+}
+function poseModel() {
+  if (!landmarker) {
+    landmarker = import(MP + '/vision_bundle.mjs').then((mp) => mp.FilesetResolver.forVisionTasks(MP + '/wasm')
+      .then((files) => mp.PoseLandmarker.createFromOptions(files, { baseOptions: { modelAssetPath: POSE_MODEL, delegate: 'GPU' }, runningMode: 'VIDEO', numPoses: 1 })));
+    landmarker.catch(() => { landmarker = null; });
+  }
+  return landmarker;
+}
+function mirrorSay(textValue, warn) {
+  const node = $('mirror-say');
+  node.textContent = textValue;
+  node.classList.toggle('warn', !!warn);
+}
+function setMirror(on) {
+  if (on === !!mirror) return;
+  if (!on) {
+    mirror.stream.getTracks().forEach((t) => t.stop());
+    mirror = null;
+    $('mirror').hidden = true;
+    document.querySelector('.ex').classList.remove('mirroring');
+    return;
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+  mirror = { stream: null, starting: true };
+  $('mirror').hidden = false;
+  document.querySelector('.ex').classList.add('mirroring');
+  mirrorSay('Préparation de la caméra…');
+  Promise.all([navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }), poseModel()]).then((res) => {
+    if (!mirror) { res[0].getTracks().forEach((t) => t.stop()); return; }
+    mirror = { stream: res[0], model: res[1], key: null, reps: 0, data: [], smooth: null, counter: null, kind: null };
+    const video = $('mirror-video');
+    video.srcObject = res[0];
+    video.play().catch(() => {});
+    mirrorFrame();
+  }, (err) => {
+    mirrorSay(err && err.name === 'NotAllowedError' ? 'Caméra refusée : autorise-la dans le navigateur.' : 'Caméra ou suivi du corps indisponible.', true);
+    if (mirror && mirror.stream) mirror.stream.getTracks().forEach((t) => t.stop());
+    setTimeout(() => { if (mirror && !mirror.model) { mirror = null; $('mirror').hidden = true; document.querySelector('.ex').classList.remove('mirroring'); } }, 4000);
+  });
+}
+function mirrorFrame() {
+  if (!mirror || !mirror.model) return;
+  const video = $('mirror-video'), canvas = $('mirror-canvas'), ctx = canvas.getContext('2d');
+  // Nouvelle série affichée : le compte repart de zéro.
+  const key = s && s.ex && s.set ? s.ex.id + '|' + s.set.n : null, kind = s && s.ex ? s.ex.cam : null;
+  if (key !== mirror.key || kind !== mirror.kind) {
+    Object.assign(mirror, { key: key, kind: kind, reps: 0, data: [], smooth: null, counter: kind ? repCounter(COUNTER[kind]) : null });
+    $('mirror-count').textContent = kind ? '0' : '';
+    mirrorSay(kind ? 'Je compte tes répétitions.' : (key ? 'Comptage disponible pour les squats, les fentes et les développés.' : 'Miroir actif.'));
+  }
+  if (video.readyState >= 2 && video.videoWidth) {
+    const w = canvas.width = video.videoWidth, hh = canvas.height = video.videoHeight;
+    const res = mirror.model.detectForVideo(video, performance.now());
+    const p = res.landmarks && res.landmarks[0];
+    if (p) {
+      const at = (k) => ({ x: p[k].x * w, y: p[k].y * hh, v: p[k].visibility == null ? 1 : p[k].visibility });
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = '#c8441d';
+      BONES.forEach((b) => { const a = at(b[0]), c = at(b[1]); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(c.x, c.y); ctx.stroke(); });
+      if (mirror.counter) {
+        const side = JOINTS[mirror.kind].map((j) => j.map(at)).sort((s1, s2) => Math.min.apply(null, s2.map((q) => q.v)) - Math.min.apply(null, s1.map((q) => q.v)))[0];
+        if (Math.min.apply(null, side.map((q) => q.v)) > 0.5) {
+          const angle = jointAngle(side[0], side[1], side[2]);
+          mirror.smooth = mirror.smooth == null ? angle : mirror.smooth * 0.6 + angle * 0.4;
+          const ev = mirror.counter(mirror.smooth, performance.now());
+          if (ev) {
+            mirror.reps = ev.rep;
+            mirror.data.push({ depth: ev.depth, down: ev.down, full: ev.full });
+            $('mirror-count').textContent = String(ev.rep);
+            const bad = !ev.full ? 'plus bas' : ev.down < 1000 ? 'plus lent' : '';
+            mirrorSay(!ev.full ? 'Amplitude incomplète : descends plus bas.' : ev.down < 1000 ? 'Descente trop rapide : contrôle-la.' : 'Répétition ' + ev.rep + ' : bonne amplitude.', !!bad);
+            if (s.voice) speak(bad ? ev.rep + ', ' + bad : String(ev.rep));
+            if (sock && sock.readyState === 1) sock.send(JSON.stringify({ type: 'reps', key: mirror.key, n: ev.rep, data: mirror.data }));
+          }
+        }
+      }
+    }
+  }
+  requestAnimationFrame(mirrorFrame);
+}
+if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+  $('mirror-btn').hidden = false;
+  $('mirror-btn').addEventListener('click', () => setMirror(!mirror));
+  addEventListener('keydown', (e) => { if (e.key === 'm' || e.key === 'M') setMirror(!mirror); });
 }
 
 // Plein écran à la demande (masque la barre du navigateur) : bouton, double-clic ou touche F ; Échap en sort.
