@@ -1248,7 +1248,7 @@ async function cameraCoach(f) {
   audio ||= new (window.AudioContext || window.webkitAudioContext)();
   let model;
   try {
-    [stream, model] = await Promise.all([navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } }, audio: false }), poseModel()]);
+    [stream, model] = await Promise.all([navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', aspectRatio: { ideal: 3 / 4 }, height: { ideal: 1280 } }, audio: false }), poseModel()]);
   } catch (err) {
     hint.textContent = err?.name === 'NotAllowedError' ? "Caméra refusée : autorise-la dans les Réglages de l'iPhone, Steady." : 'Caméra ou suivi du corps indisponible (connexion nécessaire la première fois).';
     return;
@@ -1256,6 +1256,10 @@ async function cameraCoach(f) {
   if (closed) return stream.getTracks().forEach((track) => track.stop());
   video.srcObject = stream;
   await video.play().catch(() => {});
+  // iPhone en portrait mais image livrée en paysage : on remplit la fenêtre en hauteur (bords coupés), le corps debout est au centre.
+  const fit = () => video.parentElement.classList.toggle('crop', video.videoWidth > video.videoHeight && innerHeight > innerWidth);
+  fit();
+  video.addEventListener('resize', fit);
   const counter = repCounter(COUNTER[kind]);
   const ctx = canvas.getContext('2d');
   const whole = kind === 'knee' ? [0, 27, 28] : [11, 12, 15, 16]; // tête et chevilles, ou épaules et poignets
