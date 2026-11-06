@@ -2155,8 +2155,9 @@ function connectScreen() {
     const m = parse(ev.data);
     if (m?.type === 'presence') setTv(m.tv);
     if (m?.type === 'reps') screenReps(m);
-    // Miroir allumé ou éteint sur l'écran (bouton, touche M) : l'iPhone le sait, ses nombres entendus ne valident plus rien.
-    if (m?.type === 'mirror') { ui.mirror = !!m.on; refreshStatus(); }
+    // Miroir allumé ou éteint sur l'écran (bouton, touche M) : l'iPhone le sait ; éteint, sa caméra s'arrête.
+    if (m?.type === 'mirror') { if (!m.on && cam) stopCam(); ui.mirror = !!m.on; refreshStatus(); }
+    if (m?.type === 'rtc' && m.sdp) cam?.pc?.setRemoteDescription({ type: 'answer', sdp: m.sdp }).catch(() => {}); // 2e écran : ignoré
   };
   ws.onerror = () => ws.close();
   ws.onclose = () => {
@@ -2165,8 +2166,12 @@ function connectScreen() {
     if (state.screen?.on) socketTimer = setTimeout(connectScreen, socketDelay = Math.min(socketDelay * 2, 30000));
   };
 }
-// iOS coupe la connexion quand l'écran se verrouille : on se reconnecte au retour, l'écran reçoit tout de suite l'état.
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') connectScreen(); });
+// iOS coupe la connexion et la caméra quand l'écran se verrouille : on se reconnecte au retour, l'écran reçoit tout de suite l'état.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return stopCam(false);
+  connectScreen();
+  resumeCam();
+});
 addEventListener('online', connectScreen);
 setInterval(() => { if (socket?.readyState === 1) socket.send('ping'); }, 30000); // le serveur répond seul, sans se réveiller
 
@@ -2177,10 +2182,62 @@ function screenReps(m) {
   Object.assign(f.pick, { reps: m.n, touched: true, cam: Array.isArray(m.data) ? m.data.slice(0, 100) : null });
   render();
 }
+// Pastille Miroir : la caméra de l'iPhone filme, l'écran affiche. Miroir allumé depuis l'écran (sa webcam) : l'éteint.
 function toggleMirror() {
-  ui.mirror = !ui.mirror;
-  if (socket?.readyState === 1) socket.send(JSON.stringify({ type: 'mirror', on: ui.mirror }));
+  if (cam) return stopCam();
+  if (!ui.mirror) return startCam();
+  ui.mirror = false;
+  if (socket?.readyState === 1) socket.send(JSON.stringify({ type: 'mirror', on: false }));
   refreshStatus();
+}
+
+// Caméra de l'iPhone sur l'écran : la vidéo part en direct vers l'écran (WebRTC, d'appareil à appareil sur le Wi-Fi), le serveur
+// ne relaie que l'offre et la réponse. L'écran l'affiche en miroir et compte les répétitions, comme avec sa propre webcam.
+const ICE = [{ urls: 'stun:stun.cloudflare.com:3478' }]; // adresse publique, si le Wi-Fi isole les appareils
+let cam = null, camWanted = false; // cam : { stream, pc } ; camWanted : relancée au retour dans l'appli
+// Candidats réseau dans l'offre (pas d'envoi au fil de l'eau) : 2 s au plus, le réseau local arrive tout de suite.
+const gathered = (pc) => new Promise((done) => {
+  const timer = setTimeout(done, 2000);
+  const check = () => { if (pc.iceGatheringState === 'complete') { clearTimeout(timer); done(); } };
+  pc.addEventListener('icegatheringstatechange', check);
+  check();
+});
+async function startCam() {
+  if (cam || socket?.readyState !== 1 || !window.RTCPeerConnection) return;
+  camWanted = true;
+  const me = (cam = { stream: null, pc: null });
+  ui.mirror = true;
+  refreshStatus();
+  try {
+    me.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    if (cam !== me) return me.stream.getTracks().forEach((track) => track.stop());
+    const pc = (me.pc = new RTCPeerConnection({ iceServers: ICE }));
+    me.stream.getTracks().forEach((track) => pc.addTrack(track, me.stream));
+    pc.onconnectionstatechange = () => {
+      if (cam === me && pc.connectionState === 'failed') { stopCam(); toast("Vidéo impossible : l'iPhone et l'écran doivent être sur le même Wi-Fi.", 'warning'); }
+    };
+    await pc.setLocalDescription(await pc.createOffer());
+    await gathered(pc);
+    if (cam === me && socket?.readyState === 1) socket.send(JSON.stringify({ type: 'rtc', sdp: pc.localDescription.sdp }));
+  } catch (err) {
+    if (cam !== me) return;
+    stopCam();
+    toast(err?.name === 'NotAllowedError' ? "Caméra refusée : autorise-la dans les Réglages de l'iPhone, Steady." : 'Caméra indisponible.', 'warning');
+  }
+}
+// forget = false : arrêt subi (écran verrouillé, écran parti), la caméra repart d'elle-même.
+function stopCam(forget = true) {
+  if (forget) camWanted = false;
+  if (!cam) return;
+  cam.stream?.getTracks().forEach((track) => track.stop());
+  cam.pc?.close();
+  cam = null;
+  ui.mirror = false;
+  if (socket?.readyState === 1) socket.send(JSON.stringify({ type: 'rtc', stop: true }));
+  refreshStatus();
+}
+function resumeCam() {
+  if (camWanted && projected() && document.visibilityState === 'visible') startCam();
 }
 
 // Barre d'état de la séance : écran, micro, miroir, chacun allumé (pastille pleine) ou non, d'un geste.
@@ -2200,8 +2257,9 @@ function setTv(n) {
   tvCount = n;
   // Couleur « connecté » portée par body : juste aussi sur les écrans gardés en mémoire.
   document.body.classList.toggle('projecting', projected());
-  if (!projected()) ui.mirror = false;
+  if (!projected()) { stopCam(false); ui.mirror = false; }
   refreshStatus();
+  resumeCam();
 }
 
 function send() {
@@ -2234,6 +2292,7 @@ async function projectSheet() {
       { label: 'Associer un autre écran', value: 'pair' }, { label: 'Fermer', value: null }],
   });
   if (choice === 'off') {
+    stopCam();
     // L'écran affiche « Rien n'est projeté » ; le serveur garde cet état, une page rechargée le retrouve.
     if (socket?.readyState === 1) socket.send(JSON.stringify({ type: 'state', s: { v: 1, at: Date.now(), phase: 'stopped' } }));
     state.screen.on = false;

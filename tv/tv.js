@@ -83,6 +83,8 @@ function connect(name) {
     else if (m.type === 'adopt' && !room && UUID.test(m.room)) adopt(m.room);
     else if (m.type === 'forget' && room) forget();
     else if (m.type === 'mirror') setMirror(!!m.on);
+    else if (m.type === 'rtc' && m.sdp) acceptVideo(m.sdp);
+    else if (m.type === 'rtc' && m.stop) { if (mirror && mirror.remote) setMirror(false); else closeVideo(); }
   };
   // Coupure (réseau, serveur redéployé) : reconnexion de plus en plus espacée, 1 s → 30 s.
   ws.onclose = () => {
@@ -344,7 +346,7 @@ const POSE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmar
 const JOINTS = { knee: [[23, 25, 27], [24, 26, 28]], elbow: [[11, 13, 15], [12, 14, 16]] };
 const COUNTER = { knee: { top: 160, start: 140, deep: 100 }, elbow: { top: 155, start: 130, deep: 90 } };
 const BONES = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28]];
-let mirror = null; // { stream, model, counter, key, reps, data, smooth }
+let mirror = null; // { stream, remote, model, counter, key, reps, data, smooth }
 let landmarker = null;
 
 // Mêmes calculs que plan.js (jointAngle, repCounter), réécrits ici en ES2018 pour les navigateurs de TV.
@@ -383,36 +385,78 @@ function mirrorSay(textValue, warn) {
   node.classList.toggle('warn', !!warn);
 }
 function tellMirror(on) { if (sock && sock.readyState === 1) sock.send(JSON.stringify({ type: 'mirror', on: on })); }
-function setMirror(on) {
-  if (on === !!mirror) return;
-  tellMirror(on);
+function hideMirror() {
+  if (mirror && mirror.stream && !mirror.remote) mirror.stream.getTracks().forEach((t) => t.stop());
+  mirror = null;
+  $('mirror').hidden = true;
+  document.querySelector('.ex').classList.remove('mirroring');
+}
+// remote : flux de la caméra de l'iPhone (voir acceptVideo), il remplace la webcam de l'écran.
+function setMirror(on, remote) {
   if (!on) {
-    if (mirror.stream) mirror.stream.getTracks().forEach((t) => t.stop());
-    mirror = null;
-    $('mirror').hidden = true;
-    document.querySelector('.ex').classList.remove('mirroring');
+    if (!mirror) return;
+    tellMirror(false);
+    hideMirror();
+    closeVideo();
     return;
   }
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
-  mirror = { stream: null, starting: true };
+  if (mirror && !remote) return;
+  if (!remote && !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) return;
+  if (mirror) hideMirror();
+  tellMirror(true);
+  const me = mirror = { stream: remote || null, remote: !!remote };
+  const video = $('mirror-video');
   $('mirror').hidden = false;
+  $('mirror').classList.toggle('remote', !!remote);
   document.querySelector('.ex').classList.add('mirroring');
-  mirrorSay('Préparation de la caméra…');
-  Promise.all([navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }), poseModel()]).then((res) => {
-    if (!mirror) { res[0].getTracks().forEach((t) => t.stop()); return; }
-    mirror = { stream: res[0], model: res[1], key: null, reps: 0, data: [], smooth: null, counter: null, kind: null };
-    const video = $('mirror-video');
-    video.srcObject = res[0];
-    video.play().catch(() => {});
-    mirrorFrame();
+  $('mirror-count').textContent = '';
+  if (remote) { video.srcObject = remote; video.play().catch(() => {}); } // l'image tout de suite, le suivi du corps ensuite
+  mirrorSay(remote ? 'Caméra de l\'iPhone' : 'Préparation de la caméra…');
+  const source = remote ? Promise.resolve(remote) : navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+  Promise.all([source, poseModel()]).then((res) => {
+    if (mirror !== me) { if (!remote) res[0].getTracks().forEach((t) => t.stop()); return; }
+    Object.assign(me, { stream: res[0], model: res[1], key: null, reps: 0, data: [], smooth: null, counter: null, kind: null });
+    if (!remote) { video.srcObject = res[0]; video.play().catch(() => {}); }
+    mirrorFrame(me);
   }, (err) => {
+    if (mirror !== me) return;
+    // Caméra de l'iPhone : l'image reste, sans comptage. Webcam : message, puis le miroir se referme.
+    if (remote) return mirrorSay('Comptage indisponible sur cet écran : valide à la voix.', true);
     mirrorSay(err && err.name === 'NotAllowedError' ? 'Caméra refusée : autorise-la dans le navigateur.' : 'Caméra ou suivi du corps indisponible.', true);
-    if (mirror && mirror.stream) mirror.stream.getTracks().forEach((t) => t.stop());
-    setTimeout(() => { if (mirror && !mirror.model) { mirror = null; tellMirror(false); $('mirror').hidden = true; document.querySelector('.ex').classList.remove('mirroring'); } }, 4000);
+    setTimeout(() => { if (mirror === me) setMirror(false); }, 4000);
   });
 }
-function mirrorFrame() {
-  if (!mirror || !mirror.model) return;
+
+// Caméra de l'iPhone en direct (WebRTC, d'appareil à appareil sur le Wi-Fi) : l'iPhone envoie son offre, l'écran répond par le
+// même relais ; la vidéo ne passe pas par le serveur. STUN de Cloudflare : adresse publique si le Wi-Fi isole les appareils.
+const ICE = [{ urls: 'stun:stun.cloudflare.com:3478' }];
+let rtc = null;
+function closeVideo() { if (rtc) { rtc.close(); rtc = null; } }
+// Candidats réseau dans la réponse (pas d'envoi au fil de l'eau) : 2 s au plus.
+function gathered(pc) {
+  return new Promise((done) => {
+    const timer = setTimeout(done, 2000);
+    const check = () => { if (pc.iceGatheringState === 'complete') { clearTimeout(timer); done(); } };
+    pc.addEventListener('icegatheringstatechange', check);
+    check();
+  });
+}
+function acceptVideo(sdp) {
+  if (!window.RTCPeerConnection) return;
+  closeVideo();
+  const pc = rtc = new RTCPeerConnection({ iceServers: ICE });
+  pc.ontrack = (e) => { if (rtc === pc) setMirror(true, e.streams[0] || new MediaStream([e.track])); };
+  pc.onconnectionstatechange = () => { if (rtc === pc && pc.connectionState === 'failed') setMirror(false); }; // l'iPhone prévient
+  pc.setRemoteDescription({ type: 'offer', sdp: sdp })
+    .then(() => pc.createAnswer())
+    .then((answer) => pc.setLocalDescription(answer))
+    .then(() => gathered(pc))
+    .then(() => { if (rtc === pc && sock && sock.readyState === 1) sock.send(JSON.stringify({ type: 'rtc', sdp: pc.localDescription.sdp })); })
+    .catch(() => { if (rtc === pc) closeVideo(); });
+}
+
+function mirrorFrame(me) {
+  if (mirror !== me || !me.model) return;
   const video = $('mirror-video'), canvas = $('mirror-canvas'), ctx = canvas.getContext('2d');
   // Nouvelle série affichée : le compte repart de zéro.
   const key = s && s.ex && s.set ? s.ex.id + '|' + s.set.n : null, kind = s && s.ex ? s.ex.cam : null;
@@ -457,7 +501,7 @@ function mirrorFrame() {
       }
     }
   }
-  requestAnimationFrame(mirrorFrame);
+  requestAnimationFrame(() => mirrorFrame(me));
 }
 if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
   $('mirror-btn').hidden = false;

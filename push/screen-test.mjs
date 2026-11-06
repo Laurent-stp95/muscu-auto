@@ -78,6 +78,10 @@ tv.json({ type: 'reps', key: '1747|1', n: 3, data: [{ depth: 92, down: 1800, ful
 assert.strictEqual((await phone.next('reps')).n, 3);
 tv.json({ type: 'mirror', on: false }); // miroir éteint depuis l'écran : l'iPhone le sait
 assert.deepStrictEqual(await phone.next('mirror'), { type: 'mirror', on: false });
+phone.json({ type: 'rtc', sdp: 'v=0 offre' }); // vidéo de l'iPhone : offre et réponse relayées dans les deux sens
+assert.deepStrictEqual(await tv.next('rtc'), { type: 'rtc', sdp: 'v=0 offre' });
+tv.json({ type: 'rtc', sdp: 'v=0 réponse' });
+assert.deepStrictEqual(await phone.next('rtc'), { type: 'rtc', sdp: 'v=0 réponse' });
 
 // Écran qui arrive après : le dernier état tout de suite, avec son ancienneté.
 const late = await client(room, 'tv');
