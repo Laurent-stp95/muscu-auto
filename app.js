@@ -1232,28 +1232,43 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 // Phrases de commande : une liste fermée, que ni le coach ni l'écran ne prononcent jamais (vérifié avant chaque annonce, voir speak).
 // Valider demande le nombre suivi de « validées » : un nombre seul, ou une bribe d'annonce, ne valide plus rien.
 const COMMANDS = [
-  { id: 'valider', re: /^(.+?) (répétitions? |reps? )?validée?s?$/, say: 'dix répétitions validées', help: 'valide la série à 10 répétitions' },
-  { id: 'telle', re: /^série validée$/, say: 'série validée', help: 'valide la série telle qu’affichée (compte du miroir)' },
-  { id: 'annuler', re: /^annuler la (dernière )?série$/, say: 'annuler la série', help: 'retire la dernière série' },
-  { id: 'passer', re: /^passer le repos$/, say: 'passer le repos', help: 'termine le repos' },
-  { id: 'rallonger', re: /^(plus trente|trente secondes de plus|plus 30)$/, say: 'plus trente', help: 'ajoute 30 secondes de repos' },
-  { id: 'prochain', re: /^prochain exercice$/, say: 'prochain exercice', help: 'passe à l’exercice suivant' },
-  { id: 'ressenti', re: /^(c'était|ressenti) (facile|bien|dur|difficile|douloureux)$/, say: 'c’était facile (bien, dur)', help: 'note le ressenti en fin d’exercice et passe au suivant' },
-  { id: 'pause', re: /^(mets|mettre) en pause$/, say: 'mets en pause', help: 'met la séance en pause' },
-  { id: 'terminer', re: /^terminer la séance$/, say: 'terminer la séance', help: 'enregistre la séance quand toutes les séries sont faites' },
+  { id: 'valider', say: 'dix répétitions validées', help: 'valide la série à 10 répétitions' },
+  { id: 'telle', say: 'série validée', help: 'valide la série telle qu’affichée (compte du miroir)' },
+  { id: 'annuler', say: 'annuler la série', help: 'retire la dernière série' },
+  { id: 'passer', say: 'passer le repos', help: 'termine le repos' },
+  { id: 'rallonger', say: 'plus trente', help: 'ajoute 30 secondes de repos' },
+  { id: 'prochain', say: 'prochain exercice', help: 'passe à l’exercice suivant' },
+  { id: 'ressenti', say: 'c’était facile (bien, dur)', help: 'note le ressenti en fin d’exercice et passe au suivant' },
+  { id: 'pause', say: 'mets en pause', help: 'met la séance en pause' },
+  { id: 'terminer', say: 'terminer la séance', help: 'enregistre la séance quand toutes les séries sont faites' },
 ];
 const FEELINGS = { facile: 'easy', bien: 'ok', dur: 'hard', difficile: 'hard', douloureux: 'pain' };
-const tidy = (t) => t.toLowerCase().replace(/[’]/g, "'").replace(/[.,!?;:«»"]/g, ' ').replace(/\s+/g, ' ').trim();
-const commandIn = (t) => COMMANDS.find((c) => c.re.test(tidy(t)));
+// Tolérant à ce que renvoie la reconnaissance (accents, « validé / validées / valider », mots en plus, chiffres ou lettres) :
+// une commande = ses mots-clés, que les annonces ne contiennent jamais. Retourne { id, n?, feel? } ou null.
+const plain = (t) => String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/['’]/g, ' ').replace(/[^a-z0-9 -]/g, ' ').replace(/\s+/g, ' ').trim();
+function commandIn(text) {
+  const t = plain(text), has = (re) => re.test(t);
+  if (!t) return null;
+  if (has(/\bvalid/)) { const n = numberIn(t); return n ? { id: 'valider', n } : has(/\bseries?\b/) ? { id: 'telle' } : null; }
+  if (has(/\bannul/)) return { id: 'annuler' };
+  if (has(/\bpass/) && has(/\brepos\b/)) return { id: 'passer' };
+  if (has(/\bplus\b/) && has(/\b(30|trente)\b/)) return { id: 'rallonger' };
+  if (has(/\bprochain/)) return { id: 'prochain' };
+  const feel = has(/\b(c etait|ressenti)\b/) && Object.keys(FEELINGS).find((w) => has(new RegExp(`\\b${w}\\b`)));
+  if (feel) return { id: 'ressenti', feel };
+  if (has(/\bpause\b/) && has(/\b(mets|mettre|met)\b/)) return { id: 'pause' };
+  if (has(/\btermin/) && has(/\bseance\b/)) return { id: 'terminer' };
+  return null;
+}
 
 function hear(text, alternatives = [text]) {
   if (!state.active || ui.view !== 'session') return;
-  if (!tidy(text)) return;
+  if (!plain(text)) return;
   if (Date.now() < quietUntil || Date.now() - spokeAt < 1200) return heard(text, 'pendant une annonce');
   // La première variante de la reconnaissance qui forme une commande connue.
   const alt = alternatives.find((a) => commandIn(a));
   if (!alt) return heard(text, 'phrase inconnue');
-  const t = tidy(alt), cmd = commandIn(alt);
+  const cmd = commandIn(alt);
   const items = activeItems();
   const i = Math.min(ui.at ?? nextItem(items), items.length);
   const x = items[i];
@@ -1280,7 +1295,7 @@ function hear(text, alternatives = [text]) {
   if (cmd.id === 'ressenti') {
     if (!x || nextSet(x)) return heard(alt, 'termine d’abord les séries de l’exercice');
     heard(alt);
-    const feel = FEELINGS[t.split(' ').at(-1)];
+    const feel = FEELINGS[cmd.feel];
     if (feel === 'pain') return onFeel(x.e, 'pain', state.active.day, x.k, []);
     record({ type: 'feel', ex: x.e.id, feel });
     tick(660);
@@ -1290,15 +1305,10 @@ function hear(text, alternatives = [text]) {
   if (!f) return heard(alt, 'aucune série à valider');
   if (rest) return heard(alt, 'pendant le repos'); // la série suivante n'est pas encore faite
   if (cmd.id === 'telle') { heard(alt); return voiceValidate(f, f.pick.reps); }
-  const said = t.match(cmd.re)[1];
-  const n = onlyNumber(said) ? numberIn(said) : 0;
-  if (!(n > 0 && n <= 100)) return heard(alt, 'nombre pas compris');
+  if (!(cmd.n > 0 && cmd.n <= 100)) return heard(alt, 'nombre pas compris');
   heard(alt);
-  voiceValidate(f, n);
+  voiceValidate(f, cmd.n);
 }
-const FILLER = ['répétitions', 'répétition', 'rép', 'reps', 'fois', 'et'];
-const onlyNumber = (t) => t.toLowerCase().replace(/[.,!?]/g, ' ').split(/\s+/).filter(Boolean)
-  .every((w) => /^\d+$/.test(w) || w in WORDS || w === 'dis' || w === 'dit' || w.split('-').every((p) => p in WORDS) || FILLER.includes(w));
 function numberIn(t) {
   const words = t.replace(/[.,!?]/g, ' ').split(/\s+/).filter(Boolean);
   return Number((t.match(/\d+/) || [])[0]) || WORDS[words.join('-')] || words.map((w) => WORDS[w] || ({ dis: 10, dit: 10 })[w]).find(Boolean) || 0;
