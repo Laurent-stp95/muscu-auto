@@ -382,10 +382,12 @@ function mirrorSay(textValue, warn) {
   node.textContent = textValue;
   node.classList.toggle('warn', !!warn);
 }
+function tellMirror(on) { if (sock && sock.readyState === 1) sock.send(JSON.stringify({ type: 'mirror', on: on })); }
 function setMirror(on) {
   if (on === !!mirror) return;
+  tellMirror(on);
   if (!on) {
-    mirror.stream.getTracks().forEach((t) => t.stop());
+    if (mirror.stream) mirror.stream.getTracks().forEach((t) => t.stop());
     mirror = null;
     $('mirror').hidden = true;
     document.querySelector('.ex').classList.remove('mirroring');
@@ -406,7 +408,7 @@ function setMirror(on) {
   }, (err) => {
     mirrorSay(err && err.name === 'NotAllowedError' ? 'Caméra refusée : autorise-la dans le navigateur.' : 'Caméra ou suivi du corps indisponible.', true);
     if (mirror && mirror.stream) mirror.stream.getTracks().forEach((t) => t.stop());
-    setTimeout(() => { if (mirror && !mirror.model) { mirror = null; $('mirror').hidden = true; document.querySelector('.ex').classList.remove('mirroring'); } }, 4000);
+    setTimeout(() => { if (mirror && !mirror.model) { mirror = null; tellMirror(false); $('mirror').hidden = true; document.querySelector('.ex').classList.remove('mirroring'); } }, 4000);
   });
 }
 function mirrorFrame() {
@@ -415,7 +417,7 @@ function mirrorFrame() {
   // Nouvelle série affichée : le compte repart de zéro.
   const key = s && s.ex && s.set ? s.ex.id + '|' + s.set.n : null, kind = s && s.ex ? s.ex.cam : null;
   if (key !== mirror.key || kind !== mirror.kind) {
-    Object.assign(mirror, { key: key, kind: kind, reps: 0, data: [], smooth: null, counter: kind ? repCounter(COUNTER[kind]) : null });
+    Object.assign(mirror, { key: key, kind: kind, reps: 0, data: [], smooth: null, counter: kind ? repCounter(COUNTER[kind]) : null, hips: [] });
     $('mirror-count').textContent = kind ? '0' : '';
     mirrorSay(kind ? 'Je compte tes répétitions.' : (key ? 'Comptage disponible pour les squats, les fentes et les développés.' : 'Miroir actif.'));
   }
@@ -428,7 +430,14 @@ function mirrorFrame() {
       ctx.lineWidth = 6;
       ctx.strokeStyle = '#c8441d';
       BONES.forEach((b) => { const a = at(b[0]), c = at(b[1]); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(c.x, c.y); ctx.stroke(); });
-      if (mirror.counter) {
+      // On ne compte que pendant une série (pas au repos), corps entier dans l'image et sur place : s'approcher ou repartir en
+      // bougeant les bras ne doit pas compter de répétitions (le bassin qui se déplace de plus de 15 % de l'image en 1 s = tu marches).
+      const now = performance.now(), hip = (at(23).x + at(24).x) / 2 / w;
+      mirror.hips = mirror.hips.filter((q) => now - q.t < 1000).concat([{ t: now, x: hip }]);
+      const walking = Math.max.apply(null, mirror.hips.map((q) => q.x)) - Math.min.apply(null, mirror.hips.map((q) => q.x)) > 0.15;
+      const whole = (mirror.kind === 'knee' ? [0, 27, 28] : [11, 12, 15, 16]).every((k) => (p[k].visibility == null ? 1 : p[k].visibility) > 0.5);
+      if (mirror.counter && (rest || walking || !whole)) mirror.smooth = null; // reprise à zéro de l'angle : pas de demi-répétition comptée
+      if (mirror.counter && !rest && !walking && whole) {
         const side = JOINTS[mirror.kind].map((j) => j.map(at)).sort((s1, s2) => Math.min.apply(null, s2.map((q) => q.v)) - Math.min.apply(null, s1.map((q) => q.v)))[0];
         if (Math.min.apply(null, side.map((q) => q.v)) > 0.5) {
           const angle = jointAngle(side[0], side[1], side[2]);
@@ -440,7 +449,8 @@ function mirrorFrame() {
             $('mirror-count').textContent = String(ev.rep);
             const bad = !ev.full ? 'plus bas' : ev.down < 1000 ? 'plus lent' : '';
             mirrorSay(!ev.full ? 'Amplitude incomplète : descends plus bas.' : ev.down < 1000 ? 'Descente trop rapide : contrôle-la.' : 'Répétition ' + ev.rep + ' : bonne amplitude.', !!bad);
-            if (s.voice) speak(bad ? ev.rep + ', ' + bad : String(ev.rep));
+            // Micro de l'iPhone ouvert : pas de nombre dit à voix haute (il pourrait le prendre pour ta réponse).
+            if (s.voice) { if (bad) speak(s.mic === 'on' ? bad : ev.rep + ', ' + bad); else if (s.mic !== 'on') speak(String(ev.rep)); }
             if (sock && sock.readyState === 1) sock.send(JSON.stringify({ type: 'reps', key: mirror.key, n: ev.rep, data: mirror.data }));
           }
         }

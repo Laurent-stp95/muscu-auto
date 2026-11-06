@@ -204,7 +204,10 @@
   .big-icon { width: 40px; height: 40px; color: var(--accent); }
   .focus-tools { justify-content: center; }
   .session-tools { justify-content: center; }
-  .status-bar { justify-content: center; }
+  .status-bar { display: grid; justify-items: center; gap: var(--s1); }
+  .status-bar .chips { justify-content: center; }
+  .heard { text-align: center; }
+  .heard.ignored { color: var(--warn-ink); }
   .chip.status { gap: var(--s1); padding: 0 var(--s3); }
   .chip.status .icon { width: 18px; height: 18px; }
   .chip.status[aria-pressed="true"] { background: var(--ok); }

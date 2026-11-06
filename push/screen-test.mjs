@@ -76,6 +76,8 @@ phone.json({ type: 'mirror', on: true });
 assert.deepStrictEqual(await tv.next('mirror'), { type: 'mirror', on: true });
 tv.json({ type: 'reps', key: '1747|1', n: 3, data: [{ depth: 92, down: 1800, full: true }] });
 assert.strictEqual((await phone.next('reps')).n, 3);
+tv.json({ type: 'mirror', on: false }); // miroir éteint depuis l'écran : l'iPhone le sait
+assert.deepStrictEqual(await phone.next('mirror'), { type: 'mirror', on: false });
 
 // Écran qui arrive après : le dernier état tout de suite, avec son ancienneté.
 const late = await client(room, 'tv');
