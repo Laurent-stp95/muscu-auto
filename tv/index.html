@@ -150,8 +150,11 @@
   .mirror-say { position: absolute; left: 1rem; right: 1rem; bottom: 1rem; padding: .5rem 1rem; border-radius: var(--r-m); background: rgba(0, 0, 0, .6); font-size: 1.5rem; font-weight: 600; text-align: center; }
   .mirror-say.warn { color: #ffd60a; }
   .mirroring .visual { display: none; }
-  .ex.mirroring { grid-template-rows: minmax(0, 1fr) auto; }
-  .ex.mirroring .cues { display: none; } /* toute la hauteur pour l'image */
+  .ex.mirroring { grid-template-rows: minmax(0, 1fr); }
+  .ex.mirroring .cues { display: none; } /* toute la hauteur pour l'image ; le nom de l'exercice passe dans l'en-tête */
+  .top.mirroring .title { display: none; }
+  .top .ex-head h2 { font-size: 1.75rem; }
+  .top .badge { display: none; } /* pas la place à côté du nom ; « Apprentissage du geste » reste sur l'iPhone */
   @media (min-aspect-ratio: 4/3) { .cols.mirroring { grid-template-columns: 62fr 38fr; } }
   .fs2 { right: calc(2vw + 4.5rem); }
 
@@ -291,6 +294,6 @@
 
 <script src="../push-config.js"></script>
 <script src="../shared.js?v=4"></script> <!-- v à changer avec shared.js -->
-<script src="tv.js?v=17"></script> <!-- v à changer avec tv.js -->
+<script src="tv.js?v=18"></script> <!-- v à changer avec tv.js -->
 </body>
 </html>

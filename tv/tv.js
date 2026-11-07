@@ -339,7 +339,23 @@ function hideMirror() {
   $('mirror').hidden = true;
   document.querySelector('.ex').classList.remove('mirroring');
   document.querySelector('.ex').parentNode.classList.remove('mirroring');
+  document.querySelector('.top').classList.remove('mirroring');
+  $('cues').before(document.querySelector('.ex-head'));
+  fitMirror();
 }
+// Fenêtre du miroir au format de l'image (iPhone en portrait 9:16 ou en paysage 16:9) : aussi grande que possible, sans bandes
+// noires, centrée en hauteur ; 62 % de la largeur au plus, la carte d'état garde ses 38 %. Avant la première image et en colonnes empilées : la feuille de style.
+function fitMirror() {
+  const cols = $('live'), box = $('mirror'), video = $('mirror-video');
+  if (!mirror || !video.videoWidth || !matchMedia('(min-aspect-ratio: 4/3)').matches) { cols.style.gridTemplateColumns = box.style.height = box.style.alignSelf = ''; return; }
+  const rem = parseFloat(document.documentElement.style.fontSize), H = document.querySelector('.ex').clientHeight;
+  const ratio = video.videoWidth / video.videoHeight, w = Math.floor(Math.max(12 * rem, Math.min(H * ratio, (cols.clientWidth - 2 * rem) * .62)));
+  cols.style.gridTemplateColumns = w + 'px minmax(0, 1fr)';
+  box.style.height = Math.min(H, Math.floor(w / ratio)) + 'px';
+  box.style.alignSelf = 'center';
+}
+$('mirror-video').addEventListener('resize', fitMirror); // nouvelle taille d'image : l'iPhone a tourné
+if (window.ResizeObserver) new ResizeObserver(fitMirror).observe($('live')); else addEventListener('resize', fitMirror);
 // remote : flux de la caméra de l'iPhone (voir acceptVideo), il remplace la webcam de l'écran.
 function setMirror(on, remote) {
   if (!on) {
@@ -359,6 +375,8 @@ function setMirror(on, remote) {
   $('mirror').classList.toggle('remote', !!remote);
   document.querySelector('.ex').classList.add('mirroring');
   document.querySelector('.ex').parentNode.classList.add('mirroring'); // colonne de l'image élargie
+  document.querySelector('.top').classList.add('mirroring');
+  $('title').after(document.querySelector('.ex-head')); // le nom de l'exercice remplace le titre : toute la hauteur pour l'image
   $('mirror-count').textContent = '';
   if (remote) { video.srcObject = remote; video.play().catch(() => {}); } // l'image tout de suite, le suivi du corps ensuite
   mirrorSay(remote ? 'Caméra de l\'iPhone' : 'Préparation de la caméra…');
