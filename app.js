@@ -2010,8 +2010,9 @@ function progressCard(e, past) {
   const tip = tipFor(e, past);
   return h('section', { className: 'card' },
     h('h2', { className: 'title' }, e.name),
-    chart(points, ahead, withKg ? 'kg' : unitText(e)),
-    fixed != null && h('p', { className: 'caption' }, `Charge fixe (${kgLabel(e, fixed)}) : la courbe suit tes répétitions.`),
+    // Une seule séance : pas de courbe (un point perdu dans un cadre vide se lit comme un bug).
+    points.length > 1 ? chart(points, ahead, withKg ? 'kg' : unitText(e)) : h('p', { className: 'caption' }, 'Ta courbe apparaîtra après ta deuxième séance de cet exercice.'),
+    points.length > 1 && fixed != null && h('p', { className: 'caption' }, `Charge fixe (${kgLabel(e, fixed)}) : la courbe suit tes répétitions.`),
     techniqueBlock(e),
     h('p', { className: 'meta' }, `Dernière séance (${new Date(last.t).toLocaleDateString('fr-FR')}) : ${last.sets.map((x) => (e.load !== 'pdc' ? `${x.reps} × ${kgLabel(e, x.kg)}` : `${x.reps} ${unitText(e)}`)).join(' · ')}${last.tech === false ? ' · technique à revoir' : ''}`),
     tip && h('p', { className: 'tip' }, tip.kg != null && h('strong', {}, `Prochaine : ${kgLabel(e, tip.kg)} · `), tip.note),
