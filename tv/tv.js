@@ -449,10 +449,9 @@ function mirrorFrame(me) {
         mirror.reps = ev.rep;
         mirror.data.push({ depth: ev.depth, down: ev.down, full: ev.full });
         $('mirror-count').textContent = String(ev.rep);
-        const bad = !ev.full ? 'plus bas' : ev.down < 1000 ? 'plus lent' : '';
-        mirrorSay(!ev.full ? 'Amplitude incomplète : descends plus bas.' : ev.down < 1000 ? 'Descente trop rapide : contrôle-la.' : 'Répétition ' + ev.rep + ' : bonne amplitude.', !!bad);
-        // Micro de l'iPhone ouvert : pas de nombre dit à voix haute (il pourrait le prendre pour ta réponse).
-        if (snapshot.voice) { if (bad) speak(snapshot.mic === 'on' ? bad : ev.rep + ', ' + bad); else if (snapshot.mic !== 'on') speak(String(ev.rep)); }
+        mirrorSay(!ev.full ? 'Amplitude incomplète : descends plus bas.' : ev.down < 1000 ? 'Descente trop rapide : contrôle-la.' : 'Répétition ' + ev.rep + ' : bonne amplitude.', !ev.full || ev.down < 1000);
+        // La voix ne dit que le numéro, la consigne reste écrite. Micro de l'iPhone ouvert : rien (il prendrait le nombre pour ta réponse).
+        if (snapshot.voice && snapshot.mic !== 'on') speak(String(ev.rep));
         if (sock && sock.readyState === 1) sock.send(JSON.stringify({ type: 'reps', key: mirror.key, n: ev.rep, data: mirror.data }));
       }
     } else ctx.clearRect(0, 0, w, hh);

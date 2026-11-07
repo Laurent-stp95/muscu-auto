@@ -30,9 +30,18 @@ const FRONT = new Set([1, 2, 3, 4, 6, 10, 13, 14]); // muscles visibles de face 
 const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1';
 const POSE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
 const JOINTS = { knee: [[23, 25, 27], [24, 26, 28]], elbow: [[11, 13, 15], [12, 14, 16]] }; // hanche-genou-cheville, épaule-coude-poignet (gauche, droite)
-// Seuils d'angle (degrés) : haut = bras ou jambe tendus, start = la descente commence, count = assez bas pour compter,
-// deep = amplitude complète ; minMs = durée minimale d'une répétition (un geste plus vif est un bruit, pas une répétition).
-const COUNTER = { knee: { top: 160, start: 145, count: 120, deep: 100, minMs: 800 }, elbow: { top: 155, start: 135, count: 110, deep: 90, minMs: 600 } };
+// Seuils d'angle (degrés, 180 = tendu) : top = de retour en haut (sans exiger le verrouillage), start = la descente commence,
+// count = assez bas pour compter, deep = amplitude complète ; minMs = durée minimale (un geste plus vif est un bruit du suivi).
+// Tolérants exprès : une répétition imparfaite compte (signalée à l'écran, gardée avec full: false) pour progresser quand même ;
+// seul un geste à peine esquissé (entre start et count) n'est pas compté.
+const COUNTER = { knee: { top: 155, start: 140, count: 130, deep: 100, minMs: 500 }, elbow: { top: 150, start: 135, count: 125, deep: 90, minMs: 400 } };
+// Par exercice, quand le mouvement lui-même plie moins ou plus : fentes, développé au sol (coudes arrêtés par le sol),
+// pompes piquées ; goblet squat et pompes descendent plus bas.
+const COUNTER_EX = {
+  203: { deep: 95 }, 1593: { count: 135, deep: 105 }, 1651: { count: 135, deep: 105 },
+  1084: { count: 130, deep: 105 }, 1551: { deep: 95 }, 1112: { deep: 95 }, 454: { count: 130, deep: 100 },
+};
+const counterFor = (kind, exId) => Object.assign({}, COUNTER[kind], COUNTER_EX[exId]);
 const BONES = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28]];
 let landmarker = null; // promesse du modèle, gardée ; remise à null en cas d'échec (nouvel essai au prochain appel)
 
@@ -55,7 +64,7 @@ function jointAngle(a, b, c) {
 // Une répétition = en haut (angle ≥ top) → descente (angle < start) → remontée en haut. push(angle, ms) renvoie, à chaque remontée,
 // { rep, depth (angle le plus fermé), down (durée de la descente en ms), full (depth ≤ deep : amplitude atteinte) }, sinon null.
 // Compteur de répétitions. Contre les faux comptes : angle filtré (médiane des 5 dernières mesures, un point qui saute
-// ne compte pas), changement d'état après 3 mesures d'affilée seulement, départ d'une position haute tenue 0,25 s,
+// ne compte pas), changement d'état après 3 mesures d'affilée seulement, départ d'une position haute tenue 0,15 s,
 // descente au moins jusqu'à count et durée plausible (minMs à 8 s). push renvoie une répétition comptée
 // { rep, depth, down, full }, { partial, depth } pour un mouvement trop peu profond (rien n'est compté), ou null.
 // reset() abandonne la répétition en cours (personne qui bouge, sort de l'image, autre côté suivi).
@@ -71,7 +80,7 @@ function repCounter({ top, start, count: low = start, deep, minMs = 0, maxMs = 8
         streak = angle < start ? streak + 1 : 0;
         if (streak < 3) return null;
         streak = 0;
-        if (topSince == null || topLast - topSince < 250) { topSince = null; return null; } // pas parti d'en haut : ignoré
+        if (topSince == null || topLast - topSince < 150) { topSince = null; return null; } // pas parti d'en haut : ignoré
         down = true;
         min = angle;
         bottomAt = t;
@@ -103,7 +112,7 @@ function repCounter({ top, start, count: low = start, deep, minMs = 0, maxMs = 8
 // S'accroupir pour toucher l'iPhone, mains en avant ou en bas, ne compte donc pas.
 const HANDS_HIGH = new Set([1747, 257, 1593, 203]);
 function poseTracker(kind, exId) {
-  const counter = repCounter(COUNTER[kind]);
+  const counter = repCounter(counterFor(kind, exId));
   const whole = kind === 'knee' ? [0, 27, 28] : [11, 12, 15, 16]; // tête et chevilles, ou épaules et poignets
   const vis = (q) => (q.visibility == null ? 1 : q.visibility);
   // Vraiment dans l'image : le modèle devine aussi les points hors cadre (pieds coupés quand tu es près), parfois sûr de lui.
@@ -180,5 +189,5 @@ function gathered(pc) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { jointAngle, repCounter, poseTracker, COUNTER };
+  module.exports = { jointAngle, repCounter, poseTracker, COUNTER, counterFor };
 }

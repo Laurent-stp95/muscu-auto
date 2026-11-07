@@ -218,11 +218,17 @@ const ramp = (from, to, ms) => Array.from({ length: Math.round(ms / 33) }, (_, k
 const hold = (a, ms) => ramp(a, a, ms);
 const squatPath = (bottom, down = 1500, up = 1000) => [...hold(175, 400), ...ramp(175, bottom, down), ...ramp(bottom, 175, up), ...hold(175, 300)];
 const knee = () => S.repCounter(S.COUNTER.knee);
-let evs = run(knee(), [...squatPath(90), ...squatPath(95), ...squatPath(110, 400, 400)]);
-assert.deepStrictEqual(evs.map((e) => e.rep ? [e.rep, e.full] : 'vif'), [[1, true], [2, true]]); // la 3e, trop vive, ne compte pas
+// Tolérant : une répétition imparfaite (vive, pas assez basse) compte, marquée full: false ; un geste esquissé ne compte pas.
+let evs = run(knee(), [...squatPath(90), ...squatPath(95), ...squatPath(110, 400, 400), ...squatPath(125)]);
+assert.deepStrictEqual(evs.map((e) => [e.rep, e.full]), [[1, true], [2, true], [3, false], [4, false]]);
 assert.ok(evs[0].down >= 1100); // descente mesurée depuis la sortie de la position haute
-evs = run(knee(), squatPath(130)); // demi-squat : signalé, pas compté
+assert.ok(evs[2].down < 1000); // la 3e, trop vive : comptée, signalée
+evs = run(knee(), squatPath(137)); // quart de squat : signalé, pas compté
 assert.deepStrictEqual(evs.map((e) => [e.partial, e.rep]), [[true, undefined]]);
+evs = run(knee(), [...hold(175, 500), ...ramp(175, 110, 150), ...ramp(110, 175, 150), ...hold(175, 500)]); // plongeon de 0,3 s : bruit
+assert.strictEqual(evs.length, 0);
+evs = run(S.repCounter(S.counterFor('elbow', 1084)), [...hold(170, 400), ...ramp(170, 100, 1200), ...ramp(100, 170, 800), ...hold(170, 300)]);
+assert.deepStrictEqual(evs.map((e) => [e.rep, e.full]), [[1, true]]); // développé au sol : coudes arrêtés par le sol à 100°, complet
 evs = run(knee(), [...hold(175, 500), ...Array.from({ length: 120 }, (_, k) => 160 + (k % 6) * 3)]); // petits mouvements autour du haut
 assert.strictEqual(evs.length, 0);
 evs = run(knee(), [...hold(175, 500), 175, 80, 175, 175, 80, 175, ...hold(175, 500)]); // points qui sautent

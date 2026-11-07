@@ -7,10 +7,15 @@
 const NO_COUNT = new Set([206, 238, 348, 828, 571, 572]);
 const cameraKind = (e) => (NO_COUNT.has(e.id) ? null : e.zone === 'quad' ? 'knee' : ['chest', 'shoulders'].includes(e.zone) ? 'elbow' : null);
 
+// Consigne écrite seulement : la voix ne dit que le numéro (repCounted).
 function repFeedback(kind, ev) {
-  if (!ev.full) return { text: kind === 'knee' ? "Amplitude incomplète : descends jusqu'aux cuisses parallèles." : 'Amplitude incomplète : descends plus bas.', voice: `${ev.rep}, plus bas` };
-  if (ev.down < 1000) return { text: 'Descente trop rapide : contrôle-la sur 2 à 3 secondes.', voice: `${ev.rep}, plus lent` };
-  return { text: `Répétition ${ev.rep} : bonne amplitude, descente contrôlée.`, voice: String(ev.rep) };
+  if (!ev.full) return kind === 'knee' ? "Amplitude incomplète : descends jusqu'aux cuisses parallèles." : 'Amplitude incomplète : descends plus bas.';
+  if (ev.down < 1000) return 'Descente trop rapide : contrôle-la sur 2 à 3 secondes.';
+  return `Répétition ${ev.rep} : bonne amplitude, descente contrôlée.`;
+}
+// Le numéro à voix haute ; micro ouvert : un bip court à la place (un nombre dit serait pris pour ta réponse). Coach vocal coupé : rien.
+function repCounted(n) {
+  if (micOpen()) { if (voiceOn()) tick(1320); } else speak(String(n), true);
 }
 
 async function cameraCoach(f) {
@@ -49,8 +54,8 @@ async function cameraCoach(f) {
   if (closed) return stream.getTracks().forEach((track) => track.stop());
   video.srcObject = stream;
   await video.play().catch(() => {});
-  // iPhone en portrait mais image livrée en paysage : on remplit la fenêtre en hauteur (bords coupés), le corps debout est au centre.
-  const fit = () => video.parentElement.classList.toggle('crop', video.videoWidth > video.videoHeight && innerHeight > innerWidth);
+  // Image en paysage : rognée seulement si l'iPhone est tenu en portrait (.cam-view.wide, index.html). Recalculé quand l'iPhone tourne.
+  const fit = () => video.parentElement.classList.toggle('wide', video.videoWidth > video.videoHeight);
   fit();
   video.addEventListener('resize', fit);
   const tracker = poseTracker(kind, f.x.e.id); // bonne personne, entière, sur place, même côté : voir shared.js
@@ -87,10 +92,9 @@ async function cameraCoach(f) {
         count.textContent = String(reps);
         ok.disabled = false;
         ok.lastChild.textContent = `Valider ${plural(reps, 'répétition')}`;
-        const feedback = repFeedback(kind, ev);
-        said = feedback.text;
+        said = repFeedback(kind, ev);
         tell(said);
-        speak(micOpen() ? feedback.voice.replace(/^\d+,?\s*/, '') : feedback.voice, true); // micro ouvert : pas le numéro
+        repCounted(reps);
       }
     }
     requestAnimationFrame(frame);
