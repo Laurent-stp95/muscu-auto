@@ -71,8 +71,8 @@ function button(label, onclick, { variant, size, icon: name, ...props } = {}) {
   return h('button', { type: 'button', className: ['btn', variant, size].filter(Boolean).join(' '), onclick, ...props }, name && icon(name), label);
 }
 
-function chip(label, pressed, onclick, { danger, ...props } = {}) {
-  return h('button', { type: 'button', className: danger ? 'chip danger' : 'chip', ariaPressed: String(pressed), onclick, ...props }, label);
+function chip(label, pressed, onclick, { danger, iconName, variant, ...props } = {}) {
+  return h('button', { type: 'button', className: ['chip', variant, danger && 'danger'].filter(Boolean).join(' '), ariaPressed: String(!!pressed), onclick, ...props }, iconName && icon(iconName), label);
 }
 
 const load = (key) => { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } };
@@ -1335,7 +1335,7 @@ function hear(text, alternatives = [text]) {
     announce('Séance enregistrée. Bravo !');
     return toast('Séance enregistrée', 'success');
   }
-  if (cmd.id === 'prochain') { heard(alt); return moveTo(i + 1); }
+  if (cmd.id === 'prochain') { heard(alt); return goToItem(i + 1); }
   if (cmd.id === 'ressenti') {
     if (!x || nextSet(x)) return heard(alt, 'termine d’abord les séries de l’exercice');
     heard(alt);
@@ -1343,7 +1343,7 @@ function hear(text, alternatives = [text]) {
     if (feel === 'pain') return onFeel(x.e, 'pain', state.active.day, x.k, []);
     record({ type: 'feel', ex: x.e.id, feel });
     tick(660);
-    return moveTo(i + 1);
+    return goToItem(i + 1);
   }
   const f = focusTarget();
   if (!f) return heard(alt, 'aucune série à valider');
@@ -1373,7 +1373,7 @@ function voiceHelp() {
     actions: [{ label: 'Fermer', value: null }] });
 }
 
-function moveTo(i) {
+function goToItem(i) {
   ui.at = Math.min(i, activeItems().length);
   ui.pick = null;
   render();
@@ -2287,7 +2287,7 @@ function resumeCam() {
 
 // Barre d'état de la séance : écran, micro, miroir, chacun allumé (pastille pleine) ou non, d'un geste.
 function statusBar(list = state.listMode) {
-  const pill = (label, name, on, onclick, warn) => h('button', { type: 'button', className: `chip status${warn ? ' warn' : ''}`, ariaPressed: String(!!on), onclick }, icon(name), label);
+  const pill = (label, name, on, onclick, warn) => chip(label, on, onclick, { iconName: name, variant: warn ? 'status warn' : 'status' });
   return h('div', { className: 'status-bar' }, h('div', { className: 'chips' },
     pill(!state.screen?.on || projected() ? 'Écran' : 'Écran…', 'tv', projected(), projectSheet),
     Recognition && !list && pill(earWanted && !ear ? 'Micro coupé' : 'Micro', 'mic', !!ear, () => (ear ? stopEar() : startEar()), earWanted && !ear),

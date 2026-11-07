@@ -18,6 +18,7 @@
     --accent: #c8441d; --accent-ink: #a83a17; --accent-soft: color-mix(in srgb, #c8441d 12%, transparent);
     --ok: #1e7d46; --ok-ink: #18703e; --warn-ink: #8a5a00; --ok-soft: color-mix(in srgb, #1e7d46 14%, transparent); --danger: #b3261e; --danger-ink: #b3261e; --danger-soft: color-mix(in srgb, #b3261e 12%, transparent);
     --shadow: 0 4px 20px rgb(0 0 0 / .18);
+    --muscle-main: #fc0000; --muscle-second: #f57900; /* couleurs des schémas de muscles (images wger) */
     --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
     --r-s: 8px; --r-m: 12px; --r-l: 16px; --r-full: 999px;
     --tap: 44px; --tap-l: 50px; --tabbar: 50px;
@@ -166,8 +167,8 @@
   .body img { position: absolute; top: 0; left: 0; width: 100%; }
   .legend { display: grid; gap: var(--s2); font-size: var(--t-subhead); }
   .dot { display: inline-block; width: 10px; height: 10px; margin-right: var(--s2); border-radius: 50%; }
-  .dot.main { background: #fc0000; }
-  .dot.second { background: #f57900; }
+  .dot.main { background: var(--muscle-main); }
+  .dot.second { background: var(--muscle-second); }
   .cue { display: grid; gap: var(--s1); padding: var(--s3) var(--s4); border-radius: var(--r-m); background: var(--accent-soft); }
   ul.cue { padding-left: calc(var(--s4) + 1.1em); }
   .badge { display: inline-flex; align-items: center; gap: 2px; flex: none; min-height: 24px; padding: 0 var(--s2); border-radius: var(--r-full); background: var(--accent-soft); color: var(--accent-ink); font-size: var(--t-footnote); font-weight: 600; white-space: nowrap; }
@@ -209,7 +210,7 @@
   .session-tools { justify-content: center; }
   .status-bar { display: grid; justify-items: center; gap: var(--s1); }
   .status-bar .chips { justify-content: center; }
-  .heard { padding: var(--s1) var(--s2); border: 0; background: none; text-align: center; cursor: pointer; }
+  .heard { min-height: 44px; padding: var(--s1) var(--s2); border: 0; background: none; text-align: center; cursor: pointer; }
   .heard.ignored { color: var(--warn-ink); }
   .chip.status { gap: var(--s1); padding: 0 var(--s3); }
   .chip.status .icon { width: 18px; height: 18px; }
@@ -280,7 +281,7 @@
   .step { flex: 1; animation: rise .35s ease; }
   .lead { color: var(--muted); }
   .ob-footer { position: sticky; bottom: 0; padding: var(--s3) 0 calc(var(--s4) + env(safe-area-inset-bottom)); background: linear-gradient(to top, var(--bg) 75%, transparent); }
-  .app-icon { width: 80px; height: 80px; border-radius: 18px; }
+  .app-icon { width: 80px; height: 80px; border-radius: var(--r-l); }
   .welcome h1 { font-size: var(--t-large); }
   .features { display: grid; gap: var(--s4); padding: 0; list-style: none; }
   .features li { display: flex; align-items: flex-start; gap: var(--s3); }
