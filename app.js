@@ -422,7 +422,8 @@ function settings() {
     section('Appli',
       h('div', { className: 'line' },
         h('span', { className: 'meta' }, `Version du ${new Date(document.lastModified).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`),
-        button('Mettre à jour', forceUpdate, { size: 'compact' }))));
+        button('Mettre à jour', forceUpdate, { size: 'compact' })),
+      log.length > 0 && h('div', { className: 'line' }, h('span', {}, 'Séances et séries'), button('Réinitialiser', resetLog, { variant: 'plain', className: 'btn plain destructive' }))));
 }
 
 // Interrupteur iOS : toute la ligne se touche.
@@ -636,6 +637,24 @@ async function resetWeek() {
   show('week');
   scrollTo(0, 0);
   toast('Semaine remise à zéro', 'success');
+}
+
+// Efface tout le suivi (séances, séries, ressentis, douleurs, technique) ; profil, matériel et programme restent, le cycle repart.
+async function resetLog() {
+  const text = `Toutes tes séances et séries validées (${plural(log.length, 'saisie')}) seront effacées : records, courbes et historique repartent de zéro, et le cycle recommence cette semaine.${state.active ? ' La séance en cours sera abandonnée.' : ''} Ton profil, ton matériel et ton programme sont gardés.`;
+  if (!await ask({ title: 'Es-tu sûr de vouloir réinitialiser tes séances ?', text, confirm: 'Réinitialiser', danger: true })) return;
+  const before = { log, cycle: state.cycle, active: state.active };
+  if (warm) { clearInterval(warm.timer); warm = null; }
+  stopEar(false);
+  stopRest();
+  log = [];
+  state.active = null;
+  state.ended = null;
+  state.cycle = { start: monday(new Date()).toISOString() };
+  ui.at = ui.pick = null;
+  save();
+  render();
+  toast('Séances réinitialisées', 'success', () => { log = before.log; Object.assign(state, { cycle: before.cycle, active: before.active }); save(); render(); });
 }
 
 function replace(d, i) {
