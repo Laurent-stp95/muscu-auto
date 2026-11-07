@@ -109,40 +109,57 @@ function poseTracker(kind, exId) {
   // Vraiment dans l'image : le modèle devine aussi les points hors cadre (pieds coupés quand tu es près), parfois sûr de lui.
   const seen = (q) => vis(q) > 0.5 && q.x > 0.01 && q.x < 0.99 && q.y > 0.01 && q.y < 0.99;
   const mid = (p, a, b) => ({ x: (p[a].x + p[b].x) / 2, y: (p[a].y + p[b].y) / 2 });
-  let prev = null, side = null, feet = [], sizes = [];
+  const med = (list) => list.slice().sort((x, y) => x - y)[list.length >> 1];
+  let prev = null, side = null, past = [], badSince = null, jumpSince = null;
   return {
     update(poses, t, paused, aspect) {
-      const stop = (state, pose) => { counter.reset(); return { pose: pose || null, side: null, state: state, ev: null }; };
-      if (!poses || !poses.length) { prev = null; feet = []; return stop('none'); }
+      const out = (state, pose, ev) => ({ pose: pose || null, side: null, state: state, ev: ev || null });
+      // Un blocage bref (point du suivi qui saute, image floue) suspend le comptage sans perdre la répétition en cours ;
+      // il ne l'abandonne qu'au-delà de 0,5 s.
+      const hold = (state, pose) => {
+        if (badSince == null) badSince = t;
+        if (t - badSince > 500) counter.reset();
+        return out(state, pose);
+      };
+      if (!poses || !poses.length) { prev = null; past = []; return hold('none'); }
       // La personne suivie : la plus proche de celle d'avant ; au départ, la plus grande à l'image (la plus près de la caméra).
+      // Taille = longueur du buste ou largeur des épaules, la plus grande : stable de profil comme de face, penché ou pas.
       const found = poses.map((p) => {
         const hip = mid(p, 23, 24), sh = mid(p, 11, 12);
-        return { p: p, x: hip.x, y: hip.y, size: Math.hypot(sh.x - hip.x, sh.y - hip.y) };
+        return { p: p, x: hip.x, y: hip.y, size: Math.max(Math.hypot(sh.x - hip.x, sh.y - hip.y), Math.hypot(p[11].x - p[12].x, p[11].y - p[12].y)) };
       });
       const gap = (c) => Math.hypot(c.x - prev.x, c.y - prev.y);
       const me = prev ? found.sort((a, b) => gap(a) - gap(b))[0] : found.sort((a, b) => b.size - a.size)[0];
-      const jumped = prev && (gap(me) > 0.12 || Math.abs(me.size / prev.size - 1) > 0.3);
-      prev = me;
       const p = me.p;
-      if (jumped) { feet = []; sizes = []; side = null; return stop('switch', p); }
-      // Sur place : on marche si les deux pieds bougent de plus de 12 % de l'image en 1 s (une fente n'en bouge qu'un) ;
-      // pieds hors de l'image (développé allongé) : le bassin.
-      const anchor = vis(p[27]) > 0.5 && vis(p[28]) > 0.5 ? [p[27].x, p[28].x] : [me.x, me.x];
-      feet = feet.filter((f) => t - f.t < 1000).concat([{ t: t, a: anchor[0], b: anchor[1] }]);
-      const range = (k) => Math.max.apply(null, feet.map((f) => f[k])) - Math.min.apply(null, feet.map((f) => f[k]));
-      // Distance à la caméra stable : la taille du buste à l'image varie de plus de 35 % en 1,5 s = tu t'approches ou recules.
-      sizes = sizes.filter((s) => t - s.t < 1500).concat([{ t: t, v: me.size }]);
-      const big = Math.max.apply(null, sizes.map((s) => s.v)), small = Math.min.apply(null, sizes.map((s) => s.v));
-      if (!whole.every((k) => seen(p[k]))) return stop('partial', p);
-      if (Math.min(range('a'), range('b')) > 0.12 || big > small * 1.35) return stop('moving', p);
+      // Saut brusque (autre personne devant toi, ou suivi qui décroche) : comptage suspendu ; au-delà de 0,3 s la répétition
+      // en cours est abandonnée, au-delà de 0,5 s on suit la nouvelle position (tu t'es replacé). Une image ratée ne coûte rien.
+      if (prev && (gap(me) > 0.12 || Math.abs(me.size / prev.size - 1) > 0.4)) {
+        if (jumpSince == null) jumpSince = t;
+        if (t - jumpSince > 300) counter.reset();
+        if (t - jumpSince > 500) { prev = me; jumpSince = null; past = []; side = null; }
+        return out('switch', p);
+      }
+      jumpSince = null;
+      prev = me;
+      // Sur place et à distance constante, d'après la tendance et non le bruit du suivi : médiane des 0,3 dernières secondes
+      // contre médiane d'il y a 1 s. Tu marches : les deux pieds se décalent de plus de 12 % de l'image (une fente n'en
+      // déplace qu'un ; pieds cachés, le bassin). Tu t'approches ou recules : ta taille à l'image change de plus de 40 %.
+      const feet = vis(p[27]) > 0.5 && vis(p[28]) > 0.5 ? [p[27].x, p[28].x] : [me.x, me.x];
+      past = past.filter((s) => t - s.t < 1300).concat([{ t: t, a: feet[0], b: feet[1], size: me.size }]);
+      const recent = past.filter((s) => t - s.t < 300), before = past.filter((s) => t - s.t >= 1000);
+      const shift = (k) => Math.abs(med(recent.map((s) => s[k])) - med(before.map((s) => s[k])));
+      const grown = before.length ? med(recent.map((s) => s.size)) / med(before.map((s) => s.size)) : 1;
+      if (!whole.every((k) => seen(p[k]))) return hold('partial', p);
+      if (before.length && (Math.min(shift('a'), shift('b')) > 0.12 || grown > 1.4 || grown < 1 / 1.4)) return hold('moving', p);
       if (HANDS_HIGH.has(exId)) {
         const wrists = [p[15], p[16]].filter((q) => vis(q) > 0.3).map((q) => q.y); // poignets cachés (derrière la barre) : pas de règle
-        if (wrists.length && Math.min.apply(null, wrists) > mid(p, 11, 12).y + me.size / 2) return stop('hands', p);
+        if (wrists.length && Math.min.apply(null, wrists) > mid(p, 11, 12).y + me.size / 2) return hold('hands', p);
       }
-      if (paused) return stop('paused', p);
+      if (paused) { counter.reset(); return out('paused', p); }
       const sideVis = (s) => Math.min.apply(null, JOINTS[kind][s].map((k) => vis(p[k])));
       const next = side != null && sideVis(side) > 0.5 ? side : sideVis(0) >= sideVis(1) ? 0 : 1;
-      if (sideVis(next) <= 0.5) return stop('partial', p);
+      if (sideVis(next) <= 0.5) return hold('partial', p);
+      badSince = null;
       if (next !== side) { counter.reset(); side = next; }
       const j = JOINTS[kind][side].map((k) => ({ x: p[k].x * (aspect || 1), y: p[k].y }));
       return { pose: p, side: JOINTS[kind][side], state: 'ok', ev: counter.push(jointAngle(j[0], j[1], j[2]), t) };

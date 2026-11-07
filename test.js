@@ -253,7 +253,15 @@ two.forEach((a, k) => { const r = walker.update([body(a, (k % 60) * 0.006)], k *
 assert.strictEqual(walked, 0); // en marchant
 const count = (tracker, frames) => frames.filter((p, k) => { const r = tracker.update([p], k * 33, false, 1); return r.ev && r.ev.rep; }).length;
 assert.strictEqual(count(S.poseTracker('knee'), two.map((a) => scaled(body(a), 1.5, 0.12))), 0); // tout près : pieds hors de l'image
-assert.strictEqual(count(S.poseTracker('knee'), two.map((a, k) => scaled(body(a), k < 60 ? 0.6 + (0.4 * k) / 60 : 1))), 1); // s'approche pendant la 1re : seule la 2e compte
+assert.strictEqual(count(S.poseTracker('knee'), two.map((a, k) => scaled(body(a), k > 20 && k < 50 ? 0.6 + (0.4 * (k - 20)) / 30 : k <= 20 ? 0.6 : 1))), 1); // s'approche pendant la 1re : seule la 2e compte
+// Bruit du suivi : chevilles qui tremblent de ±6 % et buste qui raccourcit de 40 % penché en avant (vu de face) : tout compte.
+let seed = 1; const noise = () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5) * 0.12;
+const shaky = (p) => { [27, 28].forEach((k) => { p[k].x += noise(); p[k].y += noise() / 3; }); return p; };
+const lean = (p, a) => { const f = 1 - (0.4 * (175 - a)) / 85; [11, 12, 0].forEach((k) => { p[k].y = p[23].y - (p[23].y - p[k].y) * f; }); p[11].x -= 0.1; p[12].x += 0.1; return p; }; // de face : épaules écartées
+assert.strictEqual(count(S.poseTracker('knee'), two.map((a) => shaky(body(a)))), 2);
+assert.strictEqual(count(S.poseTracker('knee'), two.map((a) => lean(body(a), a))), 2);
+const blip = two.map((a, k) => (k === 70 || k === 71 ? scaled(body(a), 1.5, 0.12) : body(a))); // 2 images ratées en pleine descente
+assert.strictEqual(count(S.poseTracker('knee'), blip), 2);
 assert.strictEqual(count(S.poseTracker('knee', 1747), two.map((a) => body(a))), 0); // squat Smith, mains en bas (accroupi vers l'iPhone)
 assert.strictEqual(count(S.poseTracker('knee', 1747), two.map((a) => handsUp(body(a)))), 2); // mains sur la barre : compté
 
