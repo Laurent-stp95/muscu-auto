@@ -534,12 +534,13 @@ function dayCard(s, d, focused, done, nextWeek) {
     ? [button('Reprendre', () => start(d), { variant: 'primary', size: 'compact', icon: 'play' }), button('Arrêter', stopSession, { variant: 'gray', size: 'compact' })]
     : focused && !finished ? [button('Commencer la séance', () => start(d), { variant: 'primary', size: 'large', icon: 'play' })]
     : [button(finished ? 'Refaire' : 'Commencer', () => start(d), { variant: finished ? 'gray' : undefined, size: 'compact' })];
+  const fresh = s.items.filter((item) => isFresh(item.ex)).length;
   const details = h('details', { className: 'more', open: ui.open?.[s.day] ?? focused },
-    h('summary', {}, plural(s.items.length, 'exercice'), icon('chevron', 'chev')),
+    h('summary', {}, plural(s.items.length, 'exercice'), fresh > 0 && ` · ${fresh} nouveau${fresh > 1 ? 'x' : ''}`, icon('chevron', 'chev')),
     h('div', { className: 'list' }, s.items.map((item, i) => {
       const e = byId.get(item.ex);
       return lazy('ex',
-        h('summary', {}, h('span', { className: 'stack tight' }, h('strong', {}, e.name), h('span', { className: 'meta' }, `${prescriptionText(e, effective(item))} · ${muscles(e)}`)), icon('chevron', 'chev')),
+        h('summary', {}, h('span', { className: 'stack tight' }, h('span', { className: 'row' }, h('strong', {}, e.name), isFresh(e.id) && h('span', { className: 'badge' }, 'Nouveau')), h('span', { className: 'meta' }, `${prescriptionText(e, effective(item))} · ${muscles(e)}`)), icon('chevron', 'chev')),
         () => h('div', { className: 'ex-body' }, exerciseInfo(e), !state.active && h('div', {}, button('Remplacer', () => replace(d, i), { size: 'compact' }))));
     })));
   details.addEventListener('toggle', () => { (ui.open ||= {})[s.day] = details.open; }); // garde le choix jusqu'au prochain lancement
@@ -590,7 +591,7 @@ function week() {
     backupDue && h('button', { type: 'button', className: 'card notice', onclick: backup },
       h('span', { className: 'notice-icon' }, icon('save')),
       h('span', { className: 'stack tight' }, h('strong', {}, 'Sauvegarde ton journal'),
-        h('span', { className: 'caption' }, lastCopy ? `Dernière copie il y a ${plural(daysAgo(lastCopy), 'jour')}` : "Ton suivi n'existe que sur cet iPhone")),
+        h('span', { className: 'caption' }, copied ? `Dernière copie il y a ${plural(daysAgo(copied), 'jour')}` : "Ton suivi n'existe que sur cet iPhone")),
       icon('chevron', 'chev')),
     plan.map((s, d) => dayCard(s, d, d === focus.index, done, focus.nextWeek)),
     (done.size > 0 || state.active) && button('Repartir de zéro cette semaine', resetWeek, { variant: 'gray', size: 'large' }),
@@ -666,15 +667,36 @@ function replace(d, i) {
   toast(`Remplacé par ${byId.get(item.ex).name}`, 'success', () => { Object.assign(item, before); save(); render(); });
 }
 
+// Autre variante : aperçu des exercices qui changent (séance par séance), rien n'est appliqué avant « Appliquer ».
 async function reroll() {
-  if (!await ask({ title: 'Générer une autre variante ?', text: 'Tous les exercices de la semaine changent et un nouveau cycle commence. Ton journal est gardé.', confirm: 'Générer' })) return;
-  state.config.seed = Math.floor(Math.random() * 2 ** 31);
-  state.plan = generate(EXOS, state.config);
-  state.cycle = { start: monday(new Date()).toISOString() };
-  save();
-  render();
-  toast('Nouveau programme prêt', 'success');
+  const name = (id) => byId.get(id)?.name || 'Aucun';
+  for (;;) {
+    const seed = Math.floor(Math.random() * 2 ** 31);
+    const plan = generate(EXOS, { ...state.config, seed });
+    const changes = plan.map((s, d) => ({ s, rows: s.items.map((it, i) => [state.plan[d]?.items[i]?.ex, it.ex]).filter(([a, b]) => a !== b) })).filter((c) => c.rows.length);
+    const n = changes.reduce((sum, c) => sum + c.rows.length, 0), total = plan.reduce((sum, s) => sum + s.items.length, 0);
+    const extra = n > 0 && h('div', { className: 'stack diff' }, changes.map(({ s, rows }) => h('div', { className: 'stack tight' },
+      h('strong', {}, `${DAYS[s.day]} · ${s.name}`),
+      rows.map(([a, b]) => h('p', { className: 'meta' }, h('s', {}, name(a)), ' → ', h('span', { className: 'new' }, name(b)))))));
+    const choice = await choose({
+      title: 'Autre variante',
+      text: n ? `${n} exercice${n > 1 ? 's changent' : ' change'} sur ${total}. Un nouveau cycle commence ; ton journal est gardé.` : 'Ce tirage garde les mêmes exercices : tire une autre variante.',
+      extra,
+      actions: [n > 0 && { label: 'Appliquer', value: 'apply', variant: 'primary' }, { label: 'Tirer une autre variante', value: 'again' }, { label: 'Annuler', value: null }].filter(Boolean),
+    });
+    if (choice === 'again') continue;
+    if (choice !== 'apply') return;
+    state.config.seed = seed;
+    state.plan = plan;
+    state.cycle = { start: monday(new Date()).toISOString() };
+    state.fresh = { t: new Date().toISOString(), ids: changes.flatMap((c) => c.rows.map(([, b]) => b)) };
+    save();
+    render();
+    return toast(`Nouveau programme : ${plural(n, 'exercice')} ${n > 1 ? 'changés' : 'changé'}`, 'success');
+  }
 }
+// Exercice arrivé avec la dernière variante, pas encore fait depuis : badge « Nouveau » dans Ma semaine.
+const isFresh = (id) => !!state.fresh?.ids.includes(id) && !log.some((x) => x.type === 'set' && x.ex === id && x.t > state.fresh.t);
 
 async function newCycle() {
   if (!await ask({ title: 'Lancer le nouveau cycle ?', text: 'Tes mouvements principaux restent ; les exercices secondaires changent.', confirm: 'Lancer' })) return;
