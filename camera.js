@@ -53,13 +53,14 @@ async function cameraCoach(f) {
   const fit = () => video.parentElement.classList.toggle('crop', video.videoWidth > video.videoHeight && innerHeight > innerWidth);
   fit();
   video.addEventListener('resize', fit);
-  const tracker = poseTracker(kind); // bonne personne, entière, sur place, même côté : voir shared.js
+  const tracker = poseTracker(kind, f.x.e.id); // bonne personne, entière, sur place, même côté : voir shared.js
   const ctx = canvas.getContext('2d');
   const before = technique(f.x.e).at(-1);
   let off = 0, said = `Vas-y : je compte.${before ? ` La dernière fois : ${before.depth}° au point bas, descente ${(before.down / 1000).toFixed(1).replace('.', ',')} s.` : ''}`;
   const tell = (text, warn = false) => { hint.textContent = text; hint.classList.toggle('warn', warn); };
   const HOLD = { none: 'Je ne te vois pas : place-toi face à l\'iPhone.', moving: 'Reste sur place pour que je compte.',
     switch: 'Quelqu\'un passe : comptage suspendu.', paused: 'Repos en cours : je compte à la série suivante.',
+    hands: 'Mains sur la barre ou la charge pour que je compte.',
     partial: kind === 'knee' ? 'Recule un peu : la tête et les pieds doivent être dans l\'image.' : 'Recule un peu : épaules et mains doivent être dans l\'image.' };
   const frame = () => {
     if (closed) return;

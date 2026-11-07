@@ -96,14 +96,20 @@ function repCounter({ top, start, count: low = start, deep, minMs = 0, maxMs = 8
 // Suivi d'une série devant la caméra, pour l'iPhone comme pour l'écran : choisit la bonne personne, vérifie qu'elle est
 // entière dans l'image et sur place, garde le même côté (gauche ou droite) et compte.
 // update(poses, t, paused, aspect) : poses = corps détectés (points MediaPipe en 0-1), aspect = largeur / hauteur de l'image.
-// Renvoie { pose, side, state, ev } : side = les 3 points de l'angle suivi ; state = 'ok', 'none' (personne), 'partial'
-// (corps pas entier), 'moving' (se déplace), 'switch' (autre personne, ou suivi qui saute) ou 'paused' ; ev = événement du compteur.
-function poseTracker(kind) {
+// exId : l'exercice (règle des mains hautes). Renvoie { pose, side, state, ev } : side = les 3 points de l'angle suivi ;
+// state = 'ok', 'none' (personne), 'partial' (corps pas entier dans l'image), 'moving' (se déplace, s'approche ou recule),
+// 'hands' (mains pas sur la barre), 'switch' (autre personne, ou suivi qui saute) ou 'paused' ; ev = événement du compteur.
+// Barre ou charge tenue haut (squats et fente à la Smith, goblet squat) : mains au-dessus du milieu du buste pendant la série.
+// S'accroupir pour toucher l'iPhone, mains en avant ou en bas, ne compte donc pas.
+const HANDS_HIGH = new Set([1747, 257, 1593, 203]);
+function poseTracker(kind, exId) {
   const counter = repCounter(COUNTER[kind]);
   const whole = kind === 'knee' ? [0, 27, 28] : [11, 12, 15, 16]; // tête et chevilles, ou épaules et poignets
   const vis = (q) => (q.visibility == null ? 1 : q.visibility);
+  // Vraiment dans l'image : le modèle devine aussi les points hors cadre (pieds coupés quand tu es près), parfois sûr de lui.
+  const seen = (q) => vis(q) > 0.5 && q.x > 0.01 && q.x < 0.99 && q.y > 0.01 && q.y < 0.99;
   const mid = (p, a, b) => ({ x: (p[a].x + p[b].x) / 2, y: (p[a].y + p[b].y) / 2 });
-  let prev = null, side = null, feet = [];
+  let prev = null, side = null, feet = [], sizes = [];
   return {
     update(poses, t, paused, aspect) {
       const stop = (state, pose) => { counter.reset(); return { pose: pose || null, side: null, state: state, ev: null }; };
@@ -118,14 +124,21 @@ function poseTracker(kind) {
       const jumped = prev && (gap(me) > 0.12 || Math.abs(me.size / prev.size - 1) > 0.3);
       prev = me;
       const p = me.p;
-      if (jumped) { feet = []; side = null; return stop('switch', p); }
+      if (jumped) { feet = []; sizes = []; side = null; return stop('switch', p); }
       // Sur place : on marche si les deux pieds bougent de plus de 12 % de l'image en 1 s (une fente n'en bouge qu'un) ;
       // pieds hors de l'image (développé allongé) : le bassin.
       const anchor = vis(p[27]) > 0.5 && vis(p[28]) > 0.5 ? [p[27].x, p[28].x] : [me.x, me.x];
       feet = feet.filter((f) => t - f.t < 1000).concat([{ t: t, a: anchor[0], b: anchor[1] }]);
       const range = (k) => Math.max.apply(null, feet.map((f) => f[k])) - Math.min.apply(null, feet.map((f) => f[k]));
-      if (!whole.every((k) => vis(p[k]) > 0.5)) return stop('partial', p);
-      if (Math.min(range('a'), range('b')) > 0.12) return stop('moving', p);
+      // Distance à la caméra stable : la taille du buste à l'image varie de plus de 35 % en 1,5 s = tu t'approches ou recules.
+      sizes = sizes.filter((s) => t - s.t < 1500).concat([{ t: t, v: me.size }]);
+      const big = Math.max.apply(null, sizes.map((s) => s.v)), small = Math.min.apply(null, sizes.map((s) => s.v));
+      if (!whole.every((k) => seen(p[k]))) return stop('partial', p);
+      if (Math.min(range('a'), range('b')) > 0.12 || big > small * 1.35) return stop('moving', p);
+      if (HANDS_HIGH.has(exId)) {
+        const wrists = [p[15], p[16]].filter((q) => vis(q) > 0.3).map((q) => q.y); // poignets cachés (derrière la barre) : pas de règle
+        if (wrists.length && Math.min.apply(null, wrists) > mid(p, 11, 12).y + me.size / 2) return stop('hands', p);
+      }
       if (paused) return stop('paused', p);
       const sideVis = (s) => Math.min.apply(null, JOINTS[kind][s].map((k) => vis(p[k])));
       const next = side != null && sideVis(side) > 0.5 ? side : sideVis(0) >= sideVis(1) ? 0 : 1;

@@ -397,14 +397,15 @@ function acceptVideo(sdp) {
 
 // Messages quand le comptage est suspendu (affichés après 0,8 s, pour ne pas clignoter).
 const HOLD = { none: 'Je ne te vois pas : place-toi face à la caméra.', moving: 'Reste sur place pour que je compte.',
-  switch: "Quelqu'un passe : comptage suspendu.", paused: 'Repos : je reprends à la série suivante.' };
+  switch: "Quelqu'un passe : comptage suspendu.", paused: 'Repos : je reprends à la série suivante.',
+  hands: 'Mains sur la barre ou la charge pour que je compte.' };
 function mirrorFrame(me) {
   if (mirror !== me || !me.model) return;
   const video = $('mirror-video'), canvas = $('mirror-canvas'), ctx = canvas.getContext('2d');
   // Nouvelle série affichée : le compte repart de zéro.
   const key = snapshot && snapshot.ex && snapshot.set ? snapshot.ex.id + '|' + snapshot.set.n : null, kind = snapshot && snapshot.ex ? snapshot.ex.cam : null;
   if (key !== mirror.key || kind !== mirror.kind) {
-    Object.assign(mirror, { key: key, kind: kind, reps: 0, data: [], tracker: kind ? poseTracker(kind) : null, off: 0 });
+    Object.assign(mirror, { key: key, kind: kind, reps: 0, data: [], tracker: kind ? poseTracker(kind, snapshot.ex.id) : null, off: 0 });
     $('mirror-count').textContent = kind ? '0' : '';
     mirrorSay(kind ? 'Je compte tes répétitions.' : (key ? 'Comptage disponible pour les squats, les fentes, les pompes et les développés.' : 'Miroir actif.'));
   }

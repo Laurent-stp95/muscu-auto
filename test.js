@@ -239,6 +239,8 @@ const body = (deg, dx = 0) => {
     [11, { x: hip.x, y: hip.y - 0.25 }], [12, { x: hip.x, y: hip.y - 0.25 }], [0, { x: hip.x, y: hip.y - 0.33 }]].forEach(([k, q]) => Object.assign(p[k], q));
   return p;
 };
+const scaled = (p, s, dy = 0) => p.map((q) => ({ ...q, y: 0.9 + (q.y - 0.9) * s + dy, x: 0.5 + (q.x - 0.5) * s }));
+const handsUp = (p) => { [15, 16].forEach((k) => Object.assign(p[k], { x: p[11].x, y: p[11].y - 0.02 })); return p; };
 const track = (angles, extra = () => []) => { const tracker = S.poseTracker('knee'); const out = []; angles.forEach((a, k) => { const r = tracker.update([body(a), ...extra(k)], k * 33, false, 1); if (r.ev && r.ev.rep) out.push(r.ev.rep); }); return { out }; };
 const two = [...squatPath(90), ...squatPath(90)];
 assert.deepStrictEqual(track(two).out, [1, 2]);
@@ -249,6 +251,11 @@ assert.strictEqual(counted, 1); // la 1re répétition, coupée par quelqu'un qu
 const walker = S.poseTracker('knee'); let walked = 0;
 two.forEach((a, k) => { const r = walker.update([body(a, (k % 60) * 0.006)], k * 33, false, 1); if (r.ev && r.ev.rep) walked++; });
 assert.strictEqual(walked, 0); // en marchant
+const count = (tracker, frames) => frames.filter((p, k) => { const r = tracker.update([p], k * 33, false, 1); return r.ev && r.ev.rep; }).length;
+assert.strictEqual(count(S.poseTracker('knee'), two.map((a) => scaled(body(a), 1.5, 0.12))), 0); // tout près : pieds hors de l'image
+assert.strictEqual(count(S.poseTracker('knee'), two.map((a, k) => scaled(body(a), k < 60 ? 0.6 + (0.4 * k) / 60 : 1))), 1); // s'approche pendant la 1re : seule la 2e compte
+assert.strictEqual(count(S.poseTracker('knee', 1747), two.map((a) => body(a))), 0); // squat Smith, mains en bas (accroupi vers l'iPhone)
+assert.strictEqual(count(S.poseTracker('knee', 1747), two.map((a) => handsUp(body(a)))), 2); // mains sur la barre : compté
 
 // Récupération : 6 séries de squat juste faites = quadriceps à 0 %, 80 % après 48 h, rien après 6 jours ; secondaires moins touchés.
 const sq = byId.get(1747);
