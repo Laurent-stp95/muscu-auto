@@ -1,9 +1,9 @@
 // Écran projeté (TV, ordinateur) : affiche la séance envoyée par l'iPhone, qui reste la source de vérité.
 // Relais WebSocket du serveur (push/worker.js, objet Screen). L'écran tient seul le chrono du repos : il sonne et annonce
 // même si l'iPhone se verrouille et coupe la connexion. Navigateurs de TV (Chromium 68+) : ES2018 au plus
-// (pas de ?., ??, flat, Object.fromEntries, replaceChildren, catch sans variable).
+// (pas de ?., ??, flat, Object.fromEntries, replaceChildren, catch sans variable). Code commun avec l'appli : ../shared.js.
 //
-// Instantané reçu (s, version 1), construit par live() dans app.js (phase 'stopped' seule : projection arrêtée sur l'iPhone) :
+// Instantané reçu (snapshot, version 1), construit par live() dans screen.js (phase 'stopped' seule : projection arrêtée sur l'iPhone) :
 // { v: 1, at: Date.now() du téléphone à l'envoi, phase: 'idle'|'work'|'rest'|'paused'|'done'|'stopped', title, voice: bool,
 //   upcoming: { when, items: [{ name, detail }], gear: [texte] } | null,       // phase idle
 //   progress: { ex, exCount, sets, setCount, minutes } | null,
@@ -18,12 +18,10 @@
 
 const KEY = 'muscu-auto-screen';
 const UUID = /^[0-9a-f-]{36}$/;
-const FRONT = [1, 2, 3, 4, 6, 10, 13, 14]; // muscles visibles de face (wger is_front), comme app.js
-const VOICES = ['Amélie', 'Thomas', 'Audrey', 'Aurélie'];
 const $ = (id) => document.getElementById(id);
 
 let unlocked = false, room = null, sock = null, online = false, phones = 0, delay = 1000, retry = 0, ping = 0, codeTimer = 0;
-let s = null; // dernier instantané
+let snapshot = null; // dernier instantané
 let rest = null; // repos en cours : { key: rest.end du téléphone, end: fin sur notre horloge, total, say, voice }
 let over = null; // dernier repos terminé (sa clé) : jamais relancé ni resonné
 let tickTimer = 0, said = null, recorded = null, noticed = null, noticeTimer = 0, bannerTimer = 0, audio = null, lock = null;
@@ -125,7 +123,7 @@ function adopt(id) {
 function forget() {
   store(null);
   room = null;
-  s = rest = null;
+  snapshot = rest = null;
   clearTimeout(tickTimer);
   pair();
 }
@@ -152,12 +150,12 @@ function onState(m) {
     if (end > Date.now()) rest = { key: r.end, end, total: r.total, say: r.say, voice: next.voice };
     else over = r.end; // déjà fini à la réception : pas de bip en retard
   }
-  s = next;
+  snapshot = next;
   const fresh = age < 10000; // état gardé depuis plus longtemps par le serveur : ni annonce ni bandeau en retard
-  if (s && s.say && s.say.id !== said) { said = s.say.id; if (fresh && s.voice) speak(s.say.text); }
-  if (s && s.record && s.record.id !== recorded) { recorded = s.record.id; if (fresh) banner(s.record.text); }
-  if (s && s.notice && s.notice.id !== noticed) { noticed = s.notice.id; if (fresh) notice(s.notice.text); } // série validée à la voix
-  if (s && s.next && s.next.img) s.next.img.forEach((src) => { new Image().src = '../' + src; }); // exercice suivant préchargé
+  if (snapshot && snapshot.say && snapshot.say.id !== said) { said = snapshot.say.id; if (fresh && snapshot.voice) speak(snapshot.say.text); }
+  if (snapshot && snapshot.record && snapshot.record.id !== recorded) { recorded = snapshot.record.id; if (fresh) banner(snapshot.record.text); }
+  if (snapshot && snapshot.notice && snapshot.notice.id !== noticed) { noticed = snapshot.notice.id; if (fresh) notice(snapshot.notice.text); } // série validée à la voix
+  if (snapshot && snapshot.next && snapshot.next.img) snapshot.next.img.forEach((src) => { new Image().src = '../' + src; }); // exercice suivant préchargé
   render();
   tick();
 }
@@ -180,7 +178,7 @@ function endRest(ring) {
   over = r.key;
   rest = null;
   if (!ring) return;
-  beep();
+  beep(audio);
   if (r.voice && r.say) setTimeout(() => speak(r.say), 800);
 }
 
@@ -197,34 +195,34 @@ function ring() {
 
 function render() {
   // Repos fini ici avant que l'iPhone le dise : la série suivante passe à l'écran.
-  const phase = !s ? null : s.phase === 'rest' && !rest ? 'work' : s.phase;
+  const phase = !snapshot ? null : snapshot.phase === 'rest' && !rest ? 'work' : snapshot.phase;
   const live = phase === 'work' || phase === 'rest' || phase === 'paused';
-  const idle = phase === 'idle' && !!s.upcoming;
+  const idle = phase === 'idle' && !!snapshot.upcoming;
   const view = !room ? 'pair' : phase === 'stopped' ? 'stopped' : live || idle || phase === 'done' ? 'session' : 'wait';
   ['pair', 'wait', 'stopped', 'session'].forEach((v) => { if ($(v)) $(v).hidden = v !== view; }); // élément absent : HTML d'une autre version en cache
   // Écran d'attente : « Nouveau code » a le focus, la touche OK de la télécommande suffit.
   const repair = document.querySelector('#' + view + ' .repair');
   if (repair && document.activeElement !== repair) repair.focus();
   if (view !== 'session') return;
-  const p = live ? s.progress : null;
-  text('title', s.title);
+  const p = live ? snapshot.progress : null;
+  text('title', snapshot.title);
   list('segs', p && Array.from({ length: p.exCount }, (_, i) => (i + 1 < p.ex ? 'on' : i + 1 === p.ex ? 'now' : '')), (c) => h('i', { className: c }));
   const status = live && phones === 0 ? 'iPhone déconnecté : le chrono continue' : !online ? 'Connexion au serveur…'
-    : live && s.mic === 'off' ? 'Micro coupé sur l\'iPhone : touche « Micro coupé » pour le relancer' : '';
+    : live && snapshot.mic === 'off' ? 'Micro coupé sur l\'iPhone : touche « Micro coupé » pour le relancer' : '';
   text('status', status);
   text('prog', p && !status ? p.sets + '/' + p.setCount + ' séries · ' + p.minutes + ' min' : '');
-  $('live').hidden = !(live && s.ex);
+  $('live').hidden = !(live && snapshot.ex);
   $('idle').hidden = !idle;
   $('done').hidden = phase !== 'done';
   $('pause').hidden = phase !== 'paused';
   $('foot').hidden = !live;
   if (live) renderLive(phase);
-  else if (idle) renderIdle(s.upcoming);
-  else renderDone(s.summary || {});
+  else if (idle) renderIdle(snapshot.upcoming);
+  else renderDone(snapshot.summary || {});
 }
 
 function renderLive(phase) {
-  const ex = s.ex || {}, set = s.set || {}, resting = phase === 'rest';
+  const ex = snapshot.ex || {}, set = snapshot.set || {}, resting = phase === 'rest';
   list('shots', ex.img, (src) => h('img', { src: '../' + src, alt: '' }));
   document.querySelector('.visual').classList.toggle('bare', !(ex.img && ex.img.length));
   bodies(ex.mus || [], ex.mus2 || []);
@@ -233,7 +231,7 @@ function renderLive(phase) {
   list('cues', ex.cues, (c) => h('li', {}, c));
   $('state').classList.toggle('resting', resting);
   if (resting) ring();
-  text('label', s.label || (set.n ? (resting ? 'Prochaine : série ' : 'Série ') + set.n + ' sur ' + set.of : ''));
+  text('label', snapshot.label || (set.n ? (resting ? 'Prochaine : série ' : 'Série ') + set.n + ' sur ' + set.of : ''));
   text('target', set.target);
   text('load', set.load);
   $('load').classList.toggle('long', String(set.load || '').length > 9);
@@ -242,13 +240,13 @@ function renderLive(phase) {
   text('last', resting ? '' : set.last);
   text('approach', resting ? '' : set.approach);
   text('note', resting ? '' : ex.note);
-  const done = s.done || [], d = done[done.length - 1];
+  const done = snapshot.done || [], d = done[done.length - 1];
   $('prev').hidden = !d;
   text('prev-text', d ? 'Série ' + d.n + ' : ' + d.text + (d.t ? ' · ' + d.t : '') : '');
   text('prev-record', d && d.record ? 'Record' : '');
-  $('next').hidden = !s.next;
-  text('next-name', s.next ? s.next.name : '');
-  text('next-detail', s.next && s.next.detail ? ' · ' + s.next.detail : '');
+  $('next').hidden = !snapshot.next;
+  text('next-name', snapshot.next ? snapshot.next.name : '');
+  text('next-detail', snapshot.next && snapshot.next.detail ? ' · ' + snapshot.next.detail : '');
 }
 
 // Muscles travaillés : silhouettes de face et de dos, principaux en rouge, secondaires en orange (comme la fiche de l'appli).
@@ -259,7 +257,7 @@ function bodies(mus, mus2) {
   node.textContent = '';
   [true, false].forEach((front) => {
     const img = (src) => h('img', { src: '../muscles/' + src, alt: '' });
-    const layer = (ids, dir) => ids.filter((m) => FRONT.includes(m) === front).map((m) => img(dir + '/muscle-' + m + '.svg'));
+    const layer = (ids, dir) => ids.filter((m) => FRONT.has(m) === front).map((m) => img(dir + '/muscle-' + m + '.svg'));
     node.append(h('div', { className: 'body' }, img('muscular_system_' + (front ? 'front' : 'back') + '.svg'), ...layer(mus2, 'secondary'), ...layer(mus, 'main')));
   });
 }
@@ -301,28 +299,13 @@ function banner(msg) {
 
 // --- Son, voix, écran allumé ---
 
-// Triple bip de fin de repos, comme beep() d'app.js.
-function beep() {
-  if (!audio) return;
-  [0, 0.25, 0.5].forEach((at) => {
-    const osc = audio.createOscillator(), gain = audio.createGain();
-    osc.frequency.value = 880;
-    gain.gain.setValueAtTime(0.3, audio.currentTime + at);
-    gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + at + 0.2);
-    osc.connect(gain).connect(audio.destination);
-    osc.start(audio.currentTime + at);
-    osc.stop(audio.currentTime + at + 0.2);
-  });
-}
-
-// Voix française de l'appareil : Amélie, Thomas, Audrey, Aurélie, sinon toute voix française.
+// Voix française de l'appareil (frenchVoice, shared.js).
 function speak(say) {
   const synth = window.speechSynthesis;
   if (!synth || !say) return;
   const u = new SpeechSynthesisUtterance(say);
   u.lang = 'fr-FR';
-  const fr = synth.getVoices().filter((v) => /^fr/i.test(v.lang));
-  u.voice = VOICES.map((name) => fr.find((v) => v.name.startsWith(name))).find(Boolean) || fr.find((v) => /fr.FR/i.test(v.lang)) || fr[0] || null;
+  u.voice = frenchVoice(synth);
   if (synth.speaking || synth.pending) synth.cancel(); // la nouvelle annonce remplace l'ancienne
   synth.speak(u);
 }
@@ -340,45 +323,10 @@ function fullscreen() {
 
 // --- Miroir : la webcam de l'ordinateur (page ouverte sur le Mac recopié sur la TV) suit le corps, compte les répétitions
 // de la série affichée et vérifie l'amplitude ; le compte part vers l'iPhone, qui remplit son compteur. Calcul sur l'appareil,
-// aucune image envoyée. Squats et fentes (genou), développés (coude) : s.ex.cam. Bibliothèque chargée seulement si on l'active.
-const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1';
-const POSE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
-const JOINTS = { knee: [[23, 25, 27], [24, 26, 28]], elbow: [[11, 13, 15], [12, 14, 16]] };
-const COUNTER = { knee: { top: 160, start: 140, deep: 100 }, elbow: { top: 155, start: 130, deep: 90 } };
-const BONES = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28]];
+// aucune image envoyée. Squats et fentes (genou), développés (coude) : snapshot.ex.cam. Bibliothèque chargée seulement si on l'active.
+// Constantes, modèle (poseModel), jointAngle et repCounter : shared.js.
 let mirror = null; // { stream, remote, model, counter, key, reps, data, smooth }
-let landmarker = null;
 
-// Mêmes calculs que plan.js (jointAngle, repCounter), réécrits ici en ES2018 pour les navigateurs de TV.
-function jointAngle(a, b, c) {
-  const deg = Math.abs(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x)) * 180 / Math.PI;
-  return deg > 180 ? 360 - deg : deg;
-}
-function repCounter(o) {
-  let down = false, min = 180, topAt = 0, bottomAt = 0, count = 0;
-  return function push(angle, t) {
-    if (!down) {
-      if (angle >= o.top) topAt = t;
-      else if (angle < o.start) { down = true; min = angle; bottomAt = t; }
-      return null;
-    }
-    if (angle < min) { min = angle; bottomAt = t; }
-    if (angle < o.top) return null;
-    count++;
-    const ev = { rep: count, depth: Math.round(min), down: bottomAt - topAt, full: min <= o.deep };
-    down = false;
-    topAt = t;
-    return ev;
-  };
-}
-function poseModel() {
-  if (!landmarker) {
-    landmarker = import(MP + '/vision_bundle.mjs').then((mp) => mp.FilesetResolver.forVisionTasks(MP + '/wasm')
-      .then((files) => mp.PoseLandmarker.createFromOptions(files, { baseOptions: { modelAssetPath: POSE_MODEL, delegate: 'GPU' }, runningMode: 'VIDEO', numPoses: 1 })));
-    landmarker.catch(() => { landmarker = null; });
-  }
-  return landmarker;
-}
 function mirrorSay(textValue, warn) {
   const node = $('mirror-say');
   node.textContent = textValue;
@@ -428,19 +376,9 @@ function setMirror(on, remote) {
 }
 
 // Caméra de l'iPhone en direct (WebRTC, d'appareil à appareil sur le Wi-Fi) : l'iPhone envoie son offre, l'écran répond par le
-// même relais ; la vidéo ne passe pas par le serveur. STUN de Cloudflare : adresse publique si le Wi-Fi isole les appareils.
-const ICE = [{ urls: 'stun:stun.cloudflare.com:3478' }];
+// même relais ; la vidéo ne passe pas par le serveur (ICE et gathered : shared.js).
 let rtc = null;
 function closeVideo() { if (rtc) { rtc.close(); rtc = null; } }
-// Candidats réseau dans la réponse (pas d'envoi au fil de l'eau) : 2 s au plus.
-function gathered(pc) {
-  return new Promise((done) => {
-    const timer = setTimeout(done, 2000);
-    const check = () => { if (pc.iceGatheringState === 'complete') { clearTimeout(timer); done(); } };
-    pc.addEventListener('icegatheringstatechange', check);
-    check();
-  });
-}
 function acceptVideo(sdp) {
   if (!window.RTCPeerConnection) return;
   closeVideo();
@@ -459,7 +397,7 @@ function mirrorFrame(me) {
   if (mirror !== me || !me.model) return;
   const video = $('mirror-video'), canvas = $('mirror-canvas'), ctx = canvas.getContext('2d');
   // Nouvelle série affichée : le compte repart de zéro.
-  const key = s && s.ex && s.set ? s.ex.id + '|' + s.set.n : null, kind = s && s.ex ? s.ex.cam : null;
+  const key = snapshot && snapshot.ex && snapshot.set ? snapshot.ex.id + '|' + snapshot.set.n : null, kind = snapshot && snapshot.ex ? snapshot.ex.cam : null;
   if (key !== mirror.key || kind !== mirror.kind) {
     Object.assign(mirror, { key: key, kind: kind, reps: 0, data: [], smooth: null, counter: kind ? repCounter(COUNTER[kind]) : null, hips: [] });
     $('mirror-count').textContent = kind ? '0' : '';
@@ -486,7 +424,7 @@ function mirrorFrame(me) {
         if (Math.min.apply(null, side.map((q) => q.v)) > 0.5) {
           const angle = jointAngle(side[0], side[1], side[2]);
           mirror.smooth = mirror.smooth == null ? angle : mirror.smooth * 0.6 + angle * 0.4;
-          const ev = mirror.counter(mirror.smooth, performance.now());
+          const ev = mirror.counter.push(mirror.smooth, performance.now());
           if (ev) {
             mirror.reps = ev.rep;
             mirror.data.push({ depth: ev.depth, down: ev.down, full: ev.full });
@@ -494,7 +432,7 @@ function mirrorFrame(me) {
             const bad = !ev.full ? 'plus bas' : ev.down < 1000 ? 'plus lent' : '';
             mirrorSay(!ev.full ? 'Amplitude incomplète : descends plus bas.' : ev.down < 1000 ? 'Descente trop rapide : contrôle-la.' : 'Répétition ' + ev.rep + ' : bonne amplitude.', !!bad);
             // Micro de l'iPhone ouvert : pas de nombre dit à voix haute (il pourrait le prendre pour ta réponse).
-            if (s.voice) { if (bad) speak(s.mic === 'on' ? bad : ev.rep + ', ' + bad); else if (s.mic !== 'on') speak(String(ev.rep)); }
+            if (snapshot.voice) { if (bad) speak(snapshot.mic === 'on' ? bad : ev.rep + ', ' + bad); else if (snapshot.mic !== 'on') speak(String(ev.rep)); }
             if (sock && sock.readyState === 1) sock.send(JSON.stringify({ type: 'reps', key: mirror.key, n: ev.rep, data: mirror.data }));
           }
         }

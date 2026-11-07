@@ -1,8 +1,9 @@
 // Interface : onboarding, programme de la semaine, séance en cours, progrès. Logique métier dans plan.js.
+// Domaines à part : voice.js (micro), camera.js (caméra qui compte), screen.js (écran projeté), push.js (notifications),
+// backup.js (sauvegarde, export) ; démarrage dans main.js.
 
 const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 const MUSCLES = { 1: 'biceps', 2: 'épaules', 3: 'dentelé', 4: 'pectoraux', 5: 'triceps', 6: 'abdos', 7: 'mollets', 8: 'fessiers', 9: 'trapèzes', 10: 'quadriceps', 11: 'ischios', 12: 'grand dorsal', 13: 'brachial', 14: 'obliques', 15: 'soléaire', 16: 'lombaires' };
-const FRONT = new Set([1, 2, 3, 4, 6, 10, 13, 14]); // muscles visibles de face (wger is_front)
 const FEELS = [['easy', 'Facile'], ['ok', 'Bien'], ['hard', 'Dur'], ['pain', 'Douleur']];
 const PLATES = [1.25, 2.5, 5, 10, 15, 20, 25];
 const LOAD_HEAD = { smith: 'kg (total)', halteres: 'kg / haltère', kettlebell: 'kg', elastique: 'Élastique', pdc: 'Charge' };
@@ -12,7 +13,6 @@ const DEFAULTS = {
   equipment: ['smith', 'halteres', 'kettlebell', 'banc', 'banc-incline', 'traction', 'elastique', 'tapis'],
   loads: { bar: 19, plates: { 1.25: 2, 2.5: 2, 5: 2, 10: 2, 20: 4 }, halteres: [10], kettlebell: [16], elastiques: [30, 20, 10] },
 };
-const NOTIFY = { reminders: true, time: '18:00', before: 30, rest: true, weekly: true }; // réglages par défaut des notifications
 const VERSION = 2; // v1 = matériel et exercices wger bruts : on refait l'onboarding, le journal est gardé
 const BACKUP_DAYS = 14;
 const KEY = 'muscu-auto';
@@ -180,12 +180,11 @@ function nav() {
 
 const standalone = () => navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
 const iphone = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
-const LOADED = ['smith', 'halteres', 'kettlebell', 'elastique'];
 
 // Écrans selon le contexte : installation seulement dans Safari sur iPhone, charges seulement si du matériel chargeable est coché.
 function steps(d) {
   return [welcome, iphone() && !standalone() && stepInstall, stepLevel, stepGoal, stepEquipment,
-    d.equipment.some((q) => LOADED.includes(q)) && stepLoads, stepPlanning, stepZones, stepFirstWeek].filter(Boolean);
+    d.equipment.some((q) => LOADED_GEAR.includes(q)) && stepLoads, stepPlanning, stepZones, stepFirstWeek].filter(Boolean);
 }
 
 function onboarding() {
@@ -308,9 +307,7 @@ function loadsEditor(d) {
         h('div', { className: 'list' }, PLATES.map((p) => h('div', { className: 'line' }, h('span', {}, kgText(p)),
           stepper(Math.floor((d.loads.plates[p] || 0) / 2), (v) => { d.loads.plates[p] = v * 2; refresh(); }, { max: 10, unit: 'paire', label: `paires de disques de ${kgText(p)}` }))))),
       range),
-    has('halteres') && weights(d, 'halteres'),
-    has('kettlebell') && weights(d, 'kettlebell'),
-    has('elastique') && weights(d, 'elastiques'),
+    ...Object.entries(WEIGHT_LISTS).map(([q, key]) => has(q) && weights(d, key)),
   ];
 }
 
@@ -432,27 +429,6 @@ function toggle(label, checked, onchange) {
     h('input', { type: 'checkbox', className: 'switch', role: 'switch', checked, onchange: (ev) => onchange(ev.target.checked) }));
 }
 
-function notifyEditor(d) {
-  const n = (d.notify ||= { ...NOTIFY });
-  if (!pushSupported() || (iphone() && !standalone())) return h('p', { className: 'note' }, icon('info'), "Installe l'appli sur l'écran d'accueil pour recevoir des notifications.");
-  if (Notification.permission === 'denied') return h('p', { className: 'note' }, icon('warning'), "Notifications refusées. Pour les autoriser : Réglages de l'iPhone, Notifications, Steady.");
-  if (!pushOn()) {
-    return [h('p', { className: 'meta' }, "Un rappel avant chaque séance, et la fin du repos quand l'écran est verrouillé."),
-      h('div', {}, button('Activer les notifications', () => enablePush(d), { variant: 'primary', icon: 'bell' }))];
-  }
-  return [
-    h('div', { className: 'list' },
-      toggle('Rappel avant chaque séance', n.reminders, (v) => { n.reminders = v; render(); }),
-      n.reminders && h('label', { className: 'line' }, h('span', {}, 'Heure de la séance'),
-        h('input', { type: 'time', className: 'input time', value: n.time, onchange: (ev) => { n.time = ev.target.value; } })),
-      toggle('Fin du repos, écran verrouillé', n.rest, (v) => { n.rest = v; }),
-      toggle('Bilan de la semaine, dimanche 19 h', n.weekly !== false, (v) => { n.weekly = v; })),
-    n.reminders && h('div', { className: 'group' }, h('span', { className: 'label' }, 'Me prévenir'),
-      pills(n, 'before', [[15, '15 min avant'], [30, '30 min avant'], [60, '1 h avant']])),
-    h('div', {}, button('Désactiver les notifications', disablePush, { variant: 'plain', className: 'btn plain destructive' })),
-  ];
-}
-
 function applyConfig() {
   const prev = state.config;
   state.config = structuredClone(ui.draft);
@@ -564,9 +540,6 @@ function weekProgress(plan, done, focus) {
         h('span', { className: 'week-seg' }), h('span', { className: 'caption' }, DAYS[s.day].slice(0, 3))))),
     focus.nextWeek && h('p', { className: 'caption' }, `Prochaine séance ${DAYS[plan[0].day].toLowerCase()}`));
 }
-
-// Dernière copie du journal : fichier ou sauvegarde automatique, la plus récente.
-function lastCopy() { return [state.lastExport, cloudOn() && state.cloud?.t].filter(Boolean).sort().at(-1); }
 
 function week() {
   const { plan } = state;
@@ -708,13 +681,14 @@ async function newCycle() {
 }
 
 // Onglets ARIA : un seul panneau construit à la fois (la vidéo ne charge qu'à l'ouverture), flèches pour naviguer.
+// Même barre que le contrôle segmenté (segmented), sans aria-pressed : rôles tablist / tab et aria-selected à la place.
 function tabs(segments) {
   if (segments.length === 1) return segments[0][1]();
-  const bar = h('div', { className: 'seg' });
+  const bar = segmented(segments.map(([label], i) => [i, label]), undefined, (i) => select(i));
   const panel = h('div', { className: 'seg-panel' });
   bar.setAttribute('role', 'tablist');
   panel.setAttribute('role', 'tabpanel');
-  const buttons = segments.map(([label], i) => h('button', { type: 'button', className: 'seg-tab', onclick: () => select(i) }, label));
+  const buttons = [...bar.children];
   buttons.forEach((b) => b.setAttribute('role', 'tab'));
   function select(i, focus) {
     buttons.forEach((b, n) => { b.setAttribute('aria-selected', String(n === i)); b.tabIndex = n === i ? 0 : -1; });
@@ -728,7 +702,6 @@ function tabs(segments) {
     const current = buttons.findIndex((b) => b.tabIndex === 0);
     select((current + step + buttons.length) % buttons.length, true);
   };
-  bar.append(...buttons);
   select(0);
   return h('div', { className: 'segments' }, bar, panel);
 }
@@ -794,7 +767,7 @@ async function start(d) {
     // Dans le même geste que « Commencer » : l'écran bascule, le micro s'ouvre (iOS n'autorise le micro qu'après un geste).
     if (state.screen && fit.project !== state.screen.on) {
       state.screen.on = fit.project;
-      if (fit.project) { socketDelay = 1000; connectScreen(); } else { socket?.close(); setTv(0); }
+      if (fit.project) { link.delay = 1000; connectScreen(); } else { link.socket?.close(); setTv(0); }
     }
     if (fit.voice) startEar(); else if (state.voiceInput) { state.voiceInput = false; }
     ui.at = ui.pick = null;
@@ -849,15 +822,15 @@ function expressText() {
 
 // Historique d'un exercice, relu une seule fois par état du journal (il ne fait que grandir, ou change d'objet à l'import).
 let histories = { log: null, n: 0, byEx: new Map(), clean: null };
-function fresh() { if (histories.log !== log || histories.n !== log.length) histories = { log, n: log.length, byEx: new Map(), clean: null }; }
+function syncHistoryCache() { if (histories.log !== log || histories.n !== log.length) histories = { log, n: log.length, byEx: new Map(), clean: null }; }
 function historyOf(id) {
-  fresh();
+  syncHistoryCache();
   if (!histories.byEx.has(id)) histories.byEx.set(id, exerciseHistory(log, id));
   return histories.byEx.get(id);
 }
 // Journal tel qu'on le lit : sans les séries annulées (le journal enregistré, lui, garde tout).
 function journal() {
-  fresh();
+  syncHistoryCache();
   return (histories.clean ||= withoutUndone(log));
 }
 
@@ -1001,9 +974,9 @@ function session() {
         focusView(s, state.active.day)]);
 }
 
-// Contrôle segmenté iOS : options = [[valeur, libellé]].
+// Contrôle segmenté iOS : options = [[valeur, libellé]]. value undefined : pas d'aria-pressed (onglets, voir tabs).
 function segmented(options, value, onPick) {
-  return h('div', { className: 'seg' }, options.map(([v, label]) => h('button', { type: 'button', className: 'seg-tab', ariaPressed: String(v === value), onclick: () => onPick(v) }, label)));
+  return h('div', { className: 'seg' }, options.map(([v, label]) => h('button', { type: 'button', className: 'seg-tab', ariaPressed: value === undefined ? null : String(v === value), onclick: () => onPick(v) }, label)));
 }
 
 // Exercices de la séance en cours, sans ceux que la séance express retire ; k = place dans le programme (douleur, Remplacer).
@@ -1026,7 +999,9 @@ const nextSet = (x) => Array.from({ length: x.it.sets }, (_, k) => k + 1).find((
 // Exercice en cours : le premier qui a encore une série à faire (items.length = tout est fait).
 const nextItem = (items) => { const i = items.findIndex((x) => nextSet(x) != null); return i < 0 ? items.length : i; };
 // Charge de départ d'une série : celle de la série précédente du jour, sinon la charge conseillée.
-const startKg = (x) => (x.e.load === 'pdc' ? null : [...x.done.values()].at(-1)?.kg ?? x.tip.kg);
+// Répétitions prévues d'une série de l'exercice x, à la charge kg (null : poids du corps).
+const plannedReps = (x, kg, n) => targetReps(x.it, x.past, kg, n, x.e.unit);
+const startKg = (x) => (isBodyweight(x.e) ? null : [...x.done.values()].at(-1)?.kg ?? x.tip.kg);
 
 // Prochaine série à faire de la séance en cours : { x, i, n, kg, reps }, null si tout est fait.
 function upNext() {
@@ -1034,7 +1009,7 @@ function upNext() {
   const i = nextItem(items);
   if (i >= items.length) return null;
   const x = items[i], n = nextSet(x), kg = startKg(x);
-  return { x, i, n, kg, reps: targetReps(x.it, x.past, kg, n, x.e.unit) };
+  return { x, i, n, kg, reps: plannedReps(x, kg, n) };
 }
 
 // --- Échauffement guidé ---
@@ -1087,7 +1062,7 @@ function nextWarm() {
     const left = Math.ceil((warm.end - Date.now()) / 1000);
     document.querySelectorAll('.warm-time').forEach((el) => { el.textContent = mmss(Math.max(0, left)); });
     if (left > 0) return;
-    if (!projected()) beep();
+    if (!projected()) beep(audio);
     nextWarm();
   }, 250);
   render();
@@ -1152,11 +1127,11 @@ function setPanel(x, n, i, count) {
   const { e, it, tip, past } = x;
   const loads = state.config.loads;
   const key = `${state.active.session}|${e.id}|${n}`;
-  const list = e.load === 'pdc' ? [] : loadable(e, loads);
-  if (ui.pick?.key !== key) ui.pick = { key, kg: e.load === 'pdc' ? 0 : startKg(x) ?? list[0] ?? null, reps: null, touched: false };
+  const list = isBodyweight(e) ? [] : loadable(e, loads);
+  if (ui.pick?.key !== key) ui.pick = { key, kg: isBodyweight(e) ? 0 : startKg(x) ?? list[0] ?? null, reps: null, touched: false };
   const pick = ui.pick;
-  if (e.load !== 'pdc' && pick.kg != null && !list.includes(pick.kg)) list.push(pick.kg), list.sort((a, b) => a - b);
-  const planned = () => targetReps(it, past, e.load === 'pdc' ? null : pick.kg, n, e.unit);
+  if (!isBodyweight(e) && pick.kg != null && !list.includes(pick.kg)) list.push(pick.kg), list.sort((a, b) => a - b);
+  const planned = () => plannedReps(x, isBodyweight(e) ? null : pick.kg, n);
   pick.reps ??= planned();
   const platesLine = h('p', { className: 'meta center' });
   const changeLine = h('p', { className: 'focus-change' });
@@ -1170,7 +1145,7 @@ function setPanel(x, n, i, count) {
   showPlates();
   const reps = bigStepper(e.unit === 's' ? 'secondes' : 'répétitions', pick.reps, { min: 0, max: 300, step: e.unit === 's' ? 5 : 1 }, String,
     (v) => { pick.reps = v; pick.touched = true; broadcast(); });
-  const load = e.load !== 'pdc' && bigStepper(LOAD_CAPTION[e.load], pick.kg, list, (v) => (v == null ? '–' : v.toLocaleString('fr-FR')),
+  const load = !isBodyweight(e) && bigStepper(LOAD_CAPTION[e.load], pick.kg, list, (v) => (v == null ? '–' : v.toLocaleString('fr-FR')),
     (v) => { pick.kg = v; if (!pick.touched) { pick.reps = planned(); reps.set(pick.reps); } showPlates(); broadcast(); });
   const last = past.at(-1)?.sets.find((s) => s.set === n);
   const approach = n === 1 ? warmup(e, pick.kg, loads) : [];
@@ -1191,7 +1166,7 @@ function setPanel(x, n, i, count) {
 // Valide la série affichée par le mode focus : bouton, voix ou caméra.
 function validateSet({ x, n, i, count, pick }) {
   const { e, it, tip } = x;
-  if (e.load !== 'pdc' && pick.kg == null) return toast('Choisis la charge utilisée.', 'warning');
+  if (!isBodyweight(e) && pick.kg == null) return toast('Choisis la charge utilisée.', 'warning');
   stopTempo();
   logSet(e, n, pick.kg, pick.reps, tip.mode);
   // Série comptée par une caméra (iPhone ou miroir de l'écran) : profondeur et descente de chaque répétition, pour le suivi de la technique.
@@ -1213,300 +1188,10 @@ function focusTarget() {
   if (!n) return null;
   const key = `${state.active.session}|${x.e.id}|${n}`;
   if (ui.pick?.key !== key) {
-    const kg = x.e.load === 'pdc' ? 0 : startKg(x) ?? loadable(x.e, state.config.loads)[0] ?? null;
-    ui.pick = { key, kg, reps: targetReps(x.it, x.past, x.e.load === 'pdc' ? null : kg, n, x.e.unit), touched: false };
+    const kg = isBodyweight(x.e) ? 0 : startKg(x) ?? loadable(x.e, state.config.loads)[0] ?? null;
+    ui.pick = { key, kg, reps: plannedReps(x, isBodyweight(x.e) ? null : kg, n), touched: false };
   }
   return { x, n, i, count: items.length, pick: ui.pick };
-}
-
-// --- Commande vocale ---
-// Mains libres en mode focus, par une liste fermée de phrases (COMMANDS) : « dix répétitions validées », « série validée »,
-// « passer le repos », « plus trente », « prochain exercice », « annuler la série », « c'était facile / bien / dur »,
-// « mets en pause », « terminer la séance ». Garde-fous : micro sourd pendant que l'iPhone ou l'écran parle, aucune annonce
-// ne contient de nombre ni de phrase de commande tant que le micro écoute.
-const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-const WORDS = { 'dix-sept': 17, 'dix-huit': 18, 'dix-neuf': 19, un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10,
-  onze: 11, douze: 12, treize: 13, quatorze: 14, quinze: 15, seize: 16, vingt: 20, trente: 30 };
-let ear = null, earWanted = false, spokeAt = 0, quietUntil = 0;
-// Micro ouvert : rien de ce que disent l'iPhone ou l'écran ne contient de nombre (il pourrait être pris pour ta réponse).
-const micOpen = () => !!ear;
-// Durée estimée d'une annonce (environ 14 caractères par seconde) : le micro reste sourd jusque-là.
-const hush = (text) => { quietUntil = Math.max(quietUntil, Date.now() + 1500 + String(text || '').length * 70); };
-
-function startEar() {
-  if (!Recognition) return toast("Commande vocale indisponible sur cet appareil.", 'warning');
-  earWanted = true;
-  state.voiceInput = true;
-  save();
-  if (ear) return;
-  const rec = new Recognition();
-  rec.lang = 'fr-FR';
-  // Une phrase à la fois, relancée aussitôt : en mode continu, Safari colle tout ce qu'il entend en une seule phrase
-  // (coach, télé, toi), qui dépassait vite les 4 mots et rendait tes « dix » inaudibles.
-  rec.continuous = false;
-  rec.interimResults = false;
-  rec.maxAlternatives = 3;
-  rec.onresult = (ev) => { const r = ev.results[ev.results.length - 1]; if (r.isFinal !== false) hear(r[0].transcript, [...r].map((a) => a.transcript)); };
-  rec.onerror = (ev) => {
-    if (!['not-allowed', 'service-not-allowed'].includes(ev.error)) return;
-    earWanted = false;
-    stopEar(false);
-    toast("Micro refusé : autorise-le dans les Réglages de l'iPhone, Steady.", 'warning');
-  };
-  // Safari s'arrête après un silence : on relance. Impossible (appli en arrière-plan) : micro « coupé », signalé jusqu'à la relance.
-  rec.onend = () => { if (ear === rec) setTimeout(() => { if (ear !== rec) return; try { rec.start(); } catch { ear = null; refreshStatus(); broadcast(); } }, 150); };
-  ear = rec;
-  try { rec.start(); } catch { ear = null; refreshStatus(); return toast('Micro indisponible pour le moment : touche « Micro coupé » pour réessayer.', 'warning'); }
-  refreshStatus();
-  broadcast();
-}
-// forget = false : coupure voulue par l'appli (pause, fin de séance) ; la préférence reste pour la prochaine séance.
-function stopEar(forget = true) {
-  const rec = ear;
-  ear = null;
-  earWanted = false;
-  if (forget) { state.voiceInput = false; save(); }
-  try { rec?.stop(); } catch { /* déjà arrêté */ }
-  refreshStatus();
-  broadcast();
-}
-// Retour dans l'appli après un verrouillage : on tente de relancer le micro (sinon « Micro coupé » reste affiché).
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && earWanted && !ear && state.active) startEar(); });
-
-// Phrases de commande : une liste fermée, que ni le coach ni l'écran ne prononcent jamais (vérifié avant chaque annonce, voir speak).
-// Valider demande le nombre suivi de « validées » : un nombre seul, ou une bribe d'annonce, ne valide plus rien.
-const COMMANDS = [
-  { id: 'valider', say: 'dix répétitions validées', help: 'valide la série à 10 répétitions' },
-  { id: 'telle', say: 'série validée', help: 'valide la série telle qu’affichée (compte du miroir)' },
-  { id: 'annuler', say: 'annuler la série', help: 'retire la dernière série' },
-  { id: 'passer', say: 'passer le repos', help: 'termine le repos' },
-  { id: 'rallonger', say: 'plus trente', help: 'ajoute 30 secondes de repos' },
-  { id: 'prochain', say: 'prochain exercice', help: 'passe à l’exercice suivant' },
-  { id: 'ressenti', say: 'c’était facile (bien, dur, douloureux)', help: 'note le ressenti en fin d’exercice et passe au suivant' },
-  { id: 'pause', say: 'mets en pause', help: 'met la séance en pause' },
-  { id: 'terminer', say: 'terminer la séance', help: 'enregistre la séance quand toutes les séries sont faites' },
-];
-const FEELINGS = { facile: 'easy', bien: 'ok', dur: 'hard', difficile: 'hard', douloureux: 'pain' };
-// Tolérant à ce que renvoie la reconnaissance (accents, « validé / validées / valider », mots en plus, chiffres ou lettres) :
-// une commande = ses mots-clés, que les annonces ne contiennent jamais. Retourne { id, n?, feel? } ou null.
-const plain = (t) => String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/['’]/g, ' ').replace(/[^a-z0-9 -]/g, ' ').replace(/\s+/g, ' ').trim();
-function commandIn(text) {
-  const t = plain(text), has = (re) => re.test(t);
-  if (!t) return null;
-  if (has(/\bvalid/)) { const n = numberIn(t); return n ? { id: 'valider', n } : has(/\bseries?\b/) ? { id: 'telle' } : null; }
-  if (has(/\bannul/)) return { id: 'annuler' };
-  if (has(/\bpass/) && has(/\brepos\b/)) return { id: 'passer' };
-  if (has(/\bplus\b/) && has(/\b(30|trente)\b/)) return { id: 'rallonger' };
-  if (has(/\bprochain/)) return { id: 'prochain' };
-  const feel = has(/\b(c etait|ressenti)\b/) && Object.keys(FEELINGS).find((w) => has(new RegExp(`\\b${w}\\b`)));
-  if (feel) return { id: 'ressenti', feel };
-  if (has(/\bpause\b/) && has(/\b(mets|mettre|met)\b/)) return { id: 'pause' };
-  if (has(/\btermin/) && has(/\bseance\b/)) return { id: 'terminer' };
-  return null;
-}
-
-function hear(text, alternatives = [text]) {
-  if (!state.active || ui.view !== 'session') return;
-  if (!plain(text)) return;
-  if (Date.now() < quietUntil || Date.now() - spokeAt < 1200) return heard(text, 'pendant une annonce');
-  // La première variante de la reconnaissance qui forme une commande connue.
-  const alt = alternatives.find((a) => commandIn(a));
-  if (!alt) return heard(text, 'phrase inconnue');
-  const cmd = commandIn(alt);
-  const items = activeItems();
-  const i = Math.min(ui.at ?? nextItem(items), items.length);
-  const x = items[i];
-  if (cmd.id === 'annuler') {
-    const last = journal().findLast((y) => y.session === state.active.session && y.type === 'set');
-    heard(alt, last ? '' : 'aucune série');
-    return last && undoSet(last);
-  }
-  if (cmd.id === 'passer' || cmd.id === 'rallonger') {
-    heard(alt, rest ? '' : 'pas de repos en cours');
-    if (rest) cmd.id === 'passer' ? stopRest() : extendRest(30);
-    return;
-  }
-  if (cmd.id === 'pause') { heard(alt); return pause(); }
-  if (cmd.id === 'terminer') {
-    if (nextItem(items) < items.length) return heard(alt, 'il reste des séries'); // on ne termine pas par erreur
-    heard(alt);
-    closeSession();
-    show('week');
-    announce('Séance enregistrée. Bravo !');
-    return toast('Séance enregistrée', 'success');
-  }
-  if (cmd.id === 'prochain') { heard(alt); return goToItem(i + 1); }
-  if (cmd.id === 'ressenti') {
-    if (!x || nextSet(x)) return heard(alt, 'termine d’abord les séries de l’exercice');
-    heard(alt);
-    const feel = FEELINGS[cmd.feel];
-    if (feel === 'pain') return onFeel(x.e, 'pain', state.active.day, x.k, []);
-    record({ type: 'feel', ex: x.e.id, feel });
-    tick(660);
-    return goToItem(i + 1);
-  }
-  const f = focusTarget();
-  if (!f) return heard(alt, 'aucune série à valider');
-  if (rest) return heard(alt, 'pendant le repos'); // la série suivante n'est pas encore faite
-  if (cmd.id === 'telle') { heard(alt); return voiceValidate(f, f.pick.reps); }
-  if (!(cmd.n > 0 && cmd.n <= 100)) return heard(alt, 'nombre pas compris');
-  heard(alt);
-  voiceValidate(f, cmd.n);
-}
-function numberIn(t) {
-  const words = t.replace(/[.,!?]/g, ' ').split(/\s+/).filter(Boolean);
-  return Number((t.match(/\d+/) || [])[0]) || WORDS[words.join('-')] || words.map((w) => WORDS[w] || ({ dis: 10, dit: 10 })[w]).find(Boolean) || 0;
-}
-// Ce que le micro a compris, sous la barre d'état : « Entendu : « dix » », ou pourquoi c'est ignoré.
-let lastHeard = null;
-function heard(text, why = '') {
-  lastHeard = { text: `Entendu : « ${text.trim()} »${why ? ` · ignoré, ${why}` : ''}`, why, t: Date.now() };
-  const node = document.querySelector('.heard');
-  if (!node) return;
-  node.textContent = lastHeard.text;
-  node.classList.toggle('ignored', !!why);
-}
-// Les phrases que comprend le micro, rappelées d'un geste.
-function voiceHelp() {
-  choose({ title: 'Ce que comprend le micro', text: 'Dis la phrase telle quelle, après ta série. Le coach et l’écran ne la prononcent jamais.',
-    extra: h('div', { className: 'list' }, COMMANDS.map((c) => h('div', { className: 'line' }, h('span', { className: 'stack tight' }, h('strong', {}, `« ${c.say} »`), h('span', { className: 'caption' }, c.help))))),
-    actions: [{ label: 'Fermer', value: null }] });
-}
-
-function goToItem(i) {
-  ui.at = Math.min(i, activeItems().length);
-  ui.pick = null;
-  render();
-}
-// Validée à la voix : bip, puis confirmation sur l'écran (« Série 2 validée · 10 rép. ») et à voix haute, pour savoir que c'est compris.
-function voiceValidate(f, reps) {
-  f.pick.reps = reps;
-  f.pick.touched = true;
-  tick(660);
-  lastNotice = { id: String(Date.now()), text: `Série ${f.n} validée · ${repsText(f.x.e, reps)}`, t: Date.now() };
-  validateSet(f);
-  announce('Noté.'); // micro ouvert : le nombre est sur l'écran, pas dans la voix
-}
-
-// --- Caméra qui compte (prototype) ---
-// L'iPhone posé de côté suit ton corps (MediaPipe, calcul sur l'appareil, aucune image envoyée), compte les répétitions
-// et vérifie l'amplitude et la vitesse de descente : genou pour les squats et fentes, coude pour les développés.
-// Bibliothèque et modèle (environ 19 Mo) téléchargés à la première utilisation, puis gardés par le navigateur.
-const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1';
-const POSE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
-const JOINTS = { knee: [[23, 25, 27], [24, 26, 28]], elbow: [[11, 13, 15], [12, 14, 16]] }; // hanche-genou-cheville, épaule-coude-poignet (gauche, droite)
-const COUNTER = { knee: { top: 160, start: 140, deep: 100 }, elbow: { top: 155, start: 130, deep: 90 } };
-const BONES = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28]];
-const cameraKind = (e) => (e.zone === 'quad' ? 'knee' : ['chest', 'shoulders'].includes(e.zone) ? 'elbow' : null);
-let landmarker = null;
-
-function poseModel() {
-  landmarker ||= (async () => {
-    const { FilesetResolver, PoseLandmarker } = await import(`${MP}/vision_bundle.mjs`);
-    const files = await FilesetResolver.forVisionTasks(`${MP}/wasm`);
-    return PoseLandmarker.createFromOptions(files, { baseOptions: { modelAssetPath: POSE_MODEL, delegate: 'GPU' }, runningMode: 'VIDEO', numPoses: 1 });
-  })().catch((err) => { landmarker = null; throw err; });
-  return landmarker;
-}
-
-function repFeedback(kind, ev) {
-  if (!ev.full) return { text: kind === 'knee' ? "Amplitude incomplète : descends jusqu'aux cuisses parallèles." : 'Amplitude incomplète : descends plus bas.', voice: `${ev.rep}, plus bas` };
-  if (ev.down < 1000) return { text: 'Descente trop rapide : contrôle-la sur 2 à 3 secondes.', voice: `${ev.rep}, plus lent` };
-  return { text: `Répétition ${ev.rep} : bonne amplitude, descente contrôlée.`, voice: String(ev.rep) };
-}
-
-async function cameraCoach(f) {
-  if (!f) return;
-  const kind = cameraKind(f.x.e);
-  const video = h('video', { playsInline: true, muted: true, autoplay: true, className: 'cam-video' });
-  const canvas = h('canvas', { className: 'cam-canvas' });
-  const count = h('strong', { className: 'cam-count' }, '0');
-  const hint = h('p', { className: 'cam-hint' }, 'Préparation de la caméra…');
-  const ok = button('Valider', () => close(true), { variant: 'primary', size: 'large', disabled: true });
-  const dialog = h('dialog', { className: 'sheet camera' }, h('div', { className: 'sheet-body' },
-    h('div', { className: 'cam-view' }, video, canvas, count),
-    h('div', { className: 'cam-panel' }, hint,
-      h('p', { className: 'caption' }, kind === 'knee' ? "iPhone debout, de côté, à 2 ou 3 m : de la tête aux pieds dans l'image." : "iPhone de côté : épaules, bras et mains dans l'image."),
-      ok, button('Fermer', () => close(false), { variant: 'gray', size: 'large' }))));
-  let stream = null, closed = false, reps = 0;
-  const data = []; // { depth, down, full } par répétition, gardé avec la série (suivi de la technique)
-  function close(keep) {
-    closed = true;
-    stream?.getTracks().forEach((track) => track.stop());
-    dialog.close();
-    dialog.remove();
-    if (keep && reps) { f.pick.reps = reps; f.pick.touched = true; f.pick.cam = data; validateSet(f); }
-  }
-  dialog.addEventListener('cancel', (ev) => { ev.preventDefault(); close(false); });
-  document.body.append(dialog);
-  dialog.showModal();
-  audio ||= new (window.AudioContext || window.webkitAudioContext)();
-  let model;
-  try {
-    [stream, model] = await Promise.all([navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', aspectRatio: { ideal: 3 / 4 }, height: { ideal: 1280 } }, audio: false }), poseModel()]);
-  } catch (err) {
-    hint.textContent = err?.name === 'NotAllowedError' ? "Caméra refusée : autorise-la dans les Réglages de l'iPhone, Steady." : 'Caméra ou suivi du corps indisponible (connexion nécessaire la première fois).';
-    return;
-  }
-  if (closed) return stream.getTracks().forEach((track) => track.stop());
-  video.srcObject = stream;
-  await video.play().catch(() => {});
-  // iPhone en portrait mais image livrée en paysage : on remplit la fenêtre en hauteur (bords coupés), le corps debout est au centre.
-  const fit = () => video.parentElement.classList.toggle('crop', video.videoWidth > video.videoHeight && innerHeight > innerWidth);
-  fit();
-  video.addEventListener('resize', fit);
-  const counter = repCounter(COUNTER[kind]);
-  const ctx = canvas.getContext('2d');
-  const whole = kind === 'knee' ? [0, 27, 28] : [11, 12, 15, 16]; // tête et chevilles, ou épaules et poignets
-  const before = technique(f.x.e).at(-1);
-  let hips = [];
-  let smooth = null, lost = 0, said = `Vas-y : je compte.${before ? ` La dernière fois : ${before.depth}° au point bas, descente ${(before.down / 1000).toFixed(1).replace('.', ',')} s.` : ''}`;
-  const tell = (text, warn = false) => { hint.textContent = text; hint.classList.toggle('warn', warn); };
-  const frame = () => {
-    if (closed) return;
-    if (video.readyState >= 2 && video.videoWidth) {
-      const w = (canvas.width = video.videoWidth), hh = (canvas.height = video.videoHeight);
-      const p = model.detectForVideo(video, performance.now()).landmarks?.[0];
-      // Corps pas entier dans l'image depuis plus d'une seconde : on demande de reculer.
-      const visible = p && whole.every((k) => (p[k].visibility ?? 1) > 0.5);
-      lost = visible ? 0 : lost || performance.now();
-      if (lost && performance.now() - lost > 1000) tell(kind === 'knee' ? 'Recule un peu : la tête et les pieds doivent être dans l\'image.' : 'Recule un peu : épaules et mains doivent être dans l\'image.', true);
-      else if (!lost) tell(said);
-      if (p) {
-        const at = (k) => ({ x: p[k].x * w, y: p[k].y * hh, v: p[k].visibility ?? 1 });
-        // Sur place et corps entier seulement : s'approcher de l'iPhone en bougeant les bras ne compte pas.
-        const now = performance.now(), hip = (at(23).x + at(24).x) / 2 / w;
-        hips = hips.filter((q) => now - q.t < 1000).concat([{ t: now, x: hip }]);
-        const still = Math.max(...hips.map((q) => q.x)) - Math.min(...hips.map((q) => q.x)) <= 0.15;
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = '#c8441d';
-        for (const [a, b] of BONES) { ctx.beginPath(); ctx.moveTo(at(a).x, at(a).y); ctx.lineTo(at(b).x, at(b).y); ctx.stroke(); }
-        // Côté le plus visible de la caméra (de profil, l'autre est caché).
-        const side = JOINTS[kind].map((joint) => joint.map(at)).sort((s1, s2) => Math.min(...s2.map((q) => q.v)) - Math.min(...s1.map((q) => q.v)))[0];
-        if (!still || !visible) smooth = null;
-        if (still && visible && Math.min(...side.map((q) => q.v)) > 0.5) {
-          ctx.fillStyle = '#fff';
-          side.forEach((q) => { ctx.beginPath(); ctx.arc(q.x, q.y, 7, 0, 2 * Math.PI); ctx.fill(); });
-          const angle = jointAngle(...side);
-          smooth = smooth == null ? angle : smooth * 0.6 + angle * 0.4; // lissage : le suivi tremble d'une image à l'autre
-          const ev = counter.push(smooth, performance.now());
-          if (ev) {
-            reps = ev.rep;
-            data.push({ depth: ev.depth, down: ev.down, full: ev.full });
-            count.textContent = String(reps);
-            ok.disabled = false;
-            ok.lastChild.textContent = `Valider ${plural(reps, 'répétition')}`;
-            const feedback = repFeedback(kind, ev);
-            said = feedback.text;
-            tell(said);
-            speak(micOpen() ? feedback.voice.replace(/^\d+,?\s*/, '') : feedback.voice, true); // micro ouvert : pas le numéro
-          }
-        }
-      }
-    }
-    requestAnimationFrame(frame);
-  };
-  frame();
 }
 
 // Grand compteur − valeur + : values = liste des valeurs permises ou { min, max, step } ; set() change la valeur sans prévenir.
@@ -1627,7 +1312,7 @@ function feedback(e, d, i) {
 
 // Enregistre une série ; un record personnel (un par exercice et par séance) est détecté avant l'ajout, annoncé et noté (pr).
 function logSet(e, n, kg, reps, mode) {
-  const value = e.load === 'pdc' ? 0 : kg;
+  const value = isBodyweight(e) ? 0 : kg;
   const sid = state.active.session;
   const already = journal().some((x) => x.session === sid && x.ex === e.id && x.pr);
   const pr = !already && recordKind(historyOf(e.id), sid, { kg: value, reps });
@@ -1645,16 +1330,17 @@ function undoSet(entry) {
   render();
   toast(`Série ${entry.set} retirée`, 'info');
 }
-const setText = (e, kg, reps) => (e.load === 'pdc' ? `${reps}\u00a0${unitText(e)}` : `${kgLabel(e, kg)}\u00a0×\u00a0${reps}${e.unit === 's' ? '\u00a0s' : ''}`);
+const setText = (e, kg, reps) => (isBodyweight(e) ? `${reps}\u00a0${unitText(e)}` : `${kgLabel(e, kg)}\u00a0×\u00a0${reps}${e.unit === 's' ? '\u00a0s' : ''}`);
 // Texte d'une série pour la voix : « 10 répétitions à 42,5 kilos ».
 function setSpeech(e, kg, reps) {
   const what = `${reps} ${e.unit === 's' ? 'secondes' : 'répétitions'}`;
-  if (e.load === 'pdc' || kg == null) return what;
+  if (isBodyweight(e) || kg == null) return what;
   return `${what} à ${kg.toLocaleString('fr-FR')} kilos${{ halteres: ' par haltère', elastique: " d'élastique" }[e.load] || ''}`;
 }
 
 function block(item, d, i) {
-  const { e, it, past, tip, done } = exercise(item);
+  const x = exercise(item);
+  const { e, it, tip, done } = x;
   const side = e.load === 'smith' && tip.kg != null ? plates(tip.kg, state.config.loads) : null;
   const approach = warmup(e, tip.kg, state.config.loads);
   const hint = h('p', { className: 'caption' }, 'Répétitions en gris = prévues : touche ✓ si la série est faite comme prévu. Pour corriger, change la valeur et valide à nouveau.');
@@ -1668,7 +1354,7 @@ function block(item, d, i) {
     lazy('more', h('summary', {}, "Voir l'exercice et les consignes", icon('chevron', 'chev')), () => exerciseInfo(e)),
     h('div', { className: 'sets' },
       h('span', { className: 'caption head n' }, 'Série'), h('span', { className: 'caption head' }, LOAD_HEAD[e.load]), h('span', { className: 'caption head' }, e.unit === 's' ? 'Secondes' : 'Répét.'), h('span'),
-      Array.from({ length: it.sets }, (_, n) => setRow(e, it, n + 1, done.get(n + 1), { ...tip, kg: [...done.values()].at(-1)?.kg ?? tip.kg }, past))),
+      Array.from({ length: it.sets }, (_, n) => setRow(x, n + 1, done.get(n + 1), { ...tip, kg: [...done.values()].at(-1)?.kg ?? tip.kg }))),
     hint,
     ...feedback(e, d, i));
 }
@@ -1686,9 +1372,10 @@ function loadMenu(e, list) {
   return menus.get(key).cloneNode(true);
 }
 
-function setRow(e, item, n, done, tip, past) {
+function setRow(x, n, done, tip) {
+  const { e, it: item } = x;
   let kg;
-  if (e.load === 'pdc') kg = h('span', { className: 'caption bw' }, 'Poids du corps');
+  if (isBodyweight(e)) kg = h('span', { className: 'caption bw' }, 'Poids du corps');
   else {
     // Liste des charges réalisables : impossible de saisir une charge qu'on ne peut pas monter.
     const list = loadable(e, state.config.loads);
@@ -1698,13 +1385,13 @@ function setRow(e, item, n, done, tip, past) {
     kg.ariaLabel = `Charge série ${n}`;
     if (value != null) kg.value = String(value);
   }
-  const planned = () => targetReps(item, past, e.load === 'pdc' ? null : Number(kg.value) || tip.kg, n, e.unit);
+  const planned = () => plannedReps(x, isBodyweight(e) ? null : Number(kg.value) || tip.kg, n);
   const reps = h('input', { type: 'number', inputMode: 'numeric', min: 0, max: 300, step: 1, value: done?.reps ?? '', placeholder: String(planned()), ariaLabel: `${e.unit === 's' ? 'Secondes' : 'Répétitions'} série ${n}` });
   if (kg.tagName === 'SELECT') kg.onchange = () => { reps.placeholder = String(planned()); };
   const mark = (t) => { ok.className = 'btn done'; ok.replaceChildren(icon('check'), clock(t)); };
   const ok = button(null, () => {
-    const kgValue = e.load === 'pdc' ? 0 : Number(kg.value);
-    if (e.load !== 'pdc' && kg.value === '') return toast('Choisis la charge utilisée.', 'warning');
+    const kgValue = isBodyweight(e) ? 0 : Number(kg.value);
+    if (!isBodyweight(e) && kg.value === '') return toast('Choisis la charge utilisée.', 'warning');
     const repsValue = reps.value === '' ? Number(reps.placeholder) : Number(reps.value); // champ vide = fait comme prévu
     if (!Number.isInteger(repsValue) || repsValue < 0 || repsValue > 300) return toast(`Indique les ${e.unit === 's' ? 'secondes tenues' : 'répétitions faites'}.`, 'warning');
     reps.value = repsValue;
@@ -1769,19 +1456,6 @@ function tick(freq) {
   osc.stop(audio.currentTime + 0.1);
 }
 
-function beep() {
-  if (!audio) return;
-  [0, 0.25, 0.5].forEach((at) => {
-    const osc = audio.createOscillator(), gain = audio.createGain();
-    osc.frequency.value = 880;
-    gain.gain.setValueAtTime(0.3, audio.currentTime + at);
-    gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + at + 0.2);
-    osc.connect(gain).connect(audio.destination);
-    osc.start(audio.currentTime + at);
-    osc.stop(audio.currentTime + at + 0.2);
-  });
-}
-
 function startRest(seconds) {
   // Créé au premier ✓ : iOS n'autorise le son qu'après un geste.
   audio ||= new (window.AudioContext || window.webkitAudioContext)();
@@ -1818,7 +1492,7 @@ function startRest(seconds) {
     // Écran projeté connecté : c'est lui qui sonne et annonce, l'iPhone reste silencieux.
     const said = restSay();
     hush(said);
-    if (!projected()) { beep(); speak(said); }
+    if (!projected()) { beep(audio); speak(said); }
     toast('Repos terminé : série suivante.', 'timer');
   };
   rest = setInterval(tick, 250);
@@ -1858,10 +1532,9 @@ function speak(text, here = false) {
   if (micOpen() && saysCommand(text)) return; // ne jamais se valider soi-même
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'fr-FR';
-  const fr = synth.getVoices().filter((v) => /^fr/i.test(v.lang));
-  u.voice = ['Amélie', 'Thomas', 'Audrey', 'Aurélie'].map((name) => fr.find((v) => v.name.startsWith(name))).find(Boolean) || fr.find((v) => /fr.FR/i.test(v.lang)) || fr[0] || null;
-  u.onend = () => { spokeAt = Date.now(); };
-  spokeAt = Date.now();
+  u.voice = frenchVoice(synth);
+  u.onend = () => { mic.spokeAt = Date.now(); };
+  mic.spokeAt = Date.now();
   hush(text);
   synth.cancel();
   synth.speak(u);
@@ -1874,7 +1547,6 @@ async function keepAwake() {
     wakeLock.addEventListener('release', () => { wakeLock = null; });
   } catch { /* refusé (batterie faible) : l'écran s'éteindra normalement */ }
 }
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && ui.view === 'session') keepAwake(); });
 
 // --- Progrès ---
 
@@ -1922,7 +1594,7 @@ function weekReview() {
   // Charge en hausse : la meilleure charge de la semaine dépasse celle de la dernière séance d'avant lundi.
   const up = [...new Set(now.map((x) => x.ex))].flatMap((id) => {
     const e = byId.get(id);
-    if (e.load === 'pdc') return [];
+    if (isBodyweight(e)) return [];
     const top = Math.max(...now.filter((x) => x.ex === id).map((x) => x.kg || 0));
     const old = historyOf(id).filter((s) => s.t < since).at(-1);
     const was = old && Math.max(...old.sets.map((x) => x.kg || 0));
@@ -2023,8 +1695,8 @@ function progressCard(e, past) {
   const level = state.config.level;
   // Courbe des charges si elles changent ; sinon (poids du corps, charge fixe comme les haltères à 10 kg) les répétitions.
   const kgs = new Set(past.map((s) => Math.max(0, ...s.sets.map((x) => x.kg || 0))).filter((kg) => kg > 0));
-  const withKg = e.load !== 'pdc' && kgs.size > 1;
-  const fixed = e.load !== 'pdc' && kgs.size === 1 ? [...kgs][0] : null;
+  const withKg = !isBodyweight(e) && kgs.size > 1;
+  const fixed = !isBodyweight(e) && kgs.size === 1 ? [...kgs][0] : null;
   const value = (s) => (withKg ? Math.max(0, ...s.sets.map((x) => x.kg || 0)) : Math.max(...s.sets.map((x) => x.reps)));
   const points = past.map((s) => ({ x: Date.parse(s.t), y: value(s) })).filter((p) => !withKg || p.y > 0); // séance sans charge : hors courbe des kg
   const ahead = e.load === 'smith' && withKg ? project(points.at(-1).y, level) : [];
@@ -2036,7 +1708,7 @@ function progressCard(e, past) {
     points.length > 1 ? chart(points, ahead, withKg ? 'kg' : unitText(e)) : h('p', { className: 'caption' }, 'Ta courbe apparaîtra après ta deuxième séance de cet exercice.'),
     points.length > 1 && fixed != null && h('p', { className: 'caption' }, `Charge fixe (${kgLabel(e, fixed)}) : la courbe suit tes répétitions.`),
     techniqueBlock(e),
-    h('p', { className: 'meta' }, `Dernière séance (${new Date(last.t).toLocaleDateString('fr-FR')}) : ${last.sets.map((x) => (e.load !== 'pdc' ? `${x.reps} × ${kgLabel(e, x.kg)}` : `${x.reps} ${unitText(e)}`)).join(' · ')}${last.tech === false ? ' · technique à revoir' : ''}`),
+    h('p', { className: 'meta' }, `Dernière séance (${new Date(last.t).toLocaleDateString('fr-FR')}) : ${last.sets.map((x) => (!isBodyweight(e) ? `${x.reps} × ${kgLabel(e, x.kg)}` : `${x.reps} ${unitText(e)}`)).join(' · ')}${last.tech === false ? ' · technique à revoir' : ''}`),
     tip && h('p', { className: 'tip' }, tip.kg != null && h('strong', {}, `Prochaine : ${kgLabel(e, tip.kg)} · `), tip.note),
     ahead.length > 0 && h('p', { className: 'caption' }, `Repère ${LEVELS[level].label.toLowerCase()} : environ ${kgText(ahead.at(-1))} dans 8 semaines si tout se passe bien. Indicatif : la technique et l'absence de douleur passent avant.`));
 }
@@ -2064,336 +1736,7 @@ function chart(points, ahead, unit) {
   return box;
 }
 
-function download(name, type, text) {
-  const a = h('a', { href: URL.createObjectURL(new Blob([text], { type })), download: name });
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
-
-const stamp = () => new Date().toISOString().slice(0, 10);
-
-// Sauvegarde : feuille de partage iOS (Fichiers, iCloud Drive, AirDrop) quand elle accepte les fichiers, sinon téléchargement.
-async function backup() {
-  const name = `muscu-auto-${stamp()}.json`;
-  const text = JSON.stringify({ exported: new Date().toISOString(), config: state.config, log }, null, 1);
-  const file = new File([text], name, { type: 'application/json' });
-  try {
-    if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: 'Steady' });
-    else download(name, 'application/json', text);
-  } catch (err) {
-    if (err.name === 'AbortError') return; // partage annulé
-    download(name, 'application/json', text);
-  }
-  state.lastExport = new Date().toISOString();
-  save();
-  render();
-  toast('Journal sauvegardé', 'success');
-}
-
-function exportCsv() {
-  const dayOf = new Map(log.filter((x) => x.type === 'start').map((x) => [x.session, x.day]));
-  const cols = [['horodatage', (x) => x.t], ['type', (x) => x.type], ['seance', (x) => x.session], ['jour', (x) => DAYS[x.day ?? dayOf.get(x.session)]],
-    ['exercice_id', (x) => x.ex], ['exercice', (x) => byId.get(x.ex)?.name], ['serie', (x) => x.set], ['kg', (x) => x.kg],
-    ['repetitions', (x) => x.reps], ['mode', (x) => x.mode], ['technique_ok', (x) => x.ok], ['ressenti', (x) => x.feel]];
-  const cell = (v) => `"${String(v ?? '').replaceAll('"', '""')}"`;
-  const rows = log.map((x) => cols.map(([, get]) => cell(get(x))).join(';'));
-  download(`muscu-auto-${stamp()}.csv`, 'text/csv;charset=utf-8', `﻿${[cols.map(([name]) => name).join(';'), ...rows].join('\n')}`);
-}
-
-function importButton() {
-  const input = h('input', { type: 'file', accept: 'application/json,.json', hidden: true });
-  input.onchange = async () => {
-    try {
-      const data = JSON.parse(await input.files[0].text());
-      const entries = Array.isArray(data) ? data : data.log;
-      if (!Array.isArray(entries) || !entries.every((x) => typeof x?.t === 'string' && typeof x?.type === 'string')) throw new Error();
-      if (await ask({ title: 'Remplacer ton historique ?', text: `Ton historique (${plural(log.length, 'saisie')}) sera remplacé par celui du fichier (${plural(entries.length, 'saisie')}).`, confirm: 'Remplacer', danger: true })) {
-        log = entries;
-        save();
-        render();
-        cloudBackup();
-        toast('Historique importé', 'success');
-      }
-    } catch {
-      toast('Fichier invalide : choisis une sauvegarde JSON de Steady.', 'error');
-    }
-    input.value = '';
-  };
-  return h('label', { className: 'btn' }, 'Importer', input);
-}
-
-// --- Notifications ---
-// Web Push (iOS 16.4+, appli installée) via push/worker.js : rappels de séance, fin du repos quand l'écran est verrouillé.
-
-const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
-const pushOn = () => !!state.push?.on && pushSupported() && Notification.permission === 'granted';
-const pushCall = (method, path, body) => fetch(`${PUSH.url}${path}?id=${state.push.id}`, {
-  method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body && JSON.stringify(body),
-});
-const keyBytes = (b64url) => Uint8Array.from(atob(b64url.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
-const reminderPayload = (c) => {
-  const n = c.notify || NOTIFY;
-  // last : dernière série enregistrée, pour le rappel de reprise après des séances manquées ; weekly : bilan du dimanche soir.
-  const last = journal().findLast((x) => x.type === 'set' && !cancelled(log).has(x.session))?.t || null;
-  return { on: n.reminders, days: c.days, time: n.time, before: n.before, sessions: Object.fromEntries((state.plan || []).map((s) => [s.day, s.name])),
-    weekly: n.weekly !== false, last };
-};
-
-async function subscribePush(c) {
-  const reg = await navigator.serviceWorker.ready;
-  const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(PUSH.key) });
-  const res = await pushCall('POST', '/subscribe', { subscription: sub.toJSON(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone, reminders: reminderPayload(c) });
-  if (!res.ok) throw new Error(`serveur ${res.status}`);
-}
-
-async function enablePush(d) {
-  try {
-    if (await Notification.requestPermission() !== 'granted') return render();
-    state.push = { id: state.push?.id || crypto.randomUUID(), on: true };
-    // Le service worker lit l'identifiant ici pour demander le texte d'une notification.
-    await (await caches.open('muscu-auto-push')).put('id', new Response(state.push.id));
-    await subscribePush({ ...state.config, notify: d.notify });
-    await pushCall('POST', '/test');
-    save();
-    render();
-    toast('Notifications activées', 'success');
-  } catch {
-    state.push = { ...state.push, on: false };
-    toast("Activation impossible : vérifie ta connexion et réessaie.", 'error');
-  }
-}
-
-async function disablePush() {
-  try {
-    await pushCall('DELETE', '/subscribe');
-    await (await (await navigator.serviceWorker.ready).pushManager.getSubscription())?.unsubscribe();
-  } catch { /* hors ligne : l'abonnement expirera côté serveur */ }
-  state.push.on = false;
-  save();
-  render();
-  toast('Notifications désactivées', 'info');
-}
-
-// Réglages enregistrés : le serveur reçoit les nouveaux jours, horaires et noms de séance.
-function syncPush() {
-  if (pushOn()) subscribePush(state.config).catch(() => toast('Rappels non mis à jour : hors ligne.', 'offline'));
-}
-
-// --- Écran projeté ---
-// La séance s'affiche en grand sur une TV ou un ordinateur (page tv/), l'iPhone sert de télécommande.
-// Relais WebSocket par le serveur (push/worker.js, objet Screen) : l'iPhone envoie un instantané à chaque changement,
-// l'écran ne fait qu'afficher et tient seul le chrono du repos (il sonne et annonce même si l'iPhone se verrouille).
-const TV_URL = 'laurent-stp95.github.io/muscu-auto/tv';
-let lastNotice = null, socket = null, socketTimer = null, socketDelay = 1000, tvCount = 0, sending = false, lastSay = null;
-const wsUrl = (room, role) => `${PUSH.url.replace(/^http/, 'ws')}/screen?room=${room}&role=${role}`;
-const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
-const projected = () => tvCount > 0;
-
-function connectScreen() {
-  clearTimeout(socketTimer);
-  if (socket && socket.readyState > 1) socket = null; // ancienne connexion en train de se fermer : on n'attend pas
-  if (!state.screen?.on || socket || document.visibilityState !== 'visible') return;
-  const ws = new WebSocket(wsUrl(state.screen.room, 'phone'));
-  socket = ws;
-  ws.onopen = () => { socketDelay = 1000; send(); };
-  ws.onmessage = (ev) => {
-    const m = parse(ev.data);
-    if (m?.type === 'presence') setTv(m.tv);
-    if (m?.type === 'reps') screenReps(m);
-    // Miroir allumé ou éteint sur l'écran (bouton, touche M) : l'iPhone le sait ; éteint, sa caméra s'arrête.
-    if (m?.type === 'mirror') { if (!m.on && cam) stopCam(); ui.mirror = !!m.on; refreshStatus(); }
-    if (m?.type === 'rtc' && m.sdp) cam?.pc?.setRemoteDescription({ type: 'answer', sdp: m.sdp }).catch(() => {}); // 2e écran : ignoré
-  };
-  ws.onerror = () => ws.close();
-  ws.onclose = () => {
-    if (socket === ws) socket = null;
-    setTv(0);
-    if (state.screen?.on) socketTimer = setTimeout(connectScreen, socketDelay = Math.min(socketDelay * 2, 30000));
-  };
-}
-// iOS coupe la connexion et la caméra quand l'écran se verrouille : on se reconnecte au retour, l'écran reçoit tout de suite l'état.
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible') return stopCam(false);
-  connectScreen();
-  resumeCam();
-});
-addEventListener('online', connectScreen);
-setInterval(() => { if (socket?.readyState === 1) socket.send('ping'); }, 30000); // le serveur répond seul, sans se réveiller
-
-// Miroir de l'écran (webcam du Mac) : il compte les répétitions de la série affichée et les envoie ; elles remplissent le compteur.
-function screenReps(m) {
-  const f = focusTarget();
-  if (!f || m.key !== `${f.x.e.id}|${f.n}` || !(m.n > 0)) return;
-  Object.assign(f.pick, { reps: m.n, touched: true, cam: Array.isArray(m.data) ? m.data.slice(0, 100) : null });
-  render();
-}
-// Pastille Miroir : la caméra de l'iPhone filme, l'écran affiche. Miroir allumé depuis l'écran (sa webcam) : l'éteint.
-function toggleMirror() {
-  if (cam) return stopCam();
-  if (!ui.mirror) return startCam();
-  ui.mirror = false;
-  if (socket?.readyState === 1) socket.send(JSON.stringify({ type: 'mirror', on: false }));
-  refreshStatus();
-}
-
-// Caméra de l'iPhone sur l'écran : la vidéo part en direct vers l'écran (WebRTC, d'appareil à appareil sur le Wi-Fi), le serveur
-// ne relaie que l'offre et la réponse. L'écran l'affiche en miroir et compte les répétitions, comme avec sa propre webcam.
-const ICE = [{ urls: 'stun:stun.cloudflare.com:3478' }]; // adresse publique, si le Wi-Fi isole les appareils
-let cam = null, camWanted = false; // cam : { stream, pc } ; camWanted : relancée au retour dans l'appli
-// Candidats réseau dans l'offre (pas d'envoi au fil de l'eau) : 2 s au plus, le réseau local arrive tout de suite.
-const gathered = (pc) => new Promise((done) => {
-  const timer = setTimeout(done, 2000);
-  const check = () => { if (pc.iceGatheringState === 'complete') { clearTimeout(timer); done(); } };
-  pc.addEventListener('icegatheringstatechange', check);
-  check();
-});
-async function startCam() {
-  if (cam || socket?.readyState !== 1 || !window.RTCPeerConnection) return;
-  camWanted = true;
-  const me = (cam = { stream: null, pc: null });
-  ui.mirror = true;
-  refreshStatus();
-  try {
-    me.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
-    if (cam !== me) return me.stream.getTracks().forEach((track) => track.stop());
-    const pc = (me.pc = new RTCPeerConnection({ iceServers: ICE }));
-    me.stream.getTracks().forEach((track) => pc.addTrack(track, me.stream));
-    pc.onconnectionstatechange = () => {
-      if (cam === me && pc.connectionState === 'failed') { stopCam(); toast("Vidéo impossible : l'iPhone et l'écran doivent être sur le même Wi-Fi.", 'warning'); }
-    };
-    await pc.setLocalDescription(await pc.createOffer());
-    await gathered(pc);
-    if (cam === me && socket?.readyState === 1) socket.send(JSON.stringify({ type: 'rtc', sdp: pc.localDescription.sdp }));
-  } catch (err) {
-    if (cam !== me) return;
-    stopCam();
-    toast(err?.name === 'NotAllowedError' ? "Caméra refusée : autorise-la dans les Réglages de l'iPhone, Steady." : 'Caméra indisponible.', 'warning');
-  }
-}
-// forget = false : arrêt subi (écran verrouillé, écran parti), la caméra repart d'elle-même.
-function stopCam(forget = true) {
-  if (forget) camWanted = false;
-  if (!cam) return;
-  cam.stream?.getTracks().forEach((track) => track.stop());
-  cam.pc?.close();
-  cam = null;
-  ui.mirror = false;
-  if (socket?.readyState === 1) socket.send(JSON.stringify({ type: 'rtc', stop: true }));
-  refreshStatus();
-}
-function resumeCam() {
-  if (camWanted && projected() && document.visibilityState === 'visible') startCam();
-}
-
-// Barre d'état de la séance : écran, micro, miroir, chacun allumé (pastille pleine) ou non, d'un geste.
-function statusBar(list = state.listMode) {
-  const pill = (label, name, on, onclick, warn) => chip(label, on, onclick, { iconName: name, variant: warn ? 'status warn' : 'status' });
-  return h('div', { className: 'status-bar' }, h('div', { className: 'chips' },
-    pill(!state.screen?.on || projected() ? 'Écran' : 'Écran…', 'tv', projected(), projectSheet),
-    Recognition && !list && pill(earWanted && !ear ? 'Micro coupé' : 'Micro', 'mic', !!ear, () => (ear ? stopEar() : startEar()), earWanted && !ear),
-    projected() && !list && pill('Miroir', 'camera', ui.mirror, toggleMirror)),
-    ear && h('button', { type: 'button', className: `caption heard${lastHeard && Date.now() - lastHeard.t < 10000 && lastHeard.why ? ' ignored' : ''}`, onclick: voiceHelp },
-      lastHeard && Date.now() - lastHeard.t < 10000 ? lastHeard.text : 'Micro prêt : dis « dix répétitions validées ». Toutes les phrases ›'));
-}
-function refreshStatus() { document.querySelector('.status-bar')?.replaceWith(statusBar()); }
-
-function setTv(n) {
-  if (tvCount === n) return;
-  tvCount = n;
-  // Couleur « connecté » portée par body : juste aussi sur les écrans gardés en mémoire.
-  document.body.classList.toggle('projecting', projected());
-  if (!projected()) { stopCam(false); ui.mirror = false; }
-  refreshStatus();
-  resumeCam();
-}
-
-function send() {
-  if (socket?.readyState === 1) socket.send(JSON.stringify({ type: 'state', s: live() }));
-}
-// Un seul envoi par tour de boucle, même si plusieurs changements s'enchaînent.
-function broadcast() {
-  if (!state.screen?.on || sending) return;
-  sending = true;
-  queueMicrotask(() => { sending = false; send(); });
-}
-
-// Annonce vocale : lue par l'iPhone, ou par l'écran projeté s'il est connecté.
-// Une phrase d'annonce contient-elle une commande (en entier, ou une de ses phrases) ? Sert de garde-fou à speak et à l'écran.
-const saysCommand = (text) => [text, ...String(text).split(/[.!?:;,]/)].some((part) => commandIn(part));
-function announce(text) {
-  if (micOpen() && saysCommand(text)) return; // l'écran ne doit pas la dire non plus
-  lastSay = { id: String(Date.now()), text, t: Date.now() };
-  hush(text);
-  speak(text);
-  broadcast();
-}
-
-async function projectSheet() {
-  if (!state.screen) return pairSheet();
-  const choice = await choose({
-    title: 'Écran projeté',
-    text: !state.screen.on ? 'Projection arrêtée.' : projected() ? "La séance s'affiche sur l'écran : ton iPhone sert de télécommande." : `Écran pas encore connecté : ouvre ${TV_URL} sur la TV ou l'ordinateur.`,
-    actions: [state.screen.on ? { label: 'Arrêter la projection', value: 'off' } : { label: 'Projeter', value: 'on', variant: 'primary' },
-      { label: 'Associer un autre écran', value: 'pair' }, { label: 'Fermer', value: null }],
-  });
-  if (choice === 'off') {
-    stopCam();
-    // L'écran affiche « Rien n'est projeté » ; le serveur garde cet état, une page rechargée le retrouve.
-    if (socket?.readyState === 1) socket.send(JSON.stringify({ type: 'state', s: { v: 1, at: Date.now(), phase: 'stopped' } }));
-    state.screen.on = false;
-    save();
-    socket?.close();
-    setTv(0);
-  }
-  if (choice === 'on') { state.screen.on = true; save(); connectScreen(); }
-  if (choice === 'pair') pairSheet();
-}
-
-async function pairSheet() {
-  const input = h('input', { className: 'input pair-code', type: 'text', inputMode: 'numeric', pattern: '[0-9]*', maxLength: 4, autocomplete: 'one-time-code', placeholder: '0000', ariaLabel: "Code affiché sur l'écran" });
-  const go = await choose({
-    title: 'Projeter sur un écran',
-    text: `Sur ta TV ou ton ordinateur, ouvre ${TV_URL} dans le navigateur, puis tape ici le code affiché.`,
-    extra: input,
-    actions: [{ label: 'Connecter', value: true, variant: 'primary' }, { label: 'Annuler', value: null }],
-  });
-  if (go) pair(input.value.trim());
-}
-
-// Appairage : l'écran attend dans une salle temporaire « pair-code » ; l'iPhone lui donne la salle permanente, gardée des deux côtés.
-async function pair(code) {
-  if (!/^\d{4}$/.test(code)) return toast('Le code fait 4 chiffres.', 'warning');
-  const room = state.screen?.room || crypto.randomUUID();
-  const ok = await new Promise((resolve) => {
-    const ws = new WebSocket(wsUrl(`pair-${code}`, 'phone'));
-    const timer = setTimeout(() => done(false), 6000);
-    function done(v) { clearTimeout(timer); ws.close(); resolve(v); }
-    ws.onmessage = (ev) => {
-      const m = parse(ev.data);
-      if (m?.type === 'presence' && m.tv > 0) ws.send(JSON.stringify({ type: 'adopt', room }));
-      if (m?.type === 'adopted') done(true);
-    };
-    ws.onerror = () => done(false);
-  });
-  if (!ok) return toast("Écran introuvable : vérifie le code affiché et que l'écran est connecté à internet.", 'warning');
-  socket?.close();
-  state.screen = { room, on: true };
-  save();
-  connectScreen();
-  toast('Écran connecté', 'success');
-}
-
-function forgetScreen() {
-  if (socket?.readyState === 1) socket.send(JSON.stringify({ type: 'forget' }));
-  state.screen = null;
-  save();
-  socket?.close();
-  setTv(0);
-  render();
-  toast('Écran oublié', 'info');
-}
-
-const loadText = (e, kg) => (e.load === 'pdc' ? 'Poids du corps' : kg == null ? 'Charge à choisir' : kgLabel(e, kg).replace(/^./, (c) => c.toUpperCase()));
+const loadText = (e, kg) => (isBodyweight(e) ? 'Poids du corps' : kg == null ? 'Charge à choisir' : kgLabel(e, kg).replace(/^./, (c) => c.toUpperCase()));
 const repsText = (e, reps) => `${reps} ${e.unit === 's' ? 's' : 'rép.'}`;
 
 // Aperçu d'une séance à venir : exercices avec la charge conseillée, matériel à préparer.
@@ -2401,7 +1744,7 @@ function preview(s, nextWeek) {
   const entries = s.items.map((item) => {
     const e = byId.get(item.ex);
     const it = effective(item);
-    return { e, it, kg: e.load === 'pdc' ? null : tipFor(e, historyOf(e.id))?.kg ?? null };
+    return { e, it, kg: isBodyweight(e) ? null : tipFor(e, historyOf(e.id))?.kg ?? null };
   });
   return {
     when: s.day === weekday() && !nextWeek ? "Aujourd'hui" : DAYS[s.day],
@@ -2421,186 +1764,6 @@ function summaryData(items) {
   };
 }
 
-// Instantané de la séance pour l'écran projeté (contrat v1, décrit dans tv/tv.js).
-function live() {
-  const base = { v: 1, at: Date.now(), voice: voiceOn(), upcoming: null, progress: null, ex: null, set: null, done: [], rest: null, next: null, record: null, summary: null, say: null };
-  if (!state.plan) return { ...base, phase: 'idle', title: 'Steady' };
-  if (!state.active) {
-    if (state.ended && Date.now() - state.ended.t < 15 * 60000) return { ...base, phase: 'done', title: state.ended.title, summary: state.ended.summary };
-    const { index, nextWeek } = focusOf(state.plan, doneThisWeek());
-    const s = state.plan[index];
-    return { ...base, phase: 'idle', title: `${DAYS[s.day]} · ${s.name}`, upcoming: preview(s, nextWeek) };
-  }
-  const s = state.plan[state.active.day];
-  const sid = state.active.session;
-  const items = activeItems();
-  let i = Math.min(state.listMode ? nextItem(items) : ui.at ?? nextItem(items), items.length);
-  // Exercice fini (l'iPhone demande le ressenti) : l'écran montre déjà le suivant, à préparer pendant le repos.
-  if (i < items.length && nextSet(items[i]) == null) {
-    const k = items.findIndex((y, j) => j > i && nextSet(y) != null);
-    i = k < 0 ? nextItem(items) : k;
-  }
-  const title = `${DAYS[s.day]} · ${s.name}`;
-  const progress = { ex: Math.min(i + 1, items.length), exCount: items.length, sets: items.reduce((n, x) => n + x.done.size, 0),
-    setCount: items.reduce((n, x) => n + x.it.sets, 0), minutes: activeMinutes(sid) };
-  const say = lastSay && Date.now() - lastSay.t < 10000 ? { id: lastSay.id, text: lastSay.text } : null;
-  base.notice = lastNotice && Date.now() - lastNotice.t < 4000 ? { id: lastNotice.id, text: lastNotice.text } : null;
-  base.mic = earWanted ? (ear ? 'on' : 'off') : null; // « off » : micro coupé sur l'iPhone, signalé sur l'écran
-  if (state.active.paused) return { ...base, phase: 'paused', title, progress };
-  if (warm) {
-    const m = warm.list[warm.i], next = warm.list[warm.i + 1];
-    return { ...base, phase: 'rest', title, say, label: `Échauffement · ${warm.i + 1} sur ${warm.list.length}`,
-      ex: { id: 0, name: m.name, img: [], mus: m.mus, mus2: [], cues: [m.cue], badge: null, note: null },
-      set: { n: null, of: null, target: `${m.s} s`, load: null, plates: null, change: null, last: null, approach: null },
-      rest: { end: warm.end, total: warm.total, say: next ? `Mouvement suivant : ${next.name}${micOpen() ? '' : `, ${next.s} secondes`}.` : 'Échauffement terminé. Place aux séries.' },
-      next: next ? { name: next.name, detail: `${next.s} s` } : null };
-  }
-  if (i >= items.length) return { ...base, phase: 'done', title, progress, summary: summaryData(items), say };
-  const x = items[i];
-  const { e, it } = x;
-  const n = nextSet(x);
-  const logged = sessionSets(sid);
-  const picked = n && ui.pick?.key === `${sid}|${e.id}|${n}` ? ui.pick : null;
-  const kg = picked ? picked.kg : startKg(x);
-  const reps = picked ? picked.reps : n && targetReps(it, x.past, kg, n, e.unit);
-  const bar = barPlan(e, kg);
-  const last = n && x.past.at(-1)?.sets.find((t) => t.set === n);
-  const approach = n === 1 ? warmup(e, kg, state.config.loads) : [];
-  const pr = [...logged.values()].filter((t) => t.pr && Date.now() - Date.parse(t.t) < 15000).at(-1);
-  const after = items[i + 1];
-  return {
-    ...base, phase: rest ? 'rest' : 'work', title, progress, say,
-    ex: { id: e.id, name: e.name, img: e.img, mus: e.mus, mus2: e.mus2, cam: cameraKind(e), cues: (e.cues || [CUES[e.zone]]).slice(0, 3),
-      badge: x.tip.learning ? 'Apprentissage du geste' : null, note: x.tip.note },
-    set: n && { n, of: it.sets, target: repsText(e, reps), load: loadText(e, kg), plates: bar.plates || null, change: bar.change || null,
-      last: last ? `La dernière fois : ${setText(e, last.kg, last.reps)}` : null,
-      approach: approach.length ? `Approche : ${approach.map(([w, r]) => `${kgText(w)} × ${r}`).join(' · ')}` : null },
-    done: [...x.done.values()].sort((a, b) => a.set - b.set).map((t) => ({ n: t.set, text: setText(e, t.kg, t.reps), t: clock(t.t), record: !!logged.get(`${e.id}-${t.set}`)?.pr })),
-    rest: rest ? { end: restEnd, total: restTotal, say: restSay() } : null,
-    next: after ? { name: after.e.name, img: after.e.img, detail: `${after.it.sets} × ${after.it.reps}${after.e.unit === 's' ? ' s' : ''} · ${loadText(after.e, startKg(after))}` } : null,
-    record: pr ? { id: pr.t, text: `Record : ${setText(byId.get(pr.ex), pr.kg, pr.reps)}` } : null,
-  };
-}
-
-// --- Bilan pour Claude ---
-// Les 4 dernières semaines en texte, à coller dans Claude pour un avis de coach.
-function claudeText() {
-  const since = new Date(Date.now() - 28 * 864e5).toISOString();
-  const skip = cancelled(log);
-  const c = state.config;
-  const lines = [
-    'Voici mes 4 dernières semaines de musculation à domicile (appli Steady). Analyse ma progression, ma régularité et mes ressentis, signale ce qui pourrait mener à une blessure, puis propose 3 ajustements concrets.',
-    '',
-    `Profil : ${LEVELS[c.level].label.toLowerCase()}, objectif ${GOALS[c.goal].label.toLowerCase()}, ${plural(c.days.length, 'séance')} par semaine (${c.days.map((d) => DAYS[d].toLowerCase()).join(', ')}), ${c.minutes} min.`,
-    `Matériel : ${c.equipment.map((q) => TAGS[q]).join(', ')}.`,
-    c.zones.length ? `Zones fragiles : ${c.zones.map((z) => ZONES[z]).join(', ')}.` : null,
-  ];
-  for (const st of log.filter((x) => x.type === 'start' && x.t >= since && !skip.has(x.session))) {
-    const entries = journal().filter((x) => x.session === st.session);
-    const sets = entries.filter((x) => x.type === 'set' && byId.has(x.ex));
-    if (!sets.length) continue;
-    const fit = entries.find((x) => x.type === 'readiness');
-    lines.push('', `${new Date(st.t).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} · ${st.name}${fit ? ` · forme ${{ normal: 'bonne', hold: 'moyenne', light: 'basse' }[fit.level]}` : ''}`);
-    for (const id of new Set(sets.map((x) => x.ex))) {
-      const e = byId.get(id);
-      const last = new Map(sets.filter((x) => x.ex === id).map((x) => [x.set, x])); // la dernière saisie d'une série fait foi
-      const feel = entries.findLast((x) => x.ex === id && x.type === 'feel')?.feel;
-      const tech = entries.findLast((x) => x.ex === id && x.type === 'tech')?.ok;
-      lines.push(`- ${e.name} : ${[...last.values()].map((x) => setText(e, x.kg, x.reps)).join(', ')}${feel ? ` · ressenti ${FEELS.find(([v]) => v === feel)[1].toLowerCase()}` : ''}${tech === false ? ' · technique à revoir' : ''}`);
-    }
-  }
-  return lines.filter((l) => l != null).join('\n').replace(/ /g, ' ');
-}
-
-async function copyForClaude() {
-  try {
-    await navigator.clipboard.writeText(claudeText());
-    toast('Copié : colle-le dans une conversation avec Claude.', 'success');
-  } catch {
-    toast('Copie impossible sur cet appareil.', 'error');
-  }
-}
-
-// --- Sauvegarde automatique ---
-// Le journal est copié sur le serveur (push/worker.js) après chaque séance. Le code de récupération (identifiant aléatoire)
-// permet de le restaurer sur un autre iPhone : quiconque l'a peut lire le journal, il reste donc privé.
-
-const cloudOn = () => state.cloud?.on !== false;
-const deviceId = () => (state.push = { ...state.push, id: state.push?.id || crypto.randomUUID() }).id;
-const dateTime = (iso) => new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
-
-async function cloudBackup(force = false) {
-  // En développement (localhost), on n'écrit jamais sur le serveur réel.
-  if (!location.hostname.endsWith('github.io') || !cloudOn() || !navigator.onLine || (!force && state.cloud?.n === log.length) || !log.length) return;
-  try {
-    const res = await fetch(`${PUSH.url}/backup?id=${deviceId()}`, { method: 'POST', body: JSON.stringify({ exported: new Date().toISOString(), config: state.config, log }) });
-    if (!res.ok) throw new Error(String(res.status));
-    state.cloud = { on: true, t: new Date().toISOString(), n: log.length };
-    save();
-    if (force) { render(); toast('Journal sauvegardé sur le serveur de Steady', 'success'); }
-  } catch {
-    if (force) toast('Sauvegarde impossible : vérifie ta connexion.', 'error');
-  }
-}
-
-function cloudEditor() {
-  const code = state.push?.id;
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(code); toast('Code copié', 'success'); } catch { toast('Copie impossible : sélectionne le code à la main.', 'warning'); }
-  };
-  return [
-    h('div', { className: 'list' },
-      toggle('Sauvegarde automatique', cloudOn(), async (on) => {
-        state.cloud = { ...state.cloud, on };
-        save();
-        if (on) return cloudBackup(true);
-        try { await fetch(`${PUSH.url}/backup?id=${deviceId()}`, { method: 'DELETE' }); } catch { /* hors ligne : copie supprimée plus tard */ }
-        render();
-        toast('Sauvegarde automatique coupée, copie du serveur supprimée', 'info');
-      }),
-      cloudOn() && h('div', { className: 'line' },
-        h('span', { className: 'meta' }, state.cloud?.t ? `Dernière : ${dateTime(state.cloud.t)}` : 'Pas encore sauvegardé'),
-        button('Sauvegarder', () => cloudBackup(true), { size: 'compact' }))),
-    h('p', { className: 'caption' }, 'Après chaque séance, ton journal est copié sur le serveur de Steady. Rien d\'autre n\'y est envoyé.'),
-    cloudOn() && code && h('div', { className: 'group' },
-      h('span', { className: 'label' }, 'Code de récupération, pour restaurer ton suivi sur un nouvel iPhone. Ne le partage pas.'),
-      h('div', { className: 'row' }, h('code', { className: 'code' }, code), button('Copier', copy, { size: 'compact' }))),
-    h('div', {}, button('Restaurer avec un code', restoreFlow, { variant: 'plain' })),
-  ];
-}
-
-async function restoreFlow() {
-  const input = h('input', { className: 'input', type: 'text', placeholder: 'Code de récupération', autocapitalize: 'off', autocomplete: 'off', spellcheck: false, ariaLabel: 'Code de récupération' });
-  const go = await choose({ title: 'Restaurer ton suivi', text: 'Colle le code affiché dans Réglages, section Sauvegarde, sur ton ancien iPhone.', extra: input,
-    actions: [{ label: 'Restaurer', value: true, variant: 'primary' }, { label: 'Annuler', value: null }] });
-  if (!go) return;
-  const code = input.value.trim().toLowerCase();
-  if (!/^[0-9a-f-]{36}$/.test(code)) return toast("Code invalide : vérifie qu'il est complet.", 'warning');
-  let data, t;
-  try {
-    const res = await fetch(`${PUSH.url}/backup?id=${code}`);
-    if (res.status === 404) return toast('Aucune sauvegarde pour ce code.', 'warning');
-    if (!res.ok) throw new Error(String(res.status));
-    t = Number(res.headers.get('X-Backup-Time')) || Date.now();
-    data = await res.json();
-  } catch {
-    return toast('Restauration impossible : vérifie ta connexion.', 'error');
-  }
-  if (!Array.isArray(data?.log) || !data.config?.days) return toast('Sauvegarde illisible.', 'error');
-  if (log.length && !await ask({ title: 'Remplacer ton suivi actuel ?', text: `Ton historique (${plural(log.length, 'saisie')}) sera remplacé par celui du ${dateTime(t)} (${plural(data.log.length, 'saisie')}).`, confirm: 'Remplacer', danger: true })) return;
-  log = data.log;
-  state.config = data.config;
-  state.plan = generate(EXOS, state.config);
-  state.cycle = { start: monday(new Date()).toISOString() };
-  state.active = null;
-  state.push = { id: code, on: false }; // les notifications se réactivent sur cet iPhone
-  state.cloud = { on: true, t: new Date(t).toISOString(), n: log.length };
-  ui = { view: 'week', step: 0, draft: null };
-  save();
-  render();
-  toast(`Suivi restauré : ${plural(new Set(log.filter((x) => x.type === 'set').map((x) => x.session)).size, 'séance')}`, 'success');
-}
-
 // --- Mises à jour ---
 // Le service worker sert la version en cache puis revérifie : s'il trouve du neuf, il prévient et on propose de recharger.
 
@@ -2612,8 +1775,6 @@ const showUpdate = () => { updateBar.hidden = false; placeBars(); };
 // Hors ligne, tout marche (données sur l'iPhone, appli en cache) sauf les vidéos : bandeau tant que ça dure, message à chaque bascule.
 const offlineBar = h('div', { className: 'offline', hidden: navigator.onLine, role: 'status' }, icon('offline'),
   h('div', { className: 'stack tight' }, h('strong', {}, 'Hors ligne'), h('span', { className: 'caption' }, "Tes séances marchent et tes saisies restent sur l'iPhone. L'écran projeté, la sauvegarde et les vidéos attendent le réseau.")));
-addEventListener('offline', () => { offlineBar.hidden = false; placeBars(); toast('Hors ligne : tout reste utilisable, sauf les vidéos', 'offline'); });
-addEventListener('online', () => { offlineBar.hidden = true; placeBars(); toast('De retour en ligne', 'success'); });
 
 // Bandeaux d'état (hors ligne, nouvelle version) : sous l'en-tête de l'écran affiché, jamais par-dessus la barre collante.
 function placeBars() {
@@ -2634,7 +1795,7 @@ async function forceUpdate() {
   try {
     await (await navigator.serviceWorker?.getRegistration())?.update();
     const cache = await caches.open('muscu-auto');
-    await Promise.all(['./', 'index.html', 'app.js', 'plan.js', 'data.js'].map(async (f) => {
+    await Promise.all(['./', 'index.html', 'app.js', 'plan.js', 'data.js', 'shared.js', 'voice.js', 'camera.js', 'screen.js', 'push.js', 'backup.js', 'main.js'].map(async (f) => {
       const res = await fetch(f, { cache: 'reload' });
       if (res.ok) await cache.put(f, res);
     }));
@@ -2656,20 +1817,4 @@ function resumeAfterReload() {
   if (view === 'settings') ui = { view, step: 0, draft: structuredClone(state.config) };
   else if (view === 'progress' || (view === 'session' && state.active)) ui.view = view;
   return true;
-}
-
-document.body.append(restBar);
-const updated = resumeAfterReload();
-if (location.hash === '#bilan' && state.plan) { ui.view = 'progress'; history.replaceState(null, '', location.pathname); } // ouverte depuis la notification du bilan
-render();
-setTimeout(cloudBackup, 3000);
-// iOS peut renouveler ou révoquer l'abonnement push (mise à jour de l'appli…) : le serveur reçoit le dernier à chaque ouverture.
-if (pushOn()) subscribePush(state.config).catch(() => {});
-connectScreen();
-if (updated) toast(`Appli à jour : version du ${new Date(document.lastModified).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`, 'success');
-if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  const controlled = !!navigator.serviceWorker.controller; // au tout premier lancement, l'installation n'est pas une mise à jour
-  navigator.serviceWorker.register('sw.js').catch(() => {});
-  navigator.serviceWorker.addEventListener('message', (ev) => { if (ev.data === 'update') showUpdate(); if (ev.data === 'bilan' && state.plan) show('progress'); });
-  navigator.serviceWorker.addEventListener('controllerchange', () => { if (controlled) showUpdate(); });
 }

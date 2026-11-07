@@ -2,6 +2,7 @@
 const assert = require('assert');
 const EXOS = require('./data.js');
 const P = require('./plan.js');
+const S = require('./shared.js');
 const { generate, swap, repair, renew, available, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek } = P;
 
 const byId = new Map(EXOS.map((e) => [e.id, e]));
@@ -208,9 +209,9 @@ const after = P.pushPull(EXOS, heavy);
 assert.ok(after.push - after.pull < 2 || after.push - after.pull < pp.push - pp.pull);
 
 // Caméra : angle d'articulation et compteur (squat : genou de 175° à 85° en 2 s, puis remontée ; une demi-répétition à 120°).
-assert.strictEqual(Math.round(P.jointAngle({ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 })), 90);
-assert.strictEqual(Math.round(P.jointAngle({ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 0, y: 2 })), 180);
-const reps = P.repCounter({ top: 160, start: 140, deep: 100 });
+assert.strictEqual(Math.round(S.jointAngle({ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 })), 90);
+assert.strictEqual(Math.round(S.jointAngle({ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 0, y: 2 })), 180);
+const reps = S.repCounter({ top: 160, start: 140, deep: 100 });
 const events = [];
 const play = (from, to, t0, ms) => { for (let k = 0; k <= 10; k++) { const ev = reps.push(from + ((to - from) * k) / 10, t0 + (ms * k) / 10); if (ev) events.push(ev); } };
 play(175, 85, 0, 2000); play(85, 175, 2000, 1000);   // complète, descente 2 s

@@ -1,8 +1,13 @@
 // Générateur de séances et règles de progression. Exercices = liste.json (via data.js), matériel = étiquettes ci-dessous.
 
 const BODYWEIGHT = 'pdc';
+const isBodyweight = (e) => e.load === BODYWEIGHT;
 const TAGS = { smith: 'Smith machine', halteres: 'Haltères', kettlebell: 'Kettlebell', banc: 'Banc plat', 'banc-incline': 'Banc inclinable',
   traction: 'Barre de traction', elastique: 'Élastiques', tapis: 'Tapis' };
+// Charges à poids listés par l'utilisateur → clé de leur liste dans loads. Sans aucun poids, l'exercice n'est pas faisable.
+const WEIGHT_LISTS = { halteres: 'halteres', kettlebell: 'kettlebell', elastique: 'elastiques' };
+// Matériel dont il faut renseigner les charges (étape « Tes charges ») : la Smith (barre et disques) et le matériel à poids listés.
+const LOADED_GEAR = ['smith', ...Object.keys(WEIGHT_LISTS)];
 const TOP = 6; // tirage au hasard parmi 6 candidats
 const LEARNING = 2; // séances d'apprentissage sans augmentation, pour tout exercice nouveau ou réintégré
 const CYCLE_WEEKS = 6; // 5 semaines de travail + 1 semaine allégée
@@ -91,7 +96,7 @@ const family = (e) => e.fam || e.id;
 function available(exos, { equipment, loads = {}, zones = [], avoid = [] }) {
   const own = new Set([...equipment, BODYWEIGHT]);
   return exos.filter((e) => e.eq.every((q) => own.has(q)) && !avoid.includes(e.id) && !(e.risk || []).some((z) => zones.includes(z))
-    && (!['halteres', 'kettlebell', 'elastique'].includes(e.load) || loadable(e, loads).length > 0));
+    && (!WEIGHT_LISTS[e.load] || loadable(e, loads).length > 0));
 }
 
 // Les 2 premiers exercices (main) sont les plus chargés : exercices marqués principaux si possible.
@@ -267,7 +272,7 @@ function loadable(e, loads) {
     for (const p of pairs) sums = new Set([...sums, ...[...sums].map((s) => s + 2 * p)]);
     return [...sums].map((s) => roundHalf(loads.bar + s)).sort((a, b) => a - b);
   }
-  return [...new Set(loads[{ halteres: 'halteres', kettlebell: 'kettlebell', elastique: 'elastiques' }[e.load]] || [])].sort((a, b) => a - b);
+  return [...new Set(loads[WEIGHT_LISTS[e.load]] || [])].sort((a, b) => a - b);
 }
 const below = (list, kg) => list.findLast((x) => x <= kg) ?? list[0] ?? null;
 const nearest = (list, kg) => list.reduce((a, b) => (Math.abs(b - kg) < Math.abs(a - kg) ? b : a), list[0]);
@@ -289,7 +294,7 @@ function suggest(e, item, past, { loads, learned: done = past.length, deload = f
       ? `Séance 1 sur ${LEARNING} pour apprendre le geste : commence léger (barre seule si besoin), garde au moins 3 répétitions en réserve. La charge augmentera ensuite.`
       : `Séance 1 sur ${LEARNING} pour apprendre le geste : concentre-toi sur le mouvement, garde au moins 3 répétitions en réserve.`, { learning: 1 });
   }
-  const kg = e.load === 'pdc' ? null : topKg(last) || null;
+  const kg = isBodyweight(e) ? null : topKg(last) || null;
   const lighter = (ratio) => (kg == null ? null : e.load === 'smith' ? below(list, kg * ratio) : below(list, Math.min(kg * ratio, kg - 0.01)) ?? kg);
   if (last.feel === 'pain') return same(lighter(0.8), 'Douleur signalée : charge réduite. Si elle revient, arrête cet exercice.');
   if (back) return same(lighter(back), `Reprise après une pause : charge −${Math.round((1 - back) * 100)} % aujourd'hui, la progression repart ensuite.`);
@@ -408,7 +413,7 @@ function gearList(entries, loads) {
       const side = top != null && plates(top, loads);
       return side?.length ? `${label} (jusqu'à ${side.map((w) => w.toLocaleString('fr-FR')).join(' + ')}\u00a0kg de chaque côté)` : label;
     }
-    return `${label}${kgs(used({ halteres: 'halteres', kettlebell: 'kettlebell', elastique: 'elastique' }[q])) || ''}`;
+    return `${label}${(WEIGHT_LISTS[q] && kgs(used(q))) || ''}`;
   });
 }
 
@@ -449,40 +454,12 @@ function recovery(log, exos, now = Date.now()) {
   return Object.fromEntries(Object.entries(fatigue).map(([m, f]) => [m, Math.round(100 * (1 - Math.min(1, f / FULL_FATIGUE)))]));
 }
 
-// Angle (degrés, 0 à 180) au point b entre les segments b→a et b→c : genou (hanche, genou, cheville) ou coude (épaule, coude, poignet).
-function jointAngle(a, b, c) {
-  const deg = Math.abs(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x)) * 180 / Math.PI;
-  return deg > 180 ? 360 - deg : deg;
-}
-
-// Compteur de répétitions à partir de l'angle d'une articulation suivie par la caméra.
-// Une répétition = en haut (angle ≥ top) → descente (angle < start) → remontée en haut. push(angle, ms) renvoie, à chaque remontée,
-// { rep, depth (angle le plus fermé), down (durée de la descente en ms), full (depth ≤ deep : amplitude atteinte) }, sinon null.
-function repCounter({ top, start, deep }) {
-  let down = false, min = 180, topAt = 0, bottomAt = 0, count = 0;
-  return {
-    push(angle, t) {
-      if (!down) {
-        if (angle >= top) topAt = t;
-        else if (angle < start) { down = true; min = angle; bottomAt = t; }
-        return null;
-      }
-      if (angle < min) { min = angle; bottomAt = t; }
-      if (angle < top) return null;
-      const event = { rep: ++count, depth: Math.round(min), down: bottomAt - topAt, full: min <= deep };
-      down = false;
-      topAt = t;
-      return event;
-    },
-  };
-}
-
 // Courbe indicative sur `weeks` semaines au rythme du niveau.
 function project(kg, level, weeks = 8) {
   return Array.from({ length: weeks }, (_, w) => roundHalf(kg * (1 + LEVELS[level].weekly) ** (w + 1)));
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { recovery, jointAngle, repCounter, withoutUndone, balance, pushPull, PUSH_ZONES, PULL_ZONES, express, sessionMinutes, plates, plateChange, recordKind, daysOff, comeback, gearList, targetReps, generate, exerciseCount, backToBack, swap, repair, renew, available, cancelled, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
-    kgLabel, range, ISOLATION_ZONES, SLOTS, SESSIONS, GOALS, LEVELS, ZONES, CUES, TAGS, BODYWEIGHT, MAX_DAYS, LEARNING, CYCLE_WEEKS };
+  module.exports = { recovery, withoutUndone, balance, pushPull, PUSH_ZONES, PULL_ZONES, express, sessionMinutes, plates, plateChange, recordKind, daysOff, comeback, gearList, targetReps, generate, exerciseCount, backToBack, swap, repair, renew, available, cancelled, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
+    kgLabel, range, ISOLATION_ZONES, SLOTS, SESSIONS, GOALS, LEVELS, ZONES, CUES, TAGS, BODYWEIGHT, isBodyweight, MAX_DAYS, LEARNING, CYCLE_WEEKS };
 }
