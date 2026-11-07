@@ -150,8 +150,9 @@ async function projectSheet() {
     title: 'Écran projeté',
     text: !state.screen.on ? 'Projection arrêtée.' : projected() ? "La séance s'affiche sur l'écran : ton iPhone sert de télécommande." : `Écran pas encore connecté : ouvre ${TV_URL} sur la TV ou l'ordinateur.`,
     actions: [state.screen.on ? { label: 'Arrêter la projection', value: 'off' } : { label: 'Projeter', value: 'on', variant: 'primary' },
-      { label: 'Associer un autre écran', value: 'pair' }, { label: 'Fermer', value: null }],
+      { label: "Partager le lien de l'écran", value: 'share' }, { label: 'Associer un autre écran', value: 'pair' }, { label: 'Fermer', value: null }],
   });
+  if (choice === 'share') shareTvLink();
   if (choice === 'off') {
     stopCam();
     // L'écran affiche « Rien n'est projeté » ; le serveur garde cet état, une page rechargée le retrouve.
@@ -170,10 +171,22 @@ async function pairSheet() {
   const go = await choose({
     title: 'Projeter sur un écran',
     text: `Sur ta TV ou ton ordinateur, ouvre ${TV_URL} dans le navigateur, puis tape ici le code affiché.`,
-    extra: input,
+    extra: h('div', { className: 'stack' }, input, button("Partager le lien de l'écran", shareTvLink, { variant: 'plain', icon: 'share' })),
     actions: [{ label: 'Connecter', value: true, variant: 'primary' }, { label: 'Annuler', value: null }],
   });
   if (go) pair(input.value.trim());
+}
+
+// Ailleurs que chez soi (salle, ami) : le lien de la page écran à envoyer ou ouvrir sur l'autre appareil. Feuille de partage iOS,
+// sinon copié.
+async function shareTvLink() {
+  const url = `https://${TV_URL}/`;
+  try {
+    if (navigator.share) return await navigator.share({ title: 'Steady · Écran', text: 'Ouvre ce lien sur la TV ou l\'ordinateur pour afficher ta séance.', url });
+  } catch (err) {
+    if (err.name === 'AbortError') return; // partage annulé
+  }
+  try { await navigator.clipboard.writeText(url); toast('Lien copié', 'success'); } catch { toast(`Copie impossible : ouvre ${TV_URL} sur l'écran.`, 'warning'); }
 }
 
 // Appairage : l'écran attend dans une salle temporaire « pair-code » ; l'iPhone lui donne la salle permanente, gardée des deux côtés.
