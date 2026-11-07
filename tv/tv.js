@@ -325,7 +325,7 @@ function fullscreen() {
 // de la série affichée et vérifie l'amplitude ; le compte part vers l'iPhone, qui remplit son compteur. Calcul sur l'appareil,
 // aucune image envoyée. Squats et fentes (genou), développés (coude) : snapshot.ex.cam. Bibliothèque chargée seulement si on l'active.
 // Constantes, modèle (poseModel), jointAngle et repCounter : shared.js.
-let mirror = null; // { stream, remote, model, counter, key, reps, data, smooth }
+let mirror = null; // { stream, remote, model, tracker, key, reps, data, off }
 
 function mirrorSay(textValue, warn) {
   const node = $('mirror-say');
@@ -338,6 +338,7 @@ function hideMirror() {
   mirror = null;
   $('mirror').hidden = true;
   document.querySelector('.ex').classList.remove('mirroring');
+  document.querySelector('.ex').parentNode.classList.remove('mirroring');
 }
 // remote : flux de la caméra de l'iPhone (voir acceptVideo), il remplace la webcam de l'écran.
 function setMirror(on, remote) {
@@ -357,13 +358,14 @@ function setMirror(on, remote) {
   $('mirror').hidden = false;
   $('mirror').classList.toggle('remote', !!remote);
   document.querySelector('.ex').classList.add('mirroring');
+  document.querySelector('.ex').parentNode.classList.add('mirroring'); // colonne de l'image élargie
   $('mirror-count').textContent = '';
   if (remote) { video.srcObject = remote; video.play().catch(() => {}); } // l'image tout de suite, le suivi du corps ensuite
   mirrorSay(remote ? 'Caméra de l\'iPhone' : 'Préparation de la caméra…');
   const source = remote ? Promise.resolve(remote) : navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
   Promise.all([source, poseModel()]).then((res) => {
     if (mirror !== me) { if (!remote) res[0].getTracks().forEach((t) => t.stop()); return; }
-    Object.assign(me, { stream: res[0], model: res[1], key: null, reps: 0, data: [], smooth: null, counter: null, kind: null });
+    Object.assign(me, { stream: res[0], model: res[1], key: null, reps: 0, data: [], tracker: null, kind: null, off: 0 });
     if (!remote) { video.srcObject = res[0]; video.play().catch(() => {}); }
     mirrorFrame(me);
   }, (err) => {
@@ -393,51 +395,48 @@ function acceptVideo(sdp) {
     .catch(() => { if (rtc === pc) closeVideo(); });
 }
 
+// Messages quand le comptage est suspendu (affichés après 0,8 s, pour ne pas clignoter).
+const HOLD = { none: 'Je ne te vois pas : place-toi face à la caméra.', moving: 'Reste sur place pour que je compte.',
+  switch: "Quelqu'un passe : comptage suspendu.", paused: 'Repos : je reprends à la série suivante.' };
 function mirrorFrame(me) {
   if (mirror !== me || !me.model) return;
   const video = $('mirror-video'), canvas = $('mirror-canvas'), ctx = canvas.getContext('2d');
   // Nouvelle série affichée : le compte repart de zéro.
   const key = snapshot && snapshot.ex && snapshot.set ? snapshot.ex.id + '|' + snapshot.set.n : null, kind = snapshot && snapshot.ex ? snapshot.ex.cam : null;
   if (key !== mirror.key || kind !== mirror.kind) {
-    Object.assign(mirror, { key: key, kind: kind, reps: 0, data: [], smooth: null, counter: kind ? repCounter(COUNTER[kind]) : null, hips: [] });
+    Object.assign(mirror, { key: key, kind: kind, reps: 0, data: [], tracker: kind ? poseTracker(kind) : null, off: 0 });
     $('mirror-count').textContent = kind ? '0' : '';
     mirrorSay(kind ? 'Je compte tes répétitions.' : (key ? 'Comptage disponible pour les squats, les fentes, les pompes et les développés.' : 'Miroir actif.'));
   }
   if (video.readyState >= 2 && video.videoWidth) {
-    const w = canvas.width = video.videoWidth, hh = canvas.height = video.videoHeight;
-    const res = mirror.model.detectForVideo(video, performance.now());
-    const p = res.landmarks && res.landmarks[0];
-    if (p) {
-      const at = (k) => ({ x: p[k].x * w, y: p[k].y * hh, v: p[k].visibility == null ? 1 : p[k].visibility });
-      ctx.lineWidth = 6;
-      ctx.strokeStyle = '#c8441d';
-      BONES.forEach((b) => { const a = at(b[0]), c = at(b[1]); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(c.x, c.y); ctx.stroke(); });
-      // On ne compte que pendant une série (pas au repos), corps entier dans l'image et sur place : s'approcher ou repartir en
-      // bougeant les bras ne doit pas compter de répétitions (le bassin qui se déplace de plus de 15 % de l'image en 1 s = tu marches).
-      const now = performance.now(), hip = (at(23).x + at(24).x) / 2 / w;
-      mirror.hips = mirror.hips.filter((q) => now - q.t < 1000).concat([{ t: now, x: hip }]);
-      const walking = Math.max.apply(null, mirror.hips.map((q) => q.x)) - Math.min.apply(null, mirror.hips.map((q) => q.x)) > 0.15;
-      const whole = (mirror.kind === 'knee' ? [0, 27, 28] : [11, 12, 15, 16]).every((k) => (p[k].visibility == null ? 1 : p[k].visibility) > 0.5);
-      if (mirror.counter && (rest || walking || !whole)) mirror.smooth = null; // reprise à zéro de l'angle : pas de demi-répétition comptée
-      if (mirror.counter && !rest && !walking && whole) {
-        const side = JOINTS[mirror.kind].map((j) => j.map(at)).sort((s1, s2) => Math.min.apply(null, s2.map((q) => q.v)) - Math.min.apply(null, s1.map((q) => q.v)))[0];
-        if (Math.min.apply(null, side.map((q) => q.v)) > 0.5) {
-          const angle = jointAngle(side[0], side[1], side[2]);
-          mirror.smooth = mirror.smooth == null ? angle : mirror.smooth * 0.6 + angle * 0.4;
-          const ev = mirror.counter.push(mirror.smooth, performance.now());
-          if (ev) {
-            mirror.reps = ev.rep;
-            mirror.data.push({ depth: ev.depth, down: ev.down, full: ev.full });
-            $('mirror-count').textContent = String(ev.rep);
-            const bad = !ev.full ? 'plus bas' : ev.down < 1000 ? 'plus lent' : '';
-            mirrorSay(!ev.full ? 'Amplitude incomplète : descends plus bas.' : ev.down < 1000 ? 'Descente trop rapide : contrôle-la.' : 'Répétition ' + ev.rep + ' : bonne amplitude.', !!bad);
-            // Micro de l'iPhone ouvert : pas de nombre dit à voix haute (il pourrait le prendre pour ta réponse).
-            if (snapshot.voice) { if (bad) speak(snapshot.mic === 'on' ? bad : ev.rep + ', ' + bad); else if (snapshot.mic !== 'on') speak(String(ev.rep)); }
-            if (sock && sock.readyState === 1) sock.send(JSON.stringify({ type: 'reps', key: mirror.key, n: ev.rep, data: mirror.data }));
-          }
-        }
+    const w = canvas.width = video.videoWidth, hh = canvas.height = video.videoHeight, now = performance.now();
+    const res = mirror.model.detectForVideo(video, now);
+    if (mirror.tracker) {
+      // Pendant la série seulement, la bonne personne, entière et sur place : voir poseTracker (shared.js).
+      const r = mirror.tracker.update(res.landmarks, now, !!rest, w / hh);
+      if (r.pose) {
+        const at = (k) => ({ x: r.pose[k].x * w, y: r.pose[k].y * hh });
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = '#c8441d';
+        BONES.forEach((b) => { const a = at(b[0]), c = at(b[1]); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(c.x, c.y); ctx.stroke(); });
+        if (r.side) { ctx.fillStyle = '#fff'; r.side.forEach((k) => { const q = at(k); ctx.beginPath(); ctx.arc(q.x, q.y, 9, 0, 2 * Math.PI); ctx.fill(); }); }
       }
-    }
+      if (r.state === 'ok') mirror.off = 0;
+      else if (!mirror.off) mirror.off = now;
+      else if (now - mirror.off > 800) mirrorSay(r.state === 'partial' ? (mirror.kind === 'knee' ? 'Recule : la tête et les pieds doivent être dans l\'image.' : 'Recule : épaules et mains doivent être dans l\'image.') : HOLD[r.state], r.state !== 'paused');
+      const ev = r.ev;
+      if (ev && ev.partial) mirrorSay('Pas assez bas : répétition non comptée.', true); // rien n'est dit : un geste anodin ne doit pas faire parler
+      else if (ev) {
+        mirror.reps = ev.rep;
+        mirror.data.push({ depth: ev.depth, down: ev.down, full: ev.full });
+        $('mirror-count').textContent = String(ev.rep);
+        const bad = !ev.full ? 'plus bas' : ev.down < 1000 ? 'plus lent' : '';
+        mirrorSay(!ev.full ? 'Amplitude incomplète : descends plus bas.' : ev.down < 1000 ? 'Descente trop rapide : contrôle-la.' : 'Répétition ' + ev.rep + ' : bonne amplitude.', !!bad);
+        // Micro de l'iPhone ouvert : pas de nombre dit à voix haute (il pourrait le prendre pour ta réponse).
+        if (snapshot.voice) { if (bad) speak(snapshot.mic === 'on' ? bad : ev.rep + ', ' + bad); else if (snapshot.mic !== 'on') speak(String(ev.rep)); }
+        if (sock && sock.readyState === 1) sock.send(JSON.stringify({ type: 'reps', key: mirror.key, n: ev.rep, data: mirror.data }));
+      }
+    } else ctx.clearRect(0, 0, w, hh);
   }
   requestAnimationFrame(() => mirrorFrame(me));
 }

@@ -53,6 +53,18 @@ function toggleMirror() {
 
 // Caméra de l'iPhone sur l'écran : la vidéo part en direct vers l'écran (WebRTC, d'appareil à appareil sur le Wi-Fi), le serveur
 // ne relaie que l'offre et la réponse. L'écran l'affiche en miroir et compte les répétitions, comme avec sa propre webcam.
+// Caméra du miroir (Réglages > Séance) : avant, ou arrière ultra grand-angle (cadre bien plus large : tu restes plus près ;
+// iPhone retourné, écran vers le mur). Les noms des caméras ne sont lisibles qu'une fois l'accès autorisé.
+async function mirrorStream() {
+  const size = { width: { ideal: 1280 }, height: { ideal: 720 } };
+  if (state.config.mirrorCam !== 'back') return navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', ...size }, audio: false });
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', ...size }, audio: false });
+  const wide = (await navigator.mediaDevices.enumerateDevices()).find((d) => d.kind === 'videoinput' && /ultra/i.test(d.label));
+  if (!wide || stream.getVideoTracks()[0]?.getSettings().deviceId === wide.deviceId) return stream;
+  stream.getTracks().forEach((track) => track.stop());
+  return navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: wide.deviceId }, ...size }, audio: false });
+}
+
 async function startCam() {
   if (link.cam || link.socket?.readyState !== 1 || !window.RTCPeerConnection) return;
   link.camWanted = true;
@@ -60,7 +72,7 @@ async function startCam() {
   ui.mirror = true;
   refreshStatus();
   try {
-    me.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    me.stream = await mirrorStream();
     if (link.cam !== me) return me.stream.getTracks().forEach((track) => track.stop());
     const pc = (me.pc = new RTCPeerConnection({ iceServers: ICE }));
     me.stream.getTracks().forEach((track) => pc.addTrack(track, me.stream));

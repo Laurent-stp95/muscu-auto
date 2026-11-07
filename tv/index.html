@@ -150,7 +150,9 @@
   .mirror-say { position: absolute; left: 1rem; right: 1rem; bottom: 1rem; padding: .5rem 1rem; border-radius: var(--r-m); background: rgba(0, 0, 0, .6); font-size: 1.5rem; font-weight: 600; text-align: center; }
   .mirror-say.warn { color: #ffd60a; }
   .mirroring .visual { display: none; }
-  .ex.mirroring { grid-template-rows: minmax(0, 1fr) auto auto; }
+  .ex.mirroring { grid-template-rows: minmax(0, 1fr) auto; }
+  .ex.mirroring .cues { display: none; } /* toute la hauteur pour l'image */
+  @media (min-aspect-ratio: 4/3) { .cols.mirroring { grid-template-columns: 62fr 38fr; } }
   .fs2 { right: calc(2vw + 4.5rem); }
 
   /* Plein écran : bouton rond en bas à droite, visible seulement quand la souris bouge (souris cachée sinon) */
@@ -288,7 +290,7 @@
 </button>
 
 <script src="../push-config.js"></script>
-<script src="../shared.js?v=1"></script> <!-- v à changer avec shared.js -->
-<script src="tv.js?v=15"></script> <!-- v à changer avec tv.js -->
+<script src="../shared.js?v=2"></script> <!-- v à changer avec shared.js -->
+<script src="tv.js?v=16"></script> <!-- v à changer avec tv.js -->
 </body>
 </html>

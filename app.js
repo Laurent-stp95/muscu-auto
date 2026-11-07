@@ -389,6 +389,7 @@ function stepFirstWeek(d) {
 
 function openSettings() {
   ui.draft = structuredClone(state.config);
+  ui.draft.mirrorCam ||= 'front';
   show('settings');
 }
 
@@ -414,6 +415,8 @@ function settings() {
     section('Séance',
       h('div', { className: 'list' }, toggle('Coach vocal', d.voice !== false, (v) => { d.voice = v; })),
       h('p', { className: 'caption' }, "Annonce la série suivante, la fin du repos et tes records. Sur l'écran projeté s'il est connecté, sinon sur l'iPhone."),
+      h('div', { className: 'stack tight' }, h('span', {}, 'Caméra du miroir'), pills(d, 'mirrorCam', [['front', 'Avant'], ['back', 'Arrière grand-angle']])),
+      h('p', { className: 'caption' }, "Pour la pastille Miroir. L'arrière grand-angle cadre bien plus large : tu restes plus près. Pose l'iPhone écran vers le mur."),
       state.screen && h('div', { className: 'line' }, h('span', {}, 'Écran projeté'), button("Oublier l'écran", forgetScreen, { variant: 'plain', className: 'btn plain destructive' }))),
     section('Notifications', notifyEditor(d)),
     section('Appli',

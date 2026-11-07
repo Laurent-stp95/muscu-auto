@@ -2,7 +2,10 @@
 // L'iPhone posé de côté suit ton corps (MediaPipe, calcul sur l'appareil, aucune image envoyée), compte les répétitions
 // et vérifie l'amplitude et la vitesse de descente : genou pour les squats et fentes, coude pour les développés.
 // Modèle, constantes et compteur partagés avec l'écran projeté : shared.js.
-const cameraKind = (e) => (e.zone === 'quad' ? 'knee' : ['chest', 'shoulders'].includes(e.zone) ? 'elbow' : null);
+// Mouvements où le coude ou le genou se plie peu, ou où l'on avance : pas de comptage (fentes marchées, écarté, élévations
+// latérales, oiseau, haussements d'épaules).
+const NO_COUNT = new Set([206, 238, 348, 828, 571, 572]);
+const cameraKind = (e) => (NO_COUNT.has(e.id) ? null : e.zone === 'quad' ? 'knee' : ['chest', 'shoulders'].includes(e.zone) ? 'elbow' : null);
 
 function repFeedback(kind, ev) {
   if (!ev.full) return { text: kind === 'knee' ? "Amplitude incomplète : descends jusqu'aux cuisses parallèles." : 'Amplitude incomplète : descends plus bas.', voice: `${ev.rep}, plus bas` };
@@ -50,53 +53,43 @@ async function cameraCoach(f) {
   const fit = () => video.parentElement.classList.toggle('crop', video.videoWidth > video.videoHeight && innerHeight > innerWidth);
   fit();
   video.addEventListener('resize', fit);
-  const counter = repCounter(COUNTER[kind]);
+  const tracker = poseTracker(kind); // bonne personne, entière, sur place, même côté : voir shared.js
   const ctx = canvas.getContext('2d');
-  const whole = kind === 'knee' ? [0, 27, 28] : [11, 12, 15, 16]; // tête et chevilles, ou épaules et poignets
   const before = technique(f.x.e).at(-1);
-  let hips = [];
-  let smooth = null, lost = 0, said = `Vas-y : je compte.${before ? ` La dernière fois : ${before.depth}° au point bas, descente ${(before.down / 1000).toFixed(1).replace('.', ',')} s.` : ''}`;
+  let off = 0, said = `Vas-y : je compte.${before ? ` La dernière fois : ${before.depth}° au point bas, descente ${(before.down / 1000).toFixed(1).replace('.', ',')} s.` : ''}`;
   const tell = (text, warn = false) => { hint.textContent = text; hint.classList.toggle('warn', warn); };
+  const HOLD = { none: 'Je ne te vois pas : place-toi face à l\'iPhone.', moving: 'Reste sur place pour que je compte.',
+    switch: 'Quelqu\'un passe : comptage suspendu.', paused: 'Repos en cours : je compte à la série suivante.',
+    partial: kind === 'knee' ? 'Recule un peu : la tête et les pieds doivent être dans l\'image.' : 'Recule un peu : épaules et mains doivent être dans l\'image.' };
   const frame = () => {
     if (closed) return;
     if (video.readyState >= 2 && video.videoWidth) {
-      const w = (canvas.width = video.videoWidth), hh = (canvas.height = video.videoHeight);
-      const p = model.detectForVideo(video, performance.now()).landmarks?.[0];
-      // Corps pas entier dans l'image depuis plus d'une seconde : on demande de reculer.
-      const visible = p && whole.every((k) => (p[k].visibility ?? 1) > 0.5);
-      lost = visible ? 0 : lost || performance.now();
-      if (lost && performance.now() - lost > 1000) tell(kind === 'knee' ? 'Recule un peu : la tête et les pieds doivent être dans l\'image.' : 'Recule un peu : épaules et mains doivent être dans l\'image.', true);
-      else if (!lost) tell(said);
-      if (p) {
-        const at = (k) => ({ x: p[k].x * w, y: p[k].y * hh, v: p[k].visibility ?? 1 });
-        // Sur place et corps entier seulement : s'approcher de l'iPhone en bougeant les bras ne compte pas.
-        const now = performance.now(), hip = (at(23).x + at(24).x) / 2 / w;
-        hips = hips.filter((q) => now - q.t < 1000).concat([{ t: now, x: hip }]);
-        const still = Math.max(...hips.map((q) => q.x)) - Math.min(...hips.map((q) => q.x)) <= 0.15;
+      const w = (canvas.width = video.videoWidth), hh = (canvas.height = video.videoHeight), now = performance.now();
+      const r = tracker.update(model.detectForVideo(video, now).landmarks, now, !!rest, w / hh);
+      // Comptage suspendu depuis plus de 0,8 s : on dit pourquoi.
+      off = r.state === 'ok' ? 0 : off || now;
+      if (off && now - off > 800) tell(HOLD[r.state], r.state !== 'paused');
+      else if (!off) tell(said);
+      if (r.pose) {
+        const at = (k) => ({ x: r.pose[k].x * w, y: r.pose[k].y * hh });
         ctx.lineWidth = 4;
         ctx.strokeStyle = '#c8441d';
         for (const [a, b] of BONES) { ctx.beginPath(); ctx.moveTo(at(a).x, at(a).y); ctx.lineTo(at(b).x, at(b).y); ctx.stroke(); }
-        // Côté le plus visible de la caméra (de profil, l'autre est caché).
-        const side = JOINTS[kind].map((joint) => joint.map(at)).sort((s1, s2) => Math.min(...s2.map((q) => q.v)) - Math.min(...s1.map((q) => q.v)))[0];
-        if (!still || !visible) smooth = null;
-        if (still && visible && Math.min(...side.map((q) => q.v)) > 0.5) {
-          ctx.fillStyle = '#fff';
-          side.forEach((q) => { ctx.beginPath(); ctx.arc(q.x, q.y, 7, 0, 2 * Math.PI); ctx.fill(); });
-          const angle = jointAngle(...side);
-          smooth = smooth == null ? angle : smooth * 0.6 + angle * 0.4; // lissage : le suivi tremble d'une image à l'autre
-          const ev = counter.push(smooth, performance.now());
-          if (ev) {
-            reps = ev.rep;
-            data.push({ depth: ev.depth, down: ev.down, full: ev.full });
-            count.textContent = String(reps);
-            ok.disabled = false;
-            ok.lastChild.textContent = `Valider ${plural(reps, 'répétition')}`;
-            const feedback = repFeedback(kind, ev);
-            said = feedback.text;
-            tell(said);
-            speak(micOpen() ? feedback.voice.replace(/^\d+,?\s*/, '') : feedback.voice, true); // micro ouvert : pas le numéro
-          }
-        }
+        ctx.fillStyle = '#fff';
+        r.side?.forEach((k) => { const q = at(k); ctx.beginPath(); ctx.arc(q.x, q.y, 7, 0, 2 * Math.PI); ctx.fill(); });
+      }
+      const ev = r.ev;
+      if (ev?.partial) tell('Pas assez bas : répétition non comptée.', true);
+      else if (ev) {
+        reps = ev.rep;
+        data.push({ depth: ev.depth, down: ev.down, full: ev.full });
+        count.textContent = String(reps);
+        ok.disabled = false;
+        ok.lastChild.textContent = `Valider ${plural(reps, 'répétition')}`;
+        const feedback = repFeedback(kind, ev);
+        said = feedback.text;
+        tell(said);
+        speak(micOpen() ? feedback.voice.replace(/^\d+,?\s*/, '') : feedback.voice, true); // micro ouvert : pas le numéro
       }
     }
     requestAnimationFrame(frame);
