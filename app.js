@@ -510,11 +510,11 @@ function banner(name, title, ...content) {
 const weekday = (date = new Date()) => (date.getDay() + 6) % 7; // 0 = lundi
 
 // Séances faites cette semaine (ahead : la semaine suivante), par jour : { t, sets, session }. Une séance abandonnée, vide
-// ou remise à faire ne compte pas. Une séance compte pour la semaine de son début, ou pour celle notée au départ (week :
+// ou réinitialisée ne compte pas. Une séance compte pour la semaine de son début, ou pour celle notée au départ (week :
 // séance faite en avance, quand plus rien n'était prévu d'ici dimanche).
 const weekOf = (x) => x.week || monday(new Date(x.t)).toISOString();
 function doneThisWeek(ahead = false) {
-  // « Repartir de zéro cette semaine » : les séances d'avant la remise à zéro ne comptent plus pour la semaine (le suivi les garde).
+  // « Réinitialiser la semaine » : les séances d'avant la réinitialisation ne comptent plus pour la semaine (le suivi les garde).
   const reset = log.findLast((x) => x.type === 'week-reset')?.t || '';
   const week = monday(new Date(Date.now() + (ahead ? 7 * 864e5 : 0))).toISOString();
   const skip = cancelled(log), undone = sessionResets();
@@ -586,7 +586,7 @@ function dayCard(s, d, focused, done, nextWeek, date) {
     return h('section', { className: 'card' }, head,
       h('div', { className: 'stats' }, stat(String(sets.size), plural(sets.size, 'série', 'séries').replace(/^\d+ /, '')), stat(String(activeMinutes(finished.session)), 'min'), stat(volume.toLocaleString('fr-FR'), 'kg soulevés')),
       prs.length > 0 && listNote('flag', prs.length > 1 ? 'Records' : 'Record', prs),
-      h('div', { className: 'row' }, button('Refaire', () => start(d), { variant: 'plain', size: 'compact' }), button('Remettre à faire', () => resetSession(s, finished), { variant: 'plain', size: 'compact' })));
+      h('div', { className: 'row' }, button('Refaire', () => start(d), { variant: 'plain', size: 'compact' }), button('Réinitialiser', () => resetSession(s, finished), { variant: 'plain', size: 'compact' })));
   }
   const rest = entries.slice(3);
   const gear = !active && h('p', { className: 'caption' }, `À préparer : ${preview(s, nextWeek).gear.join(', ')}`);
@@ -680,7 +680,7 @@ async function weekOptions() {
   const variant = canReroll();
   const choice = await choose({ title: 'Options de la semaine',
     text: variant ? null : "Exercices fixes jusqu'à la fin du cycle, pour apprendre les gestes et progresser. « Remplacer » reste possible sur chaque exercice.",
-    actions: [canResetWeek(doneThisWeek()) && { label: 'Repartir de zéro cette semaine', value: 'reset' }, variant && { label: 'Générer une autre variante', value: 'reroll' }, { label: 'Fermer', value: null }].filter(Boolean) });
+    actions: [canResetWeek(doneThisWeek()) && { label: 'Réinitialiser la semaine', value: 'reset' }, variant && { label: 'Générer une autre variante', value: 'reroll' }, { label: 'Fermer', value: null }].filter(Boolean) });
   if (choice === 'reset') resetWeek();
   if (choice === 'reroll') reroll();
 }
@@ -718,25 +718,29 @@ function recoveryCard(plan, done, focus) {
       h('div', {}, button(`Faire ${DAYS[best.s.day].toLowerCase()} · ${best.s.name}`, () => start(best.d), { size: 'compact', icon: 'play' }))));
 }
 
-// Une seule séance redevient à faire (faite par erreur, à refaire) ; ses séries restent dans le suivi. Annulable 5 s.
+// Réinitialiser une séance : elle redevient à faire (faite par erreur, à refaire) ; ses séries restent dans le suivi. Annulable 5 s.
 async function resetSession(s, finished) {
-  if (!await ask({ title: `Remettre ${DAYS[s.day].toLowerCase()} · ${s.name} à faire ?`, text: 'La séance redevient à faire cette semaine. Ses séries restent dans ton suivi.', confirm: 'Remettre à faire' })) return;
+  // Toujours confirmé : on dit ce qui change (la séance redevient à faire) et ce qui ne bouge pas (les séries du suivi).
+  const when = `${DAYS[weekday(new Date(finished.t))].toLowerCase()} à ${clock(finished.t)}`;
+  if (!await ask({ title: `Réinitialiser ${DAYS[s.day].toLowerCase()} · ${s.name} ?`,
+    text: `Faite ${when}, ${plural(finished.sets, 'série')}. Elle redevient à faire cette semaine. Tes séries restent dans ton suivi : courbes, records et historique.`,
+    confirm: 'Réinitialiser', danger: true })) return;
   record({ type: 'session-reset', target: finished.session });
   show('week');
-  toast('Séance remise à faire', 'success', () => { record({ type: 'session-restore', target: finished.session }); render(); });
+  toast('Séance réinitialisée', 'success', () => { record({ type: 'session-restore', target: finished.session }); render(); });
 }
 
 // Toutes les séances de la semaine redeviennent à faire ; les séries déjà faites restent dans le suivi (courbes, records, historique).
 async function resetWeek() {
   const text = `Toutes les séances de la semaine redeviennent à faire. Les séries déjà faites restent dans ton suivi.${state.active ? ' La séance en cours sera terminée et enregistrée.' : ''}`;
-  if (!await ask({ title: 'Repartir de zéro cette semaine ?', text, confirm: 'Repartir de zéro' })) return;
+  if (!await ask({ title: 'Réinitialiser la semaine ?', text, confirm: 'Réinitialiser', danger: true })) return;
   if (state.active) closeSession();
   record({ type: 'week-reset' });
   ui.at = ui.pick = null;
   save();
   show('week');
   scrollTo(0, 0);
-  toast('Semaine remise à zéro', 'success');
+  toast('Semaine réinitialisée', 'success');
 }
 
 // Efface tout le suivi (séances, séries, ressentis, douleurs, technique) ; profil, matériel et programme restent, le cycle repart.
