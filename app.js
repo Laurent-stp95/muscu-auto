@@ -540,7 +540,7 @@ function dayCard(s, d, focused, done, nextWeek) {
     h('div', { className: 'list' }, s.items.map((item, i) => {
       const e = byId.get(item.ex);
       return lazy('ex',
-        h('summary', {}, h('span', { className: 'stack tight' }, h('span', { className: 'row' }, h('strong', {}, e.name), isFresh(e.id) && h('span', { className: 'badge' }, 'Nouveau')), h('span', { className: 'meta' }, `${prescriptionText(e, effective(item))} · ${muscles(e)}`)), icon('chevron', 'chev')),
+        h('summary', {}, h('span', { className: 'stack tight' }, h('strong', { className: 'with-badge' }, e.name, isFresh(e.id) && h('span', { className: 'badge' }, 'Nouveau')), h('span', { className: 'meta' }, `${prescriptionText(e, effective(item))} · ${muscles(e)}`)), icon('chevron', 'chev')),
         () => h('div', { className: 'ex-body' }, exerciseInfo(e), !state.active && h('div', {}, button('Remplacer', () => replace(d, i), { size: 'compact' }))));
     })));
   details.addEventListener('toggle', () => { (ui.open ||= {})[s.day] = details.open; }); // garde le choix jusqu'au prochain lancement
@@ -621,7 +621,7 @@ function recoveryCard(plan, done, focus) {
     best && best.d !== focus.index && h('div', { className: 'stack' },
       h('p', { className: 'note' }, icon('leaf'), `Aujourd'hui, ${DAYS[best.s.day].toLowerCase()} · ${best.s.name} tombe mieux : ses muscles sont les plus récupérés.`),
       h('div', {}, button(`Faire ${DAYS[best.s.day].toLowerCase()} · ${best.s.name}`, () => start(best.d), { size: 'compact', icon: 'play' }))),
-    h('p', { className: 'caption' }, "Rouge : encore fatigué ; plus c'est pâle, plus c'est récupéré. Estimation d'après tes séries des 5 derniers jours."));
+    h('p', { className: 'caption' }, "Vert : récupéré, jaune : en cours, rouge : fatigué. Sur les schémas, plus le rouge est vif, plus le muscle est fatigué. D'après tes séries des 5 derniers jours."));
 }
 
 // Toutes les séances de la semaine redeviennent à faire ; les séries déjà faites restent dans le suivi (courbes, records, historique).
@@ -887,7 +887,7 @@ function sessionSummary() {
   const prs = [...sets.values()].filter((x) => x.pr && byId.has(x.ex)).map((x) => `${byId.get(x.ex).name} : ${setText(byId.get(x.ex), x.kg, x.reps)}`);
   const stat = (value, label) => h('div', { className: 'stat' }, h('strong', {}, value), h('span', { className: 'caption' }, label));
   return h('div', { className: 'stack' },
-    h('div', { className: 'stats' }, stat(`${sets.size}/${planned}`, planned > 1 ? 'séries' : 'série'), stat(`${activeMinutes(sid)} min`, 'effort'), stat(kgText(volume), 'volume')),
+    h('div', { className: 'stats' }, stat(`${sets.size}/${planned}`, planned > 1 ? 'séries' : 'série'), stat(`${activeMinutes(sid)} min`, 'effort'), stat(volume.toLocaleString('fr-FR'), 'kg soulevés')),
     prs.length > 0 && h('p', { className: 'note' }, icon('flag'), `${prs.length > 1 ? 'Records' : 'Record'} : ${prs.join(' · ')}`),
     skipped.length > 0 && h('p', { className: 'caption' }, `${skipped.length > 1 ? 'Pas commencés' : 'Pas commencé'} : ${skipped.join(', ')}.`));
 }
@@ -982,7 +982,7 @@ function session() {
     h('header', { className: 'navbar' },
       button('Pause', pause, { variant: 'plain', icon: 'pause', className: 'btn plain start' }),
       h('h1', {}, `${DAYS[s.day]} · ${s.name}`),
-      button('Arrêter', stopSession, { variant: 'plain', className: 'btn plain end' })),
+      button('Arrêter', stopSession, { variant: 'plain', className: 'btn plain end destructive' })),
     segmented([[false, 'Une série à la fois'], [true, 'Toute la séance']], list, (v) => { state.listMode = v; ui.pick = null; save(); render(); }),
     statusBar(list),
     cycle().deload && h('p', { className: 'note' }, icon('leaf'), 'Semaine allégée : moitié moins de séries, charges −10 %.'),
@@ -1635,13 +1635,17 @@ function weekReview() {
   const stat = (value, label) => h('div', { className: 'stat' }, h('strong', {}, value), h('span', { className: 'caption' }, label));
   return h('section', { className: 'card', id: 'bilan' },
     h('div', { className: 'line-head' }, h('h2', {}, 'Bilan de la semaine'), h('span', { className: 'meta' }, `depuis lundi`)),
-    h('div', { className: 'stats' }, stat(`${done}/${state.plan.length}`, 'séances'), stat(String(now.length), plural(now.length, 'série', 'séries').replace(/^\d+ /, '')), stat(kgText(volume(now)), 'volume')),
+    h('div', { className: 'stats' }, stat(`${done}/${state.plan.length}`, 'séances'), stat(String(now.length), plural(now.length, 'série', 'séries').replace(/^\d+ /, '')), stat(volume(now).toLocaleString('fr-FR'), 'kg soulevés')),
     prev.length > 0 && h('p', { className: 'caption' }, `Semaine dernière : ${plural(prev.length, 'série')}, ${kgText(volume(prev))}.`),
-    records.length > 0 && h('p', { className: 'note' }, icon('flag'), `${records.length > 1 ? 'Records' : 'Record'} : ${records.join(' · ')}`),
-    up.length > 0 && h('p', { className: 'note' }, icon('chart'), `Charges en hausse : ${up.join(' · ')}`),
+    records.length > 0 && listNote('flag', records.length > 1 ? 'Records' : 'Record', records),
+    up.length > 0 && listNote('chart', 'Charges en hausse', up),
     balanceNote(),
     !now.length && h('p', { className: 'caption' }, 'Pas encore de série cette semaine.'));
 }
+
+// Note à puce suivie d'une ligne par élément : plus lisible qu'une phrase enchaînée de « · ».
+const listNote = (name, title, lines) => h('div', { className: 'note' }, icon(name),
+  h('div', { className: 'stack tight' }, h('strong', { className: 'note-title' }, title), lines.map((l) => h('span', {}, l))));
 
 // Poussée / tirage sur 2 semaines : trop de poussée use les épaules ; le prochain cycle rééquilibre (balance() dans plan.js).
 function balanceNote() {
@@ -1740,7 +1744,7 @@ function progressCard(e, past) {
     points.length > 1 ? chart(points, ahead, withKg ? 'kg' : unitText(e)) : h('p', { className: 'caption' }, 'Ta courbe apparaîtra après ta deuxième séance de cet exercice.'),
     points.length > 1 && fixed != null && h('p', { className: 'caption' }, `Charge fixe (${kgLabel(e, fixed)}) : la courbe suit tes répétitions.`),
     techniqueBlock(e),
-    h('p', { className: 'meta' }, `Dernière séance (${new Date(last.t).toLocaleDateString('fr-FR')}) : ${last.sets.map((x) => (!isBodyweight(e) ? `${x.reps} × ${kgLabel(e, x.kg)}` : `${x.reps} ${unitText(e)}`)).join(' · ')}${last.tech === false ? ' · technique à revoir' : ''}`),
+    h('p', { className: 'meta' }, `Dernière séance, ${new Date(last.t).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' })} : ${last.sets.map((x) => (!isBodyweight(e) ? `${x.reps}\u00a0×\u00a0${kgLabel(e, x.kg)}` : `${x.reps}\u00a0${unitText(e)}`)).join(' · ')}${last.tech === false ? ' · technique à revoir' : ''}`),
     tip && h('p', { className: 'tip' }, tip.kg != null && h('strong', {}, `Prochaine : ${kgLabel(e, tip.kg)} · `), tip.note),
     ahead.length > 0 && h('p', { className: 'caption' }, `Repère ${LEVELS[level].label.toLowerCase()} : environ ${kgText(ahead.at(-1))} dans 8 semaines si tout se passe bien. Indicatif : la technique et l'absence de douleur passent avant.`));
 }
@@ -1751,7 +1755,8 @@ function chart(points, ahead, unit) {
   const future = ahead.map((y, i) => ({ x: points.at(-1).x + (i + 1) * WEEK, y }));
   const all = [...points, ...future];
   const xs = all.map((p) => p.x), ys = all.map((p) => p.y);
-  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const [x0, x1, low, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const y0 = low === y1 ? low : Math.min(low, Math.floor(y1 * 0.75)); // axe d'au moins 25 % de la valeur haute : un petit écart reste petit
   // Une seule séance : point au centre ; valeur qui ne change pas : ligne au milieu, une seule étiquette.
   const sx = (x) => (x1 === x0 ? W / 2 : P + ((x - x0) / (x1 - x0)) * (W - 2 * P)).toFixed(1);
   const sy = (y) => (y1 === y0 ? H / 2 : H - P - ((y - y0) / (y1 - y0)) * (H - 2 * P)).toFixed(1);

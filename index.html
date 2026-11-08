@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#e4572e">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Steady">
@@ -30,7 +31,7 @@
     :root { --bg: #000; --card: #1c1c1e; --fg: #fff; --muted: #98989f; --line: #38383a; --fill: rgb(120 120 128 / .24); --seg-on: #636366;
       --accent-ink: #ff8a5c; --accent-soft: color-mix(in srgb, #c8441d 26%, transparent);
       --ok-ink: #4cd964; --ok-soft: color-mix(in srgb, #1e7d46 30%, transparent); --warn-ink: #ffd60a;
-      --danger-ink: #ff6961; --danger-soft: color-mix(in srgb, #ff6961 18%, transparent); --shadow: 0 4px 20px rgb(0 0 0 / .6); }
+      --body-dim: brightness(.82); --danger-ink: #ff6961; --danger-soft: color-mix(in srgb, #ff6961 18%, transparent); --shadow: 0 4px 20px rgb(0 0 0 / .6); }
   }
   html { font: -apple-system-body; }
   @supports not (font: -apple-system-body) { html { font-size: 17px; font-family: system-ui, sans-serif; } }
@@ -62,7 +63,7 @@
   .stack.tight { gap: var(--s1); }
   .row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
   .top { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); min-height: var(--tap); }
-  .card { display: grid; gap: var(--s3); min-width: 0; padding: var(--s4); border-radius: var(--r-l); background: var(--card); }
+  .card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s3); min-width: 0; padding: var(--s4); border-radius: var(--r-l); background: var(--card); }
   .card .card { padding: var(--s3) 0 0; border-top: 1px solid var(--line); border-radius: 0; background: none; }
   .card-head { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); min-height: var(--tap); }
   .card-head h2 { min-width: 0; }
@@ -88,6 +89,7 @@
   .icon { width: 1.25em; height: 1.25em; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .note { display: flex; align-items: flex-start; gap: var(--s2); color: var(--muted); font-size: var(--t-subhead); }
   .note .icon { color: var(--accent-ink); }
+  .note-title { color: var(--fg); font-weight: 600; }
 
   /* Boutons : un seul composant, 4 variantes, toujours ≥ 44 pt, s'atténue au toucher comme sur iOS */
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--s2); min-width: var(--tap); min-height: var(--tap); padding: 0 var(--s4); border: 0; border-radius: var(--r-m); background: var(--accent-soft); color: var(--accent-ink); font-size: var(--t-body); font-weight: 600; white-space: nowrap; text-decoration: none; cursor: pointer; touch-action: manipulation; transition: opacity .12s; }
@@ -163,7 +165,7 @@
   video { display: block; width: 100%; max-height: 320px; border-radius: var(--r-s); background: #000; }
   .anatomy { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); }
   .bodies { display: flex; flex: none; gap: var(--s2); }
-  .body { position: relative; width: 96px; aspect-ratio: 200 / 369; border-radius: var(--r-s); background: #fff; }
+  .body { position: relative; width: 96px; aspect-ratio: 200 / 369; border-radius: var(--r-s); background: #fff; filter: var(--body-dim, none); } /* schémas wger sur blanc : atténués en mode sombre */
   .body img { position: absolute; top: 0; left: 0; width: 100%; }
   .legend { display: grid; gap: var(--s2); font-size: var(--t-subhead); }
   .dot { display: inline-block; width: 10px; height: 10px; margin-right: var(--s2); border-radius: 50%; }
@@ -173,6 +175,7 @@
   ul.cue { padding-left: calc(var(--s4) + 1.1em); }
   .badge { display: inline-flex; align-items: center; gap: 2px; flex: none; min-height: 24px; padding: 0 var(--s2); border-radius: var(--r-full); background: var(--accent-soft); color: var(--accent-ink); font-size: var(--t-footnote); font-weight: 600; white-space: nowrap; }
   .badge.ok { background: var(--ok-soft); color: var(--ok-ink); }
+  .with-badge .badge { margin-left: var(--s2); vertical-align: 1px; }
   .diff { max-height: 45vh; overflow-y: auto; }
   .diff s { color: var(--muted); }
   .diff .new { color: var(--fg); font-weight: 600; }
@@ -206,7 +209,9 @@
   .rest-time { color: var(--accent-ink); font-size: var(--t-display); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
   body.focus-mode .rest { display: none; }
   .big-icon { width: 40px; height: 40px; color: var(--accent); }
-  .focus-tools { justify-content: center; }
+  .focus-tools { display: grid; gap: var(--s2); }
+  .focus-tools .btn { width: 100%; }
+  .focus-tools > .row { display: grid; justify-items: center; }
   .session-tools { justify-content: center; }
   .status-bar { display: grid; justify-items: center; gap: var(--s1); }
   .status-bar .chips { justify-content: center; }

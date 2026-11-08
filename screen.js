@@ -107,7 +107,7 @@ function resumeCam() {
 function statusBar(list = state.listMode) {
   const pill = (label, name, on, onclick, warn) => chip(label, on, onclick, { iconName: name, variant: warn ? 'status warn' : 'status' });
   return h('div', { className: 'status-bar' }, h('div', { className: 'chips' },
-    pill(!state.screen?.on || projected() ? 'Écran' : 'Écran…', 'tv', projected(), projectSheet),
+    pill(!state.screen?.on || projected() ? 'Écran' : 'Écran en attente', 'tv', projected(), projectSheet),
     Recognition && !list && pill(mic.wanted && !mic.rec ? 'Micro coupé' : 'Micro', 'mic', !!mic.rec, () => (mic.rec ? stopEar() : startEar()), mic.wanted && !mic.rec),
     projected() && !list && pill('Miroir', 'camera', ui.mirror, toggleMirror)),
     mic.rec && h('button', { type: 'button', className: `caption heard${mic.lastHeard && Date.now() - mic.lastHeard.t < 10000 && mic.lastHeard.why ? ' ignored' : ''}`, onclick: voiceHelp },
