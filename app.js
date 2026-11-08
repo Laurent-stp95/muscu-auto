@@ -496,20 +496,32 @@ function banner(name, title, ...content) {
 
 const weekday = (date = new Date()) => (date.getDay() + 6) % 7; // 0 = lundi
 
-// Séances faites cette semaine (depuis lundi), par jour : { t, sets }. Une séance abandonnée ou vide ne compte pas.
-function doneThisWeek() {
+// Séances faites cette semaine (ahead : la semaine suivante), par jour : { t, sets, session }. Une séance abandonnée, vide
+// ou remise à faire ne compte pas. Une séance compte pour la semaine de son début, ou pour celle notée au départ (week :
+// séance faite en avance, quand plus rien n'était prévu d'ici dimanche).
+const weekOf = (x) => x.week || monday(new Date(x.t)).toISOString();
+function doneThisWeek(ahead = false) {
   // « Repartir de zéro cette semaine » : les séances d'avant la remise à zéro ne comptent plus pour la semaine (le suivi les garde).
   const reset = log.findLast((x) => x.type === 'week-reset')?.t || '';
-  const since = [monday(new Date()).toISOString(), reset].sort().at(-1);
-  const skip = cancelled(log);
+  const week = monday(new Date(Date.now() + (ahead ? 7 * 864e5 : 0))).toISOString();
+  const skip = cancelled(log), undone = sessionResets();
   const ended = new Set(log.filter((x) => x.type === 'end').map((x) => x.session));
   const done = new Map();
   for (const x of log) {
-    if (x.type !== 'start' || x.t < since || !ended.has(x.session) || skip.has(x.session)) continue;
+    if (x.type !== 'start' || x.t < reset || weekOf(x) !== week || !ended.has(x.session) || skip.has(x.session) || undone.has(x.session)) continue;
     const sets = sessionSets(x.session).size;
-    if (sets) done.set(x.day, { t: x.t, sets });
+    if (sets) done.set(x.day, { t: x.t, sets, session: x.session });
   }
   return done;
+}
+// Séances remises à faire une à une (journal en ajout seul : la dernière saisie pour une séance fait foi).
+function sessionResets() {
+  const out = new Set();
+  for (const x of log) {
+    if (x.type === 'session-reset') out.add(x.target);
+    if (x.type === 'session-restore') out.delete(x.target);
+  }
+  return out;
 }
 
 // Séance mise en avant : celle en cours, sinon la première pas faite à partir d'aujourd'hui,
@@ -518,6 +530,14 @@ function focusOf(plan, done) {
   if (state.active) return { index: state.active.day, nextWeek: false };
   const index = plan.findIndex((s) => s.day >= weekday() && !done.has(s.day));
   return index >= 0 ? { index, nextWeek: false } : { index: 0, nextWeek: true };
+}
+// Ce que montre Ma semaine : done = cette semaine (avancement), cards = statut des cartes. Plus rien de prévu d'ici dimanche :
+// les cartes passent à la semaine suivante, et une séance faite en avance y compte (sinon elle restait à « Commencer »).
+function weekFrame() {
+  const done = doneThisWeek(), focus = focusOf(state.plan, done);
+  if (!focus.nextWeek) return { done, cards: done, focus };
+  const cards = doneThisWeek(true), index = state.plan.findIndex((s) => !cards.has(s.day));
+  return { done, cards, focus: { index: Math.max(0, index), nextWeek: true } };
 }
 
 // Carte d'une séance : statut (en cours, en pause, terminée, aujourd'hui), actions, exercices repliés sauf la séance à venir.
@@ -533,7 +553,8 @@ function dayCard(s, d, focused, done, nextWeek) {
   const actions = active
     ? [button('Reprendre', () => start(d), { variant: 'primary', size: 'compact', icon: 'play' }), button('Arrêter', stopSession, { variant: 'gray', size: 'compact' })]
     : focused && !finished ? [button('Commencer la séance', () => start(d), { variant: 'primary', size: 'large', icon: 'play' })]
-    : [button(finished ? 'Refaire' : 'Commencer', () => start(d), { variant: finished ? 'gray' : undefined, size: 'compact' })];
+    : [button(finished ? 'Refaire' : 'Commencer', () => start(d), { variant: finished ? 'gray' : undefined, size: 'compact' }),
+      finished && button('Remettre à faire', () => resetSession(s, finished), { variant: 'plain', size: 'compact' })];
   const fresh = s.items.filter((item) => isFresh(item.ex)).length;
   const details = h('details', { className: 'more', open: ui.open?.[s.day] ?? focused },
     h('summary', {}, plural(s.items.length, 'exercice'), fresh > 0 && ` · ${fresh} nouveau${fresh > 1 ? 'x' : ''}`, icon('chevron', 'chev')),
@@ -554,22 +575,22 @@ function dayCard(s, d, focused, done, nextWeek) {
 }
 
 // Avancement de la semaine : un segment par séance, vert quand elle est faite, jour du jour en gras.
-function weekProgress(plan, done, focus) {
+function weekProgress(plan, done, focus, heading) {
   const count = plan.filter((s) => done.has(s.day)).length;
-  const title = !focus.nextWeek ? 'Cette semaine' : count === plan.length ? 'Semaine bouclée' : 'Semaine terminée';
+  // Rien de fait et plus rien de prévu d'ici dimanche (premier lancement un week-end, semaine sautée) : on regarde devant, pas « terminée » à 0.
+  const title = !focus.nextWeek ? 'Cette semaine' : count === plan.length ? 'Semaine bouclée' : count ? 'Semaine terminée' : 'Semaine prochaine';
   return h('section', { className: 'card' },
-    h('div', { className: 'line-head' }, h('h2', {}, title), h('span', { className: 'meta' }, `${count} sur ${plural(plan.length, 'séance')}`)),
+    h('div', { className: 'line-head' }, h('h2', {}, heading || title), h('span', { className: 'meta' }, `${count} sur ${plural(plan.length, 'séance')}`)),
     h('div', { className: 'week-bar', style: `grid-template-columns: repeat(${plan.length}, minmax(0, 1fr))` },
       plan.map((s) => h('div', { className: ['week-day', done.has(s.day) && 'done', s.day === weekday() && 'today'].filter(Boolean).join(' ') },
         h('span', { className: 'week-seg' }), h('span', { className: 'caption' }, DAYS[s.day].slice(0, 3))))),
-    focus.nextWeek && h('p', { className: 'caption' }, `Prochaine séance ${DAYS[plan[0].day].toLowerCase()}`));
+    focus.nextWeek && h('p', { className: 'caption' }, `Prochaine séance ${DAYS[plan[focus.index].day].toLowerCase()}`));
 }
 
 function week() {
   const { plan } = state;
   const { week: n, deload, ended } = cycle();
-  const done = doneThisWeek();
-  const focus = focusOf(plan, done);
+  const { done, cards, focus } = weekFrame();
   const copied = lastCopy();
   const backupDue = log.length > 0 && (!copied || daysAgo(copied) >= BACKUP_DAYS);
   return h('div', { className: 'screen' },
@@ -583,16 +604,16 @@ function week() {
       button('Lancer le nouveau cycle', newCycle, { variant: 'primary' })),
     deload && banner('leaf', 'Semaine allégée',
       h('p', {}, 'Moitié moins de séries et charges baissées de 10 %. Ce repos fait partie de la progression : il évite la fatigue qui mène aux blessures.')),
-    dayCard(plan[focus.index], focus.index, true, done, focus.nextWeek),
+    dayCard(plan[focus.index], focus.index, true, cards, focus.nextWeek),
     weekProgress(plan, done, focus),
-    recoveryCard(plan, done, focus),
+    recoveryCard(plan, cards, focus),
     // Rappel compact, toute la ligne se touche (comme une ligne de Réglages iOS).
     backupDue && h('button', { type: 'button', className: 'card notice', onclick: backup },
       h('span', { className: 'notice-icon' }, icon('save')),
       h('span', { className: 'stack tight' }, h('strong', {}, 'Sauvegarde ton journal'),
         h('span', { className: 'caption' }, copied ? `Dernière copie il y a ${plural(daysAgo(copied), 'jour')}` : "Ton suivi n'existe que sur cet iPhone")),
       icon('chevron', 'chev')),
-    plan.map((s, d) => d !== focus.index && dayCard(s, d, false, done, focus.nextWeek)),
+    plan.map((s, d) => d !== focus.index && dayCard(s, d, false, cards, focus.nextWeek)),
     (canResetWeek(done) || canReroll()) && h('div', { className: 'center' }, button('Options de la semaine', weekOptions, { variant: 'plain' })));
 }
 
@@ -639,6 +660,14 @@ function recoveryCard(plan, done, focus) {
     best && best.d !== focus.index && h('div', { className: 'stack' },
       h('p', { className: 'note' }, icon('leaf'), `Aujourd'hui, ${DAYS[best.s.day].toLowerCase()} · ${best.s.name} tombe mieux : ses muscles sont les plus récupérés.`),
       h('div', {}, button(`Faire ${DAYS[best.s.day].toLowerCase()} · ${best.s.name}`, () => start(best.d), { size: 'compact', icon: 'play' }))));
+}
+
+// Une seule séance redevient à faire (faite par erreur, à refaire) ; ses séries restent dans le suivi. Annulable 5 s.
+async function resetSession(s, finished) {
+  if (!await ask({ title: `Remettre ${DAYS[s.day].toLowerCase()} · ${s.name} à faire ?`, text: 'La séance redevient à faire cette semaine. Ses séries restent dans ton suivi.', confirm: 'Remettre à faire' })) return;
+  record({ type: 'session-reset', target: finished.session });
+  show('week');
+  toast('Séance remise à faire', 'success', () => { record({ type: 'session-restore', target: finished.session }); render(); });
 }
 
 // Toutes les séances de la semaine redeviennent à faire ; les séries déjà faites restent dans le suivi (courbes, records, historique).
@@ -798,6 +827,7 @@ async function start(d) {
     closeSession();
   }
   if (!state.active) {
+    const ahead = weekFrame().focus.nextWeek; // plus rien cette semaine : la séance compte pour la suivante
     const fit = await fitnessCheck(state.plan[d]);
     if (!fit) return;
     state.active = { session: new Date().toISOString(), day: d, readiness: fit.level, off: daysOff(journal()) };
@@ -812,7 +842,7 @@ async function start(d) {
     }
     if (fit.voice) startEar(); else if (state.voiceInput) { state.voiceInput = false; }
     ui.at = ui.pick = null;
-    record({ type: 'start', day: state.plan[d].day, name: state.plan[d].name });
+    record({ type: 'start', day: state.plan[d].day, name: state.plan[d].name, ...(ahead && { week: monday(new Date(Date.now() + 7 * 864e5)).toISOString() }) });
     record({ type: 'readiness', sleep: fit.sleep, soreness: fit.soreness, energy: fit.energy, level: fit.level });
   } else if (state.active.paused) resume();
   show('session');
@@ -942,24 +972,50 @@ async function stopSession() {
       { label: 'Continuer la séance', value: null }],
   });
   if (choice === 'end') finishSession();
-  if (choice === 'cancel') {
-    const active = { ...state.active };
-    record({ type: 'cancel' });
-    closeSession();
-    show('week');
-    toast('Séance abandonnée', 'info', () => {
-      state.active = active;
-      record({ type: 'restore' });
-      save();
-      show('session');
-    });
-  }
+  if (choice === 'cancel') abandonSession();
+}
+function abandonSession() {
+  const active = { ...state.active };
+  record({ type: 'cancel' });
+  closeSession();
+  show('week');
+  toast('Séance abandonnée', 'info', () => {
+    state.active = active;
+    record({ type: 'restore' });
+    save();
+    show('session');
+  });
 }
 
-function closeSession() {
+// Séance restée ouverte (iPhone verrouillé puis oublié) : passé 6 h sans aucune saisie, on demande quoi en faire, une fois par
+// ouverture de l'appli. Enregistrée, sa durée s'arrête à la dernière saisie, pas à maintenant.
+let staleAsked = false;
+async function staleSession() {
+  if (!state.active || staleAsked) return;
+  const sid = state.active.session, last = log.findLast((x) => x.session === sid);
+  if (!last || Date.now() - Date.parse(last.t) < 6 * 3600e3) return;
+  staleAsked = true;
+  const s = state.plan[state.active.day], sets = sessionSets(sid).size, at = new Date(last.t);
+  const yesterday = new Date(Date.now() - 864e5).toDateString();
+  const day = at.toDateString() === today() ? "aujourd'hui" : at.toDateString() === yesterday ? 'hier' : DAYS[weekday(at)].toLowerCase();
+  const choice = await choose({ title: 'Séance restée ouverte',
+    text: `${DAYS[s.day]} · ${s.name} : rien d'enregistré depuis ${day} à ${clock(last.t)}${sets ? `, ${plural(sets, 'série')} faite${sets > 1 ? 's' : ''}` : ', aucune série'}.`,
+    actions: [sets && { label: 'Enregistrer la séance', value: 'end', variant: 'primary' },
+      { label: sets ? 'Abandonner sans enregistrer' : 'Abandonner', value: 'cancel', variant: 'gray destructive' },
+      { label: 'Reprendre la séance', value: null }].filter(Boolean) });
+  if (choice === 'end') {
+    closeSession(last.t);
+    show('week');
+    toast('Séance enregistrée', 'success');
+  }
+  if (choice === 'cancel') abandonSession();
+}
+
+// at : heure de fin à retenir (séance restée ouverte : sa dernière saisie), sinon maintenant.
+function closeSession(at) {
   const s = state.plan[state.active.day];
+  record({ type: 'end', ...(at && { t: at }) });
   state.ended = { t: Date.now(), title: `${DAYS[s.day]} · ${s.name}`, summary: summaryData(activeItems()) };
-  record({ type: 'end' });
   if (warm) { clearInterval(warm.timer); warm = null; }
   stopEar(false);
   state.active = null;
@@ -974,8 +1030,9 @@ function closeSession() {
 // Fin de séance : bilan plein écran, comme sur l'écran projeté. Toutes les séries faites, on y arrive sans passer par « Arrêter ».
 const allDone = () => nextItem(activeItems()) >= activeItems().length;
 function finishSession() {
+  const ahead = !!log.findLast((x) => x.type === 'start' && x.session === state.active.session)?.week;
   closeSession();
-  ui.finished = state.ended;
+  ui.finished = { ...state.ended, ahead };
   show('done');
   const n = state.ended.summary.records.length;
   announce(n ? `Séance enregistrée, avec ${n > 1 ? 'des records' : 'un record'}. Beau travail !` : 'Séance enregistrée. Beau travail !');
@@ -985,7 +1042,7 @@ function finishScreen() {
   const f = ui.finished;
   if (!f) { ui.view = 'week'; return week(); }
   const { stats, records } = f.summary;
-  const plan = state.plan, done = doneThisWeek(), focus = focusOf(plan, done), next = plan[focus.index];
+  const plan = state.plan, { done, cards, focus } = weekFrame(), next = plan[focus.index];
   const stat = (value, label) => h('div', { className: 'stat' }, h('strong', {}, value), h('span', { className: 'caption' }, label));
   return h('div', { className: 'screen' },
     h('header', { className: 'finish-head' }, h('span', { className: 'finish-mark' }, icon('check')), h('h1', {}, 'Séance terminée'), h('p', { className: 'meta' }, f.title)),
@@ -993,8 +1050,9 @@ function finishScreen() {
     records.length > 0 && h('section', { className: 'card finish-records' },
       h('div', { className: 'banner-head' }, icon('flag'), h('h2', {}, records.length > 1 ? `${records.length} records` : 'Nouveau record')),
       h('div', { className: 'stack tight' }, records.map((r) => h('p', {}, r)))),
-    weekProgress(plan, done, focus),
-    !focus.nextWeek && h('p', { className: 'meta center' }, `Prochaine séance : ${DAYS[next.day].toLowerCase()} · ${next.name}`),
+    // Séance faite en avance : c'est la semaine suivante qui avance d'un segment.
+    f.ahead ? weekProgress(plan, cards, { ...focus, nextWeek: false }, 'Semaine prochaine') : weekProgress(plan, done, focus),
+    (f.ahead || !focus.nextWeek) && !cards.has(next.day) && h('p', { className: 'meta center' }, `Prochaine séance : ${DAYS[next.day].toLowerCase()} · ${next.name}`),
     button('Terminé', () => { ui.finished = null; show('week'); }, { variant: 'primary', size: 'large' }));
 }
 
@@ -1472,11 +1530,12 @@ function setRow(x, n, done, tip) {
 }
 
 async function onFeel(e, value, d, i, buttons) {
+  if (value === 'pain' && !await painZone(e)) return; // feuille fermée ou Annuler : rien n'est noté
   record({ type: 'feel', ex: e.id, feel: value });
   buttons.forEach((b) => { b.ariaPressed = String(b.dataset.feel === value); });
   if (value !== 'pain') return;
-  await painZone(e);
-  if (!await ask({ title: 'Douleur notée', text: 'Écarter cet exercice et le remplacer ? Tu pourras le réintégrer dans Réglages. Si la douleur persiste, consulte un professionnel de santé.', confirm: 'Écarter et remplacer', cancel: "Garder pour aujourd'hui", danger: true })) return;
+  if (!await ask({ title: 'Douleur notée', text: "Bien de l'avoir signalé. Pour les prochaines séances : écarter cet exercice et le remplacer (tu pourras le réintégrer dans Réglages), ou le garder avec une charge réduite. Si la douleur persiste, consulte un professionnel de santé.",
+    confirm: 'Écarter et remplacer', cancel: 'Garder, charge réduite' })) return;
   const item = state.plan[d].items[i];
   const before = { ...item };
   state.config.avoid = [...state.config.avoid, e.id];
@@ -1490,18 +1549,19 @@ async function onFeel(e, value, d, i, buttons) {
 // (les exercices à risque pour elle sont alors écartés du programme).
 async function painZone(e) {
   const zone = await choose({ title: 'Où as-tu mal ?', text: 'Noté dans ton suivi, pour repérer une zone qui revient.',
-    actions: [...Object.entries(ZONES).map(([value, label]) => ({ label, value })), { label: 'Ailleurs', value: 'other' }] });
-  if (!zone) return;
+    actions: [...Object.entries(ZONES).map(([value, label]) => ({ label, value })), { label: 'Ailleurs', value: 'other' }, { label: 'Annuler', value: null, variant: 'plain' }] });
+  if (!zone) return null;
   record({ type: 'pain', ex: e.id, zone });
   const since = new Date(Date.now() - 56 * 864e5).toISOString();
   const times = log.filter((x) => x.type === 'pain' && x.zone === zone && x.t >= since && !cancelled(log).has(x.session)).length;
-  if (zone === 'other' || times < 2 || state.config.zones.includes(zone)) return;
+  if (zone === 'other' || times < 2 || state.config.zones.includes(zone)) return zone;
   if (!await ask({ title: `${ZONES[zone]} : ${times}e douleur en 8 semaines`, text: `Ajouter « ${ZONES[zone]} » à tes zones fragiles ? Les exercices à risque pour cette zone seront écartés du programme. Si la douleur persiste, consulte un professionnel de santé.`,
-    confirm: 'Ajouter aux zones fragiles', cancel: 'Pas maintenant' })) return;
+    confirm: 'Ajouter aux zones fragiles', cancel: 'Pas maintenant' })) return zone;
   state.config.zones = [...state.config.zones, zone];
   repair(EXOS, state.plan, state.config);
   save();
   toast(`${ZONES[zone]} ajoutée aux zones fragiles`, 'success');
+  return zone;
 }
 
 // --- Minuteur de repos et écran allumé ---

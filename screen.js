@@ -228,7 +228,7 @@ function live() {
   if (!state.plan) return { ...base, phase: 'idle', title: 'Steady' };
   if (!state.active) {
     if (state.ended && Date.now() - state.ended.t < 15 * 60000) return { ...base, phase: 'done', title: state.ended.title, summary: state.ended.summary };
-    const { index, nextWeek } = focusOf(state.plan, doneThisWeek());
+    const { index, nextWeek } = weekFrame().focus;
     const s = state.plan[index];
     return { ...base, phase: 'idle', title: `${DAYS[s.day]} · ${s.name}`, upcoming: preview(s, nextWeek) };
   }

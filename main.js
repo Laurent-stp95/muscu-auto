@@ -3,6 +3,7 @@
 // Retour dans l'appli après un verrouillage : on tente de relancer le micro (sinon « Micro coupé » reste affiché).
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && mic.wanted && !mic.rec && state.active) startEar(); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && ui.view === 'session') keepAwake(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') staleSession(); }); // séance oubliée depuis des heures
 // iOS coupe la connexion et la caméra quand l'écran se verrouille : on se reconnecte au retour, l'écran reçoit tout de suite l'état.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return stopCam(false);
@@ -19,6 +20,7 @@ document.body.append(restBar);
 const updated = resumeAfterReload();
 if (location.hash === '#bilan' && state.plan) { ui.view = 'progress'; history.replaceState(null, '', location.pathname); } // ouverte depuis la notification du bilan
 render();
+staleSession();
 setTimeout(cloudBackup, 3000);
 // iOS peut renouveler ou révoquer l'abonnement push (mise à jour de l'appli…) : le serveur reçoit le dernier à chaque ouverture.
 if (pushOn()) subscribePush(state.config).catch(() => {});
