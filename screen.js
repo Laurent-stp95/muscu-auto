@@ -246,6 +246,8 @@ function live() {
     setCount: items.reduce((n, x) => n + x.it.sets, 0), minutes: activeMinutes(sid) };
   const say = link.lastSay && Date.now() - link.lastSay.t < 10000 ? { id: link.lastSay.id, text: link.lastSay.text } : null;
   base.notice = link.lastNotice && Date.now() - link.lastNotice.t < 4000 ? { id: link.lastNotice.id, text: link.lastNotice.text } : null;
+  const lh = mic.lastHeard;
+  base.heard = lh && lh.cmd && Date.now() - lh.t < 4000 ? { id: String(lh.t), said: lh.said, why: lh.why } : null;
   base.mic = mic.wanted ? (mic.rec ? 'on' : 'off') : null; // « off » : micro coupé sur l'iPhone, signalé sur l'écran
   if (state.active.paused) return { ...base, phase: 'paused', title, progress };
   if (warm) {

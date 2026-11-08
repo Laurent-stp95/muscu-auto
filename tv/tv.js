@@ -12,7 +12,8 @@
 //   done: [{ n, text, t, record }], rest: { end: ms (horloge du téléphone), total: ms, say } | null,
 //   next: { name, detail, img? } | null, record: { id, text } | null,       // img facultatif : préchargée
 //   summary: { stats: [[valeur, libellé]], records: [texte] } | null,      // phase done
-//   say: { id, text } | null, label: texte | absent, notice: { id, text } | null (série validée à la voix), mic: 'on'|'off'|null }                         // label : remplace « Série n sur N » (échauffement)
+//   say: { id, text } | null, label: texte | absent, notice: { id, text } | null (série validée à la voix),
+//   heard: { id, said, why } | null (commande entendue par l'iPhone ; why : raison si ignorée), mic: 'on'|'off'|null }                         // label : remplace « Série n sur N » (échauffement)
 // Messages du serveur : presence { tv, phone } ; state { s, age? } (age : état gardé par le serveur, renvoyé à la connexion) ;
 // adopt { room } (appairage : la salle permanente) ; forget (l'iPhone oublie l'écran). Envoyé : adopted, et « ping » toutes les 30 s.
 
@@ -24,7 +25,7 @@ let unlocked = false, room = null, sock = null, online = false, phones = 0, dela
 let snapshot = null; // dernier instantané
 let rest = null; // repos en cours : { key: rest.end du téléphone, end: fin sur notre horloge, total, say, voice }
 let over = null; // dernier repos terminé (sa clé) : jamais relancé ni resonné
-let tickTimer = 0, said = null, recorded = null, noticed = null, noticeTimer = 0, bannerTimer = 0, audio = null, lock = null;
+let tickTimer = 0, said = null, recorded = null, noticed = null, heardId = null, prevKey = null, noticeTimer = 0, bannerTimer = 0, audio = null, lock = null;
 
 // Maquette en rem sur une base 1920 × 1080 : même rendu de 1280 × 720 à la 4K.
 function scale() { document.documentElement.style.fontSize = Math.min(innerWidth / 1920, innerHeight / 1080) * 24 + 'px'; }
@@ -154,7 +155,13 @@ function onState(m) {
   const fresh = age < 10000; // état gardé depuis plus longtemps par le serveur : ni annonce ni bandeau en retard
   if (snapshot && snapshot.say && snapshot.say.id !== said) { said = snapshot.say.id; if (fresh && snapshot.voice) speak(snapshot.say.text); }
   if (snapshot && snapshot.record && snapshot.record.id !== recorded) { recorded = snapshot.record.id; if (fresh) banner(snapshot.record.text); }
-  if (snapshot && snapshot.notice && snapshot.notice.id !== noticed) { noticed = snapshot.notice.id; if (fresh) notice(snapshot.notice.text); } // série validée à la voix
+  // Commande entendue : série validée (vert), autre commande (gris), ou ignorée avec la raison (orange). La validation l'emporte.
+  const n = snapshot && snapshot.notice && snapshot.notice.id !== noticed ? snapshot.notice : null;
+  const hd = snapshot && snapshot.heard && snapshot.heard.id !== heardId ? snapshot.heard : null;
+  if (n) noticed = n.id;
+  if (hd) heardId = hd.id;
+  if (fresh && n) notice(n.text, 'ok');
+  else if (fresh && hd) notice('« ' + hd.said + ' »' + (hd.why ? ' : ignoré, ' + hd.why : ''), hd.why ? 'warn' : '');
   if (snapshot && snapshot.next && snapshot.next.img) snapshot.next.img.forEach((src) => { new Image().src = '../' + src; }); // exercice suivant préchargé
   render();
   tick();
@@ -210,6 +217,7 @@ function render() {
   const status = live && phones === 0 ? 'iPhone déconnecté : le chrono continue' : !online ? 'Connexion au serveur…'
     : live && snapshot.mic === 'off' ? 'Micro coupé sur l\'iPhone : touche « Micro coupé » pour le relancer' : '';
   text('status', status);
+  $('mic').hidden = !(live && snapshot.mic === 'on' && !status);
   text('prog', p && !status ? p.sets + '/' + p.setCount + ' séries · ' + p.minutes + ' min' : '');
   $('live').hidden = !(live && snapshot.ex);
   $('idle').hidden = !idle;
@@ -242,6 +250,8 @@ function renderLive(phase) {
   text('note', resting ? '' : ex.note);
   const done = snapshot.done || [], d = done[done.length - 1];
   $('prev').hidden = !d;
+  const key = d ? d.n + d.text : '';
+  if (key !== prevKey) { if (d && prevKey !== null) flash($('prev')); prevKey = key; } // série tout juste validée
   text('prev-text', d ? 'Série ' + d.n + ' : ' + d.text + (d.t ? ' · ' + d.t : '') : '');
   text('prev-record', d && d.record ? 'Record' : '');
   $('next').hidden = !snapshot.next;
@@ -282,12 +292,17 @@ function clock() {
 }
 clock();
 
-// Confirmation d'une série validée à la voix : bandeau 2,5 s en haut.
-function notice(msg) {
+// Retour d'une commande vocale : bandeau 4 s en haut. kind : 'ok' (série validée), 'warn' (ignorée), '' (autre commande).
+function notice(msg, kind) {
   text('notice-text', msg);
-  $('notice').classList.add('show');
+  $('notice').className = 'notice show ' + kind;
   clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(() => $('notice').classList.remove('show'), 2500);
+  noticeTimer = setTimeout(() => $('notice').classList.remove('show'), 4000);
+}
+function flash(el) {
+  el.classList.remove('flash');
+  void el.offsetWidth; // relance l'animation
+  el.classList.add('flash');
 }
 
 function banner(msg) {

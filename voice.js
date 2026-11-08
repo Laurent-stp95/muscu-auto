@@ -140,8 +140,10 @@ function numberIn(t) {
   return Number((t.match(/\d+/) || [])[0]) || WORDS[words.join('-')] || words.map((w) => WORDS[w] || ({ dis: 10, dit: 10 })[w]).find(Boolean) || 0;
 }
 // Ce que le micro a compris, sous la barre d'état : « Entendu : « dix » », ou pourquoi c'est ignoré.
+// Repris sur l'écran projeté seulement si la phrase contient une commande : ni bavardage, ni écho des annonces.
 function heard(text, why = '') {
-  mic.lastHeard = { text: `Entendu : « ${text.trim()} »${why ? ` · ignoré, ${why}` : ''}`, why, t: Date.now() };
+  mic.lastHeard = { said: text.trim(), text: `Entendu : « ${text.trim()} »${why ? ` · ignoré, ${why}` : ''}`, why, cmd: !!commandIn(text), t: Date.now() };
+  broadcast();
   const node = document.querySelector('.heard');
   if (!node) return;
   node.textContent = mic.lastHeard.text;

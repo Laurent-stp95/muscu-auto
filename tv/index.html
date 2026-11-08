@@ -51,7 +51,11 @@
   .session { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; cursor: none; }
   .top { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 2rem; min-height: 3.5rem; }
   .title { overflow: hidden; font-size: 1.75rem; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }
-  .clock { justify-self: end; font-size: 1.75rem; font-weight: 600; }
+  .top-end { justify-self: end; display: flex; align-items: center; gap: 1.5rem; }
+  .clock { font-size: 1.75rem; font-weight: 600; }
+  .mic { display: flex; align-items: center; padding: .25rem 1rem; border-radius: 2rem; background: var(--fill); font-size: 1.125rem; font-weight: 600; }
+  .mic i { width: .75rem; height: .75rem; margin-right: .5rem; border-radius: 50%; background: var(--ok); animation: beat 1.6s ease-in-out infinite; }
+  @keyframes beat { 50% { opacity: .35; transform: scale(.7); } }
   .progress { display: grid; justify-items: center; gap: .5rem; }
   .segs { display: grid; grid-auto-flow: column; grid-auto-columns: 3rem; gap: .375rem; }
   .segs i { height: .375rem; border-radius: 1rem; background: #48484a; }
@@ -132,9 +136,15 @@
   .ok { margin-right: .5rem; color: var(--ok); }
 
   /* Série validée à la voix : bandeau vert 2,5 s */
-  .notice { position: fixed; top: 5vh; left: 50%; z-index: 9; display: flex; align-items: center; padding: 1rem 2rem 1rem 1.5rem; border-radius: 2rem; background: #1f7a3a; color: #fff; font-size: 1.75rem; font-weight: 700; box-shadow: 0 1rem 3rem rgba(0, 0, 0, .6); opacity: 0; transform: translate(-50%, -2rem); transition: opacity .3s, transform .3s; pointer-events: none; }
+  .notice { position: fixed; top: 5vh; left: 50%; z-index: 9; display: flex; align-items: center; width: max-content; max-width: 80vw; padding: 1.25rem 2.5rem 1.25rem 2rem; border-radius: 3rem; background: var(--fill); color: var(--fg); font-size: 2.25rem; font-weight: 700; box-shadow: 0 1rem 3rem rgba(0, 0, 0, .6); opacity: 0; transform: translate(-50%, -2rem); transition: opacity .3s, transform .3s; pointer-events: none; }
   .notice.show { opacity: 1; transform: translate(-50%, 0); }
-  .notice .icon { width: 2.25rem; height: 2.25rem; margin-right: 1rem; stroke-width: 2.6; }
+  .notice .icon { flex: none; width: 3rem; height: 3rem; margin-right: 1rem; stroke-width: 2.6; }
+  .notice.ok { background: #1f7a3a; color: #fff; }
+  .notice.warn { background: #ff9f0a; color: #000; }
+  .notice .i-warn, .notice.warn .i-ok { display: none; }
+  .notice.warn .i-warn { display: block; }
+  .flash { transform-origin: left center; animation: flash 1.2s ease-out; }
+  @keyframes flash { from { color: var(--ok); transform: scale(1.08); } }
 
   /* Nouveau record : bandeau 5 s, sous la confirmation de série quand les deux arrivent ensemble */
   .record { position: fixed; top: 15vh; left: 50%; z-index: 9; display: flex; align-items: center; padding: 1.25rem 2.25rem 1.25rem 1.75rem; border-radius: 2rem; background: var(--accent); color: #fff; box-shadow: 0 1rem 3rem rgba(0, 0, 0, .6); opacity: 0; transform: translate(-50%, -2rem); transition: opacity .3s, transform .3s; pointer-events: none; }
@@ -212,7 +222,10 @@
       <p id="prog" class="muted small"></p>
       <p id="status" class="pill" role="status"></p>
     </div>
-    <p id="clock" class="clock"></p>
+    <div class="top-end">
+      <p id="mic" class="mic" hidden><i></i>Micro</p>
+      <p id="clock" class="clock"></p>
+    </div>
   </header>
 
   <main id="live" class="main cols">
@@ -275,7 +288,8 @@
 </div>
 
 <div id="notice" class="notice" role="status" aria-live="polite">
-  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+  <svg class="icon i-ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+  <svg class="icon i-warn" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>
   <p id="notice-text"></p>
 </div>
 
@@ -294,6 +308,6 @@
 
 <script src="../push-config.js"></script>
 <script src="../shared.js?v=5"></script> <!-- v à changer avec shared.js -->
-<script src="tv.js?v=19"></script> <!-- v à changer avec tv.js -->
+<script src="tv.js?v=20"></script> <!-- v à changer avec tv.js -->
 </body>
 </html>
