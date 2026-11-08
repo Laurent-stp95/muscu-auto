@@ -556,7 +556,7 @@ function dayCard(s, d, focused, done, nextWeek) {
     : [button(finished ? 'Refaire' : 'Commencer', () => start(d), { variant: finished ? 'gray' : undefined, size: 'compact' }),
       finished && button('Remettre à faire', () => resetSession(s, finished), { variant: 'plain', size: 'compact' })];
   const fresh = s.items.filter((item) => isFresh(item.ex)).length;
-  const details = h('details', { className: 'more', open: ui.open?.[s.day] ?? focused },
+  const details = h('details', { className: 'more', open: ui.open?.[s.day] ?? false },
     h('summary', {}, plural(s.items.length, 'exercice'), fresh > 0 && ` · ${fresh} nouveau${fresh > 1 ? 'x' : ''}`, icon('chevron', 'chev')),
     h('div', { className: 'list' }, s.items.map((item, i) => {
       const e = byId.get(item.ex);
@@ -572,6 +572,30 @@ function dayCard(s, d, focused, done, nextWeek) {
     focused && !finished && !active && h('p', { className: 'caption' }, `À préparer : ${preview(s, nextWeek).gear.join(', ')}`),
     details,
     h('div', { className: 'row' }, actions));
+}
+
+// Bande calendrier (comme l'app Calendrier) : les 7 jours et leur date, repos grisés, séance faite cochée, jour affiché en orange.
+// Elle montre la semaine des cartes : la suivante quand plus rien n'est prévu d'ici dimanche. Un jour d'entraînement se touche.
+function weekStrip(plan, done, cards, focus, sel) {
+  const start = monday(new Date(Date.now() + (focus.nextWeek ? 7 * 864e5 : 0)));
+  const count = plan.filter((s) => cards.has(s.day)).length;
+  const title = focus.nextWeek ? 'Semaine prochaine' : count === plan.length ? 'Semaine bouclée' : 'Cette semaine';
+  const past = plan.filter((s) => done.has(s.day)).length; // semaine qui se termine, vue depuis la suivante
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    const d = plan.findIndex((s) => s.day === i);
+    const isToday = date.toDateString() === today(), letter = DAYS[i][0], num = String(date.getDate());
+    if (d < 0) return h('span', { className: `day off${isToday ? ' today' : ''}`, ariaHidden: 'true' }, h('span', { className: 'caption' }, letter), h('span', { className: 'n' }, num));
+    const s = plan[d], made = cards.has(s.day), active = state.active?.day === d;
+    const name = `${DAYS[i]} ${date.getDate()} : ${s.name}, ${active ? 'en cours' : made ? 'faite' : 'à faire'}`;
+    return h('button', { type: 'button', className: ['day', made ? 'done' : 'todo', d === sel && 'on', isToday && 'today'].filter(Boolean).join(' '),
+      ariaPressed: String(d === sel), ariaLabel: name, onclick: () => { ui.weekPick = d; render(); } },
+      h('span', { className: 'caption' }, letter), h('span', { className: 'n' }, made ? icon('check') : num));
+  });
+  return h('section', { className: 'card' },
+    h('div', { className: 'line-head' }, h('h2', {}, title), h('span', { className: 'meta' }, `${count} sur ${plural(plan.length, 'séance')}`)),
+    h('div', { className: 'days' }, days),
+    focus.nextWeek && done.size > 0 && h('p', { className: 'caption' }, past === plan.length ? `Semaine bouclée : ${past} sur ${plan.length} séances.` : `Semaine passée : ${past} sur ${plural(plan.length, 'séance')}.`));
 }
 
 // Avancement de la semaine : un segment par séance, vert quand elle est faite, jour du jour en gras.
@@ -591,6 +615,8 @@ function week() {
   const { plan } = state;
   const { week: n, deload, ended } = cycle();
   const { done, cards, focus } = weekFrame();
+  // Séance affichée : choisie d'un geste dans la bande, sinon celle qui tombe selon la date (en cours, prochaine à faire…).
+  const sel = ui.weekPick != null && ui.weekPick < plan.length ? ui.weekPick : focus.index;
   const copied = lastCopy();
   const backupDue = log.length > 0 && (!copied || daysAgo(copied) >= BACKUP_DAYS);
   return h('div', { className: 'screen' },
@@ -604,8 +630,8 @@ function week() {
       button('Lancer le nouveau cycle', newCycle, { variant: 'primary' })),
     deload && banner('leaf', 'Semaine allégée',
       h('p', {}, 'Moitié moins de séries et charges baissées de 10 %. Ce repos fait partie de la progression : il évite la fatigue qui mène aux blessures.')),
-    dayCard(plan[focus.index], focus.index, true, cards, focus.nextWeek),
-    weekProgress(plan, done, focus),
+    weekStrip(plan, done, cards, focus, sel),
+    dayCard(plan[sel], sel, true, cards, focus.nextWeek && sel === focus.index),
     recoveryCard(plan, cards, focus),
     // Rappel compact, toute la ligne se touche (comme une ligne de Réglages iOS).
     backupDue && h('button', { type: 'button', className: 'card notice', onclick: backup },
@@ -613,7 +639,6 @@ function week() {
       h('span', { className: 'stack tight' }, h('strong', {}, 'Sauvegarde ton journal'),
         h('span', { className: 'caption' }, copied ? `Dernière copie il y a ${plural(daysAgo(copied), 'jour')}` : "Ton suivi n'existe que sur cet iPhone")),
       icon('chevron', 'chev')),
-    plan.map((s, d) => d !== focus.index && dayCard(s, d, false, cards, focus.nextWeek)),
     (canResetWeek(done) || canReroll()) && h('div', { className: 'center' }, button('Options de la semaine', weekOptions, { variant: 'plain' })));
 }
 
@@ -841,7 +866,7 @@ async function start(d) {
       if (fit.project) { link.delay = 1000; connectScreen(); } else { link.socket?.close(); setTv(0); }
     }
     if (fit.voice) startEar(); else if (state.voiceInput) { state.voiceInput = false; }
-    ui.at = ui.pick = null;
+    ui.at = ui.pick = ui.weekPick = null;
     record({ type: 'start', day: state.plan[d].day, name: state.plan[d].name, ...(ahead && { week: monday(new Date(Date.now() + 7 * 864e5)).toISOString() }) });
     record({ type: 'readiness', sleep: fit.sleep, soreness: fit.soreness, energy: fit.energy, level: fit.level });
   } else if (state.active.paused) resume();
@@ -1014,6 +1039,7 @@ async function staleSession() {
 // at : heure de fin à retenir (séance restée ouverte : sa dernière saisie), sinon maintenant.
 function closeSession(at) {
   const s = state.plan[state.active.day];
+  ui.weekPick = null;
   record({ type: 'end', ...(at && { t: at }) });
   state.ended = { t: Date.now(), title: `${DAYS[s.day]} · ${s.name}`, summary: summaryData(activeItems()) };
   if (warm) { clearInterval(warm.timer); warm = null; }
