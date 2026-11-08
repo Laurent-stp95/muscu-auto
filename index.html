@@ -68,6 +68,12 @@
   .card .card { padding: var(--s3) 0 0; border-top: 1px solid var(--line); border-radius: 0; background: none; }
   .card-head { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); min-height: var(--tap); }
   .card-head h2 { min-width: 0; }
+  /* Carte de séance : titre et muscles à gauche, silhouettes à droite ; nom de l'exercice puis séries et charge du jour */
+  .session-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s3); }
+  .session-head .stack { min-width: 0; }
+  .bodies.mini { gap: 2px; }
+  .bodies.mini .body { width: 28px; }
+
   .banner-head { display: flex; align-items: center; gap: var(--s2); color: var(--accent-ink); }
   .banner-head h2 { color: var(--fg); }
   .line-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s3); }

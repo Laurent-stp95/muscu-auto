@@ -223,7 +223,18 @@ function choice(d, key, entries) {
 
 // Choix unique en pastilles : entries = [[valeur, libellé]].
 function pills(d, key, entries) {
-  return h('div', { className: 'chips' }, entries.map(([value, label]) => chip(label, d[key] === value, () => { d[key] = value; render(); })));
+  const group = h('div', { className: 'chips' }, entries.map(([value, label]) => chip(label, d[key] === value, () => { d[key] = value; renderInPlace(key); })));
+  group.dataset.key = key;
+  return group;
+}
+// Re-rendu sans saut : le groupe touché reste à la même hauteur à l'écran, même si un message apparaît au-dessus
+// (Réglages : « nouveau programme » en tête dès qu'on change la durée ou les jours).
+function renderInPlace(key) {
+  const top = () => document.querySelector(`[data-key="${key}"]`)?.getBoundingClientRect().top;
+  const before = top();
+  render();
+  const after = top();
+  if (before != null && after != null) scrollBy(0, after - before);
 }
 
 // Choix multiple en pastilles : entries = [[valeur, libellé]].
@@ -232,9 +243,11 @@ function chips(d, key, entries, { max, className = 'chips' } = {}) {
     if (d[key].includes(value)) d[key] = d[key].filter((v) => v !== value);
     else if (max && d[key].length >= max) return toast(`${max} jours maximum : garde au moins un jour de repos.`, 'warning');
     else d[key] = [...d[key], value];
-    render();
+    renderInPlace(key);
   };
-  return h('div', { className }, entries.map(([value, label]) => chip(label, d[key].includes(value), () => toggle(value))));
+  const group = h('div', { className }, entries.map(([value, label]) => chip(label, d[key].includes(value), () => toggle(value))));
+  group.dataset.key = key;
+  return group;
 }
 
 // Valeur puis compteur « − | + » compact façon iOS, mis à jour sur place : le focus reste sur le bouton touché.
@@ -540,39 +553,57 @@ function weekFrame() {
   return { done, cards, focus: { index: Math.max(0, index), nextWeek: true } };
 }
 
-// Carte d'une séance : statut (en cours, en pause, terminée, aujourd'hui), actions, exercices repliés sauf la séance à venir.
-function dayCard(s, d, focused, done, nextWeek) {
+// Carte de séance : type de séance, jour, durée et muscles (silhouette), aperçu des 3 premiers exercices avec la charge du jour,
+// le reste et le matériel d'un geste. Faite : son bilan (séries, durée, volume, record). Une seule action principale.
+function dayCard(s, d, focused, done, nextWeek, date) {
   const active = state.active?.day === d;
   const upcoming = focused && nextWeek; // séance de la semaine suivante : son statut de cette semaine ne compte plus
   const finished = !active && !upcoming && done.get(s.day);
-  const badge = active ? h('span', { className: 'badge' }, state.active.paused ? 'En pause' : 'En cours')
-    : finished ? h('span', { className: 'badge ok' }, icon('check'), 'Terminée')
-    : upcoming ? h('span', { className: 'badge' }, 'Prochaine')
-    : s.day === weekday() && h('span', { className: 'badge' }, "Aujourd'hui");
-  // Actions en bas de carte (on lit, puis on agit) : grand bouton pour la séance à venir, compact à gauche pour les autres.
-  const actions = active
-    ? [button('Reprendre', () => start(d), { variant: 'primary', size: 'compact', icon: 'play' }), button('Arrêter', stopSession, { variant: 'gray', size: 'compact' })]
-    : focused && !finished ? [button('Commencer la séance', () => start(d), { variant: 'primary', size: 'large', icon: 'play' })]
-    : [button(finished ? 'Refaire' : 'Commencer', () => start(d), { variant: finished ? 'gray' : undefined, size: 'compact' }),
-      finished && button('Remettre à faire', () => resetSession(s, finished), { variant: 'plain', size: 'compact' })];
-  const fresh = s.items.filter((item) => isFresh(item.ex)).length;
-  const details = h('details', { className: 'more', open: ui.open?.[s.day] ?? false },
-    h('summary', {}, plural(s.items.length, 'exercice'), fresh > 0 && ` · ${fresh} nouveau${fresh > 1 ? 'x' : ''}`, icon('chevron', 'chev')),
-    h('div', { className: 'list' }, s.items.map((item, i) => {
-      const e = byId.get(item.ex);
-      return lazy('ex',
-        h('summary', {}, h('span', { className: 'stack tight' }, h('strong', { className: 'with-badge' }, e.name, isFresh(e.id) && h('span', { className: 'badge' }, 'Nouveau')), h('span', { className: 'meta' }, `${prescriptionText(e, effective(item))} · ${muscles(e)}`)), icon('chevron', 'chev')),
-        () => h('div', { className: 'ex-body' }, exerciseInfo(e), !state.active && h('div', {}, button('Remplacer', () => replace(d, i), { size: 'compact' }))));
-    })));
-  details.addEventListener('toggle', () => { (ui.open ||= {})[s.day] = details.open; }); // garde le choix jusqu'au prochain lancement
-  return h('section', { className: focused ? 'card focus' : 'card' },
-    h('div', { className: 'stack tight' },
-      h('div', { className: 'card-head' }, h('h2', { className: 'title' }, `${DAYS[s.day]} · ${s.name}`), badge),
-      finished && h('p', { className: 'caption' }, `Faite ${DAYS[weekday(new Date(finished.t))].toLowerCase()} à ${clock(finished.t)} · ${finished.sets} série${finished.sets > 1 ? 's' : ''}`)),
-    focused && !finished && !active && h('p', { className: 'caption' }, `À préparer : ${preview(s, nextWeek).gear.join(', ')}`),
-    details,
-    h('div', { className: 'row' }, actions));
+  const entries = s.items.map((item, i) => ({ item, i, e: byId.get(item.ex), it: effective(item) }));
+  const fresh = entries.filter(({ e }) => isFresh(e.id)).length;
+  const groups = GROUPS.filter(([, ids]) => entries.some(({ e }) => e.mus.some((m) => ids.includes(m)))).map(([label]) => label);
+  const meta = [`${DAYS[s.day]} ${date.getDate()}`, `${sessionMinutes(entries.map(({ item }) => effective(item)))} min`, fresh > 0 && `${fresh} nouveau${fresh > 1 ? 'x' : ''}`].filter(Boolean).join(' · ');
+  // Silhouettes de face et de dos, muscles du jour en rouge (mêmes images que la carte Récupération).
+  const mus = new Set(entries.flatMap(({ e }) => e.mus));
+  const side = (front) => h('div', { className: 'body' }, h('img', { src: `muscles/muscular_system_${front ? 'front' : 'back'}.svg`, alt: '' }),
+    [...mus].filter((m) => FRONT.has(m) === front).map((m) => h('img', { src: `muscles/main/muscle-${m}.svg`, alt: '' })));
+  const row = ({ item, i, e, it }) => {
+    const kg = isBodyweight(e) ? null : tipFor(e, historyOf(e.id))?.kg;
+    return lazy('ex',
+      h('summary', {}, h('span', { className: 'stack tight' }, h('span', { className: 'with-badge' }, e.name, isFresh(e.id) && h('span', { className: 'badge' }, 'Nouveau')),
+        h('span', { className: 'meta' }, `${it.sets} × ${it.reps}${e.unit === 's' ? ' s' : ''}${kg != null ? ` · ${kgLabel(e, kg)}` : ''}`)), icon('chevron', 'chev')),
+      () => h('div', { className: 'ex-body' }, h('p', { className: 'meta' }, prescriptionText(e, it)), exerciseInfo(e), !state.active && h('div', {}, button('Remplacer', () => replace(d, i), { size: 'compact' }))));
+  };
+  const head = h('div', { className: 'session-head' },
+    h('div', { className: 'stack tight' }, h('h2', { className: 'title' }, s.name), h('span', { className: 'meta' }, meta),
+      !finished && groups.length > 0 && h('span', { className: 'caption' }, groups.slice(0, 3).join(', ').toLowerCase().replace(/^./, (c) => c.toUpperCase()))),
+    finished ? h('span', { className: 'badge ok' }, icon('check'), `Faite ${DAYS[weekday(new Date(finished.t))].toLowerCase()} ${clock(finished.t)}`)
+      : h('div', { className: 'bodies mini', role: 'img', ariaLabel: `Muscles travaillés : ${groups.join(', ').toLowerCase()}` }, side(true), side(false)));
+  if (finished) {
+    const sets = sessionSets(finished.session), volume = Math.round([...sets.values()].reduce((v, x) => v + (x.kg || 0) * x.reps, 0));
+    const prs = [...sets.values()].filter((x) => x.pr && byId.has(x.ex)).map((x) => `${byId.get(x.ex).name} : ${setText(byId.get(x.ex), x.kg, x.reps)}`);
+    const stat = (value, label) => h('div', { className: 'stat' }, h('strong', {}, value), h('span', { className: 'caption' }, label));
+    return h('section', { className: 'card' }, head,
+      h('div', { className: 'stats' }, stat(String(sets.size), plural(sets.size, 'série', 'séries').replace(/^\d+ /, '')), stat(String(activeMinutes(finished.session)), 'min'), stat(volume.toLocaleString('fr-FR'), 'kg soulevés')),
+      prs.length > 0 && listNote('flag', prs.length > 1 ? 'Records' : 'Record', prs),
+      h('div', { className: 'row' }, button('Refaire', () => start(d), { variant: 'plain', size: 'compact' }), button('Remettre à faire', () => resetSession(s, finished), { variant: 'plain', size: 'compact' })));
+  }
+  const rest = entries.slice(3);
+  const gear = !active && h('p', { className: 'caption' }, `À préparer : ${preview(s, nextWeek).gear.join(', ')}`);
+  const details = rest.length > 0 && h('details', { className: 'more', open: ui.open?.[s.day] ?? false },
+    h('summary', {}, `+ ${plural(rest.length, 'exercice')}`, icon('chevron', 'chev')),
+    h('div', { className: 'list' }, rest.map(row)), gear);
+  details && details.addEventListener('toggle', () => { (ui.open ||= {})[s.day] = details.open; }); // garde le choix jusqu'au prochain lancement
+  return h('section', { className: 'card' }, head,
+    active && h('div', {}, h('span', { className: 'badge' }, state.active.paused ? 'En pause' : 'En cours')),
+    h('div', { className: 'list' }, entries.slice(0, 3).map(row)),
+    details || gear,
+    active ? h('div', { className: 'stack' }, button('Reprendre la séance', () => start(d), { variant: 'primary', size: 'large', icon: 'play' }), button('Arrêter', stopSession, { variant: 'plain', className: 'btn plain destructive' }))
+      : button('Commencer la séance', () => start(d), { variant: 'primary', size: 'large', icon: 'play' }));
 }
+
+// Date d'un jour (0 = lundi) dans la semaine affichée : la suivante quand plus rien n'est prévu d'ici dimanche.
+const weekDate = (focus, day) => { const m = monday(new Date(Date.now() + (focus.nextWeek ? 7 * 864e5 : 0))); return new Date(m.getFullYear(), m.getMonth(), m.getDate() + day); };
 
 // Bande calendrier (comme l'app Calendrier) : les 7 jours et leur date, repos grisés, séance faite cochée, jour affiché en orange.
 // Elle montre la semaine des cartes : la suivante quand plus rien n'est prévu d'ici dimanche. Un jour d'entraînement se touche.
@@ -631,7 +662,7 @@ function week() {
     deload && banner('leaf', 'Semaine allégée',
       h('p', {}, 'Moitié moins de séries et charges baissées de 10 %. Ce repos fait partie de la progression : il évite la fatigue qui mène aux blessures.')),
     weekStrip(plan, done, cards, focus, sel),
-    dayCard(plan[sel], sel, true, cards, focus.nextWeek && sel === focus.index),
+    dayCard(plan[sel], sel, true, cards, focus.nextWeek && sel === focus.index, weekDate(focus, plan[sel].day)),
     recoveryCard(plan, cards, focus),
     // Rappel compact, toute la ligne se touche (comme une ligne de Réglages iOS).
     backupDue && h('button', { type: 'button', className: 'card notice', onclick: backup },
