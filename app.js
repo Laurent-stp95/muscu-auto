@@ -435,6 +435,8 @@ function settings() {
       state.screen && h('div', { className: 'line' }, h('span', {}, 'Écran projeté'), button("Oublier l'écran", forgetScreen, { variant: 'plain', className: 'btn plain destructive' }))),
     section('Notifications', notifyEditor(d)),
     section('Appli',
+      // La doc s'ouvre hors de l'appli (feuille Safari sur iPhone) : on y revient d'un geste.
+      h('a', { className: 'line doc-link', href: 'https://laurent-stp95.github.io/steady-docs/', target: '_blank', rel: 'noopener' }, h('span', {}, 'Aide et documentation'), icon('chevron', 'chev')),
       h('div', { className: 'line' },
         h('span', { className: 'meta' }, `Version du ${new Date(document.lastModified).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`),
         button('Mettre à jour', forceUpdate, { size: 'compact' })),
