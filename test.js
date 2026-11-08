@@ -280,5 +280,16 @@ assert.ok(Math.abs(P.recovery(fresh6, EXOS, at(48))[10] - 80) <= 1);
 assert.deepStrictEqual(P.recovery(fresh6, EXOS, at(6 * 24)), {});
 assert.strictEqual(P.recovery([...fresh6, { t: '2026-11-10T18:30:00Z', type: 'cancel', session: 'r' }], EXOS, at(1))[10], undefined);
 
+// Voix : Premium avant Améliorée avant de base, France avant Canada, voix gadget en dernier ; voix choisie si présente.
+const fakeSynth = (list) => ({ getVoices: () => list.map(([name, lang, uri]) => ({ name, lang, voiceURI: uri || name })) });
+const synth = fakeSynth([['Jacques', 'fr-FR'], ['Amélie', 'fr-CA'], ['Thomas', 'fr-FR'], ['Samantha', 'en-US'],
+  ['Amélie', 'fr-CA', 'com.apple.voice.premium.fr-CA.Amelie'], ['Thomas', 'fr-FR', 'com.apple.voice.enhanced.fr-FR.Thomas']]);
+assert.strictEqual(S.frenchVoice(synth).voiceURI, 'com.apple.voice.premium.fr-CA.Amelie');
+assert.strictEqual(S.frenchVoice(fakeSynth([['Jacques', 'fr-FR'], ['Amélie', 'fr-CA'], ['Thomas', 'fr-FR']])).name, 'Thomas');
+assert.strictEqual(S.frenchVoice(fakeSynth([['Grand-mère', 'fr-FR'], ['Google français', 'fr-FR'], ['Microsoft Denise Online (Natural) - French (France)', 'fr-FR']])).name.slice(0, 15), 'Microsoft Denis');
+assert.strictEqual(S.frenchVoice(synth, 'Jacques').name, 'Jacques');
+assert.strictEqual(S.frenchVoice(synth, 'Absente').voiceURI, 'com.apple.voice.premium.fr-CA.Amelie');
+assert.strictEqual(S.frenchVoice(fakeSynth([['Samantha', 'en-US']])), null);
+
 for (const x of plan) console.log(x.day, x.name, x.items.map((it) => byId.get(it.ex).name).join(' | '));
 console.log('OK');

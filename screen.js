@@ -255,7 +255,7 @@ function live() {
     return { ...base, phase: 'rest', title, say, label: `Échauffement · ${warm.i + 1} sur ${warm.list.length}`,
       ex: { id: 0, name: m.name, img: [], mus: m.mus, mus2: [], cues: [m.cue], badge: null, note: null },
       set: { n: null, of: null, target: `${m.s} s`, load: null, plates: null, change: null, last: null, approach: null },
-      rest: { end: warm.end, total: warm.total, say: next ? `Mouvement suivant : ${next.name}${micOpen() ? '' : `, ${next.s} secondes`}.` : 'Échauffement terminé. Place aux séries.' },
+      rest: { end: warm.end, total: warm.total, say: next ? `Mouvement suivant : ${next.name}${micOpen() ? '' : `, ${next.s} secondes`}.` : 'Échauffement fini. On attaque les séries.' },
       next: next ? { name: next.name, detail: `${next.s} s` } : null };
   }
   if (i >= items.length) return { ...base, phase: 'done', title, progress, summary: summaryData(items), say };

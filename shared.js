@@ -16,11 +16,21 @@ function beep(audio) {
   });
 }
 
-// Voix française de l'appareil : Amélie, Thomas, Audrey, Aurélie, sinon toute voix française.
-const VOICES = ['Amélie', 'Thomas', 'Audrey', 'Aurélie'];
-function frenchVoice(synth) {
-  const fr = synth.getVoices().filter((v) => /^fr/i.test(v.lang));
-  return VOICES.map((name) => fr.find((v) => v.name.startsWith(name))).find(Boolean) || fr.find((v) => /fr.FR/i.test(v.lang)) || fr[0] || null;
+// Voix françaises de l'appareil, la plus naturelle d'abord : Premium puis Améliorée (iOS, macOS, à télécharger dans les réglages),
+// voix neuronales (Edge : « Natural », « Online »), Google, puis les voix Apple de base. Les voix gadget (Jacques, Eddy…) en dernier.
+// À qualité égale, le français de France passe avant celui du Canada ou de Belgique.
+const VOICES = ['Amélie', 'Thomas', 'Audrey', 'Aurélie', 'Marie', 'Daniel'];
+function voiceRank(v) {
+  const id = (v.name + ' ' + v.voiceURI).toLowerCase();
+  const tier = /premium/.test(id) ? 5 : /enhanced|amélioré/.test(id) ? 4 : /natural|neural|online/.test(id) ? 3 : /google/.test(id) ? 2
+    : VOICES.some((n) => v.name.indexOf(n) === 0) ? 1 : 0;
+  return tier * 2 + (/fr.FR/i.test(v.lang) ? 1 : 0);
+}
+const frenchVoices = (synth) => synth.getVoices().filter((v) => /^fr/i.test(v.lang)).sort((a, b) => voiceRank(b) - voiceRank(a));
+// name : voix choisie dans les Réglages, si l'appareil l'a ; sinon la meilleure.
+function frenchVoice(synth, name) {
+  const fr = frenchVoices(synth);
+  return (name && fr.find((v) => v.name === name)) || fr[0] || null;
 }
 
 const FRONT = new Set([1, 2, 3, 4, 6, 10, 13, 14]); // muscles visibles de face (wger is_front)
@@ -189,5 +199,5 @@ function gathered(pc) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { jointAngle, repCounter, poseTracker, COUNTER, counterFor };
+  module.exports = { jointAngle, repCounter, poseTracker, COUNTER, counterFor, frenchVoice };
 }

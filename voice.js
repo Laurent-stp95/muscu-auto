@@ -114,7 +114,7 @@ function hear(text, alternatives = [text]) {
     heard(alt);
     closeSession();
     show('week');
-    announce('Séance enregistrée. Bravo !');
+    announce('Séance enregistrée. Beau travail !');
     return toast('Séance enregistrée', 'success');
   }
   if (cmd.id === 'prochain') { heard(alt); return goToItem(i + 1); }
@@ -167,6 +167,8 @@ function voiceValidate(f, reps) {
   f.pick.touched = true;
   tick(660);
   link.lastNotice = { id: String(Date.now()), text: `Série ${f.n} validée · ${repsText(f.x.e, reps)}`, t: Date.now() };
+  const said = link.lastSay;
   validateSet(f);
-  announce('Noté.'); // micro ouvert : le nombre est sur l'écran, pas dans la voix
+  // Micro ouvert : le nombre est sur l'écran, pas dans la voix. Record ou dernière série déjà annoncés : on ne les coupe pas.
+  if (link.lastSay === said) announce(f.n % 2 ? "C'est noté." : 'Parfait.');
 }

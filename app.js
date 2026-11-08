@@ -416,6 +416,7 @@ function settings() {
     section('Séance',
       h('div', { className: 'list' }, toggle('Coach vocal', d.voice !== false, (v) => { d.voice = v; })),
       h('p', { className: 'caption' }, "Annonce la série suivante, la fin du repos et tes records. Sur l'écran projeté s'il est connecté, sinon sur l'iPhone."),
+      window.speechSynthesis && voicePicker(d),
       h('div', { className: 'stack tight' }, h('span', {}, 'Caméra du miroir'), pills(d, 'mirrorCam', [['front', 'Avant'], ['back', 'Arrière grand-angle']])),
       h('p', { className: 'caption' }, "Pour la pastille Miroir. L'arrière grand-angle cadre bien plus large : tu restes plus près. Pose l'iPhone écran vers le mur."),
       state.screen && h('div', { className: 'line' }, h('span', {}, 'Écran projeté'), button("Oublier l'écran", forgetScreen, { variant: 'plain', className: 'btn plain destructive' }))),
@@ -425,6 +426,25 @@ function settings() {
         h('span', { className: 'meta' }, `Version du ${new Date(document.lastModified).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`),
         button('Mettre à jour', forceUpdate, { size: 'compact' })),
       log.length > 0 && h('div', { className: 'line' }, h('span', {}, 'Séances et séries'), button('Réinitialiser', resetLog, { variant: 'plain', className: 'btn plain destructive' }))));
+}
+
+// Voix du coach : « Automatique » prend la plus naturelle de l'iPhone (frenchVoice, shared.js). L'écran projeté garde la sienne.
+function voicePicker(d) {
+  const synth = window.speechSynthesis;
+  const names = [...new Set(frenchVoices(synth).map((v) => v.name))];
+  const menu = h('select', { className: 'input', ariaLabel: 'Voix du coach', onchange: () => { d.voiceName = menu.value || null; } },
+    h('option', { value: '' }, 'Automatique'), names.map((name) => h('option', { value: name, selected: name === d.voiceName }, name)));
+  const listen = () => {
+    const u = new SpeechSynthesisUtterance("C'est reparti. Troisième série, 10 répétitions à 20 kilos.");
+    u.lang = 'fr-FR';
+    u.voice = frenchVoice(synth, d.voiceName);
+    synth.cancel();
+    synth.speak(u);
+  };
+  return h('div', { className: 'stack tight' },
+    h('span', {}, 'Voix'),
+    h('div', { className: 'line' }, menu, button('Écouter', listen, { size: 'compact', icon: 'play', style: 'flex: none' })),
+    h('p', { className: 'caption' }, "Voix plus naturelle : sur l'iPhone, Réglages, Accessibilité, Contenu énoncé, Voix, Français, puis télécharge Amélie ou Thomas en version Premium. Elle est choisie toute seule ensuite."));
 }
 
 // Interrupteur iOS : toute la ligne se touche.
@@ -1051,7 +1071,7 @@ function nextWarm() {
   warm.i++;
   if (warm.i >= warm.list.length) {
     warm = null;
-    speak('Échauffement terminé. Place aux séries.');
+    speak('Échauffement fini. On attaque les séries.');
     toast('Échauffement terminé', 'success');
     render();
     return;
@@ -1178,7 +1198,7 @@ function validateSet({ x, n, i, count, pick }) {
   // Dernière série de l'exercice : on reste dessus pour le ressenti, « Exercice suivant » fait avancer.
   if (x.done.size + 1 >= it.sets) ui.at = i;
   if (n < it.sets || i + 1 < count) startRest(it.rest);
-  else announce('Dernière série faite. Bravo !');
+  else announce('Dernière série faite, bien joué !');
   ui.pick = null;
   render();
 }
@@ -1236,14 +1256,16 @@ function startTempo(reps, mode) {
   const rep = down + hold + 1500, lead = 3500, timers = [];
   const at = (ms, fn) => timers.push(setTimeout(fn, ms));
   tempo = { timers, rep: 0, reps };
-  speak(hold ? 'Descends en 3 secondes, pause 2 secondes, puis pousse.' : 'Descends en 3 secondes, puis pousse.', true);
+  speak(hold ? 'Trois secondes pour descendre, deux secondes de pause, puis tu pousses.' : 'Trois secondes pour descendre, puis tu pousses.', true);
   for (let r = 0; r < reps; r++) {
     const t0 = lead + r * rep;
-    at(t0, () => { tempo.rep = r + 1; showTempo(); if (!micOpen()) speak(String(r + 1), true); }); // micro ouvert : bips seuls
+    // Les bips donnent le rythme ; la voix ne parle qu'à la fin. Micro ouvert : bips seuls.
+    const say = r + 1 === reps ? 'Dernière.' : r + 2 === reps ? 'Encore deux.' : '';
+    at(t0, () => { tempo.rep = r + 1; showTempo(); if (say && !micOpen()) speak(say, true); });
     for (let d = 0; d < down; d += 1000) at(t0 + d, () => tick(440));
     at(t0 + down + hold, () => tick(880));
   }
-  at(lead + reps * rep, () => { stopTempo(); speak('Série terminée : valide-la.', true); });
+  at(lead + reps * rep, () => { stopTempo(); speak("C'est fini, tu peux valider.", true); });
   showTempo();
 }
 function stopTempo() {
@@ -1324,7 +1346,7 @@ function logSet(e, n, kg, reps, mode) {
   const entry = log.at(-1);
   // Erreur de doigt : « Annuler » pendant 5 s retire la série (entrée undo, le journal garde la trace).
   toast(pr ? `Record : ${setText(e, value, reps)}` : `Série ${n} enregistrée`, 'success', () => undoSet(entry));
-  if (pr) announce(micOpen() ? 'Nouveau record !' : `Nouveau record : ${setSpeech(e, value, reps)} !`);
+  if (pr) announce(micOpen() ? 'Nouveau record !' : `Nouveau record ! ${setSpeech(e, value, reps)}.`);
   return pr;
 }
 function undoSet(entry) {
@@ -1517,14 +1539,20 @@ function stopRest() {
 const restClock = () => { const left = Math.max(0, Math.ceil((restEnd - Date.now()) / 1000)); return `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; };
 const extendRest = (seconds) => startRest(Math.ceil((restEnd - Date.now()) / 1000) + seconds);
 
-// Annonce de fin de repos : la série qui suit, ou l'exercice suivant.
+// Annonce de fin de repos : la série qui suit, ou l'exercice suivant. La tournure varie d'une série à l'autre, mais reste la même
+// pour une série donnée (restSay est recalculée à chaque envoi vers l'écran projeté).
+const ORDINALS = ['Première', 'Deuxième', 'Troisième', 'Quatrième', 'Cinquième', 'Sixième', 'Septième', 'Huitième', 'Neuvième', 'Dixième'];
+const vary = (list, seed) => list[Math.abs(seed) % list.length];
 function restSay() {
   const u = upNext();
   if (!u) return 'Repos terminé.';
+  const seed = u.n + u.x.e.id, last = u.n === u.x.it.sets;
   // Micro ouvert : sans aucun nombre (série, répétitions, charge restent affichés sur l'écran).
-  if (micOpen()) return u.n === 1 ? `Repos terminé. Exercice suivant : ${u.x.e.name}.` : 'Repos terminé. Série suivante, à toi.';
+  if (micOpen()) return u.n === 1 ? `On enchaîne : ${u.x.e.name}.` : last ? 'Dernière série, à toi.' : vary(["C'est reparti, à toi.", 'Allez, on y retourne.', 'À toi de jouer.'], seed);
   const what = setSpeech(u.x.e, u.kg, u.reps);
-  return u.n === 1 ? `Repos terminé. Exercice suivant : ${u.x.e.name}. ${what}.` : `Repos terminé. Série ${u.n} sur ${u.x.it.sets} : ${what}.`;
+  if (u.n === 1) return `${vary(['On enchaîne', 'Nouvel exercice'], seed)} : ${u.x.e.name}. ${what[0].toUpperCase()}${what.slice(1)}.`;
+  const which = last ? 'Dernière série' : ORDINALS[u.n - 1] ? `${ORDINALS[u.n - 1]} série` : `Série ${u.n}`;
+  return `${vary(["C'est reparti", 'Allez, on y retourne', 'À toi'], seed)}. ${which}, ${what}.`;
 }
 
 // --- Coach vocal ---
@@ -1536,7 +1564,7 @@ function speak(text, here = false) {
   if (micOpen() && saysCommand(text)) return; // ne jamais se valider soi-même
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'fr-FR';
-  u.voice = frenchVoice(synth);
+  u.voice = frenchVoice(synth, state.config?.voiceName);
   u.onend = () => { mic.spokeAt = Date.now(); };
   mic.spokeAt = Date.now();
   hush(text);
