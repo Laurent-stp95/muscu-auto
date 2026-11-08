@@ -101,7 +101,7 @@ function record(entry) {
 }
 
 // Message en haut d'écran, icône selon sa nature ; avec `undo`, un bouton Annuler pendant 5 s.
-const TOAST_ICONS = { success: 'checkCircle', info: 'info', warning: 'warning', error: 'xCircle', timer: 'timer', offline: 'offline' };
+const TOAST_ICONS = { record: 'flag', success: 'checkCircle', info: 'info', warning: 'warning', error: 'xCircle', timer: 'timer', offline: 'offline' };
 function toast(text, kind = 'info', undo) {
   document.querySelector('.toast')?.remove();
   const node = h('div', { className: `toast ${kind}`, role: ['warning', 'error', 'offline'].includes(kind) ? 'alert' : 'status' }, icon(TOAST_ICONS[kind]), h('span', {}, text),
@@ -152,7 +152,7 @@ function show(view) {
 }
 
 function render() {
-  const views = { onboarding, week, session, progress, settings };
+  const views = { onboarding, week, session, progress, settings, done: finishScreen };
   if (ui.view === 'session' && !state.active) ui.view = 'week'; // séance terminée ailleurs (remise à zéro, autre appareil) : retour au programme
   const node = views[ui.view]();
   if (KEPT.includes(ui.view)) screens.set(ui.view, { node, revision, day: today(), scroll: 0 });
@@ -577,23 +577,35 @@ function week() {
       h('div', { className: 'top' }, h('h1', {}, 'Ma semaine'),
         h('div', { className: 'row' }, button(null, projectSheet, { variant: 'plain', icon: 'tv', ariaLabel: 'Projeter sur un écran', className: 'btn plain screen-btn' }), button('Réglages', openSettings, { variant: 'plain' }))),
       h('p', { className: 'meta' }, `Semaine ${Math.min(n, CYCLE_WEEKS)} sur ${CYCLE_WEEKS} du cycle`)),
-    weekProgress(plan, done, focus),
-    recoveryCard(plan, done, focus),
-    deload && banner('leaf', 'Semaine allégée',
-      h('p', {}, 'Moitié moins de séries et charges baissées de 10 %. Ce repos fait partie de la progression : il évite la fatigue qui mène aux blessures.')),
+    // La séance à faire d'abord : on ouvre l'appli pour s'entraîner. Avancement, récupération et le reste de la semaine ensuite.
     ended && banner('flag', 'Cycle terminé',
       h('p', {}, 'Le nouveau cycle garde tes mouvements principaux, pour continuer à progresser, et renouvelle les exercices secondaires.'),
       button('Lancer le nouveau cycle', newCycle, { variant: 'primary' })),
+    deload && banner('leaf', 'Semaine allégée',
+      h('p', {}, 'Moitié moins de séries et charges baissées de 10 %. Ce repos fait partie de la progression : il évite la fatigue qui mène aux blessures.')),
+    dayCard(plan[focus.index], focus.index, true, done, focus.nextWeek),
+    weekProgress(plan, done, focus),
+    recoveryCard(plan, done, focus),
     // Rappel compact, toute la ligne se touche (comme une ligne de Réglages iOS).
     backupDue && h('button', { type: 'button', className: 'card notice', onclick: backup },
       h('span', { className: 'notice-icon' }, icon('save')),
       h('span', { className: 'stack tight' }, h('strong', {}, 'Sauvegarde ton journal'),
         h('span', { className: 'caption' }, copied ? `Dernière copie il y a ${plural(daysAgo(copied), 'jour')}` : "Ton suivi n'existe que sur cet iPhone")),
       icon('chevron', 'chev')),
-    plan.map((s, d) => dayCard(s, d, d === focus.index, done, focus.nextWeek)),
-    (done.size > 0 || state.active) && button('Repartir de zéro cette semaine', resetWeek, { variant: 'gray', size: 'large' }),
-    !state.active && (freshCycle() || ended) && button('Générer une autre variante', reroll, { variant: 'gray', size: 'large' }),
-    !state.active && !freshCycle() && !ended && h('p', { className: 'caption center' }, "Exercices fixes jusqu'à la fin du cycle, pour apprendre les gestes et progresser. « Remplacer » reste possible."));
+    plan.map((s, d) => d !== focus.index && dayCard(s, d, false, done, focus.nextWeek)),
+    (canResetWeek(done) || canReroll()) && h('div', { className: 'center' }, button('Options de la semaine', weekOptions, { variant: 'plain' })));
+}
+
+// Remise à zéro et autre variante : rares, rangées dans une feuille plutôt qu'en grands boutons sous les séances.
+const canResetWeek = (done) => done.size > 0 || !!state.active;
+const canReroll = () => !state.active && (freshCycle() || cycle().ended);
+async function weekOptions() {
+  const variant = canReroll();
+  const choice = await choose({ title: 'Options de la semaine',
+    text: variant ? null : "Exercices fixes jusqu'à la fin du cycle, pour apprendre les gestes et progresser. « Remplacer » reste possible sur chaque exercice.",
+    actions: [canResetWeek(doneThisWeek()) && { label: 'Repartir de zéro cette semaine', value: 'reset' }, variant && { label: 'Générer une autre variante', value: 'reroll' }, { label: 'Fermer', value: null }].filter(Boolean) });
+  if (choice === 'reset') resetWeek();
+  if (choice === 'reroll') reroll();
 }
 
 // Carte de récupération : silhouettes où chaque muscle encore fatigué ressort en rouge (plus c'est pâle, plus il est récupéré),
@@ -609,19 +621,24 @@ function recoveryCard(plan, done, focus) {
   const groups = GROUPS.map(([label, ids]) => [label, Math.min(...ids.map(pct))]).filter(([, p]) => p < 100);
   const score = (s) => { const ms = s.items.flatMap((it) => byId.get(it.ex).mus); return ms.reduce((t, m) => t + pct(m), 0) / (ms.length || 1); };
   const open = plan.map((s, d) => ({ s, d })).filter(({ s }) => !done.has(s.day));
-  const best = !state.active && open.length > 1 ? open.reduce((a, b) => (score(b.s) > score(a.s) + 5 ? b : a)) : null; // +5 : pas de changement pour un écart minime
+  const best = !state.active && !focus.nextWeek && open.length > 1 ? open.reduce((a, b) => (score(b.s) > score(a.s) + 5 ? b : a)) : null; // +5 : pas de changement pour un écart minime
   const bodies = h('div', { className: 'bodies' }, side(true), side(false));
   bodies.setAttribute('role', 'img');
   bodies.setAttribute('aria-label', `Récupération : ${groups.map(([label, p]) => `${label} ${p} %`).join(', ') || 'tout est récupéré'}`);
-  return h('section', { className: 'card' },
-    h('div', { className: 'line-head' }, h('h2', {}, 'Récupération'), h('span', { className: 'meta' }, "aujourd'hui")),
-    h('div', { className: 'anatomy' }, bodies,
+  // Repliée sur une ligne : les deux zones les moins récupérées. Le détail (silhouettes, légende) se déplie.
+  const low = groups.filter(([, p]) => p < 80).sort((a, b) => a[1] - b[1]);
+  const details = h('details', { className: 'more recovery', open: ui.open?.recovery ?? false },
+    h('summary', {}, h('span', { className: 'stack tight' }, h('h2', {}, 'Récupération'),
+      h('span', { className: 'caption' }, low.length ? low.slice(0, 2).map(([label, p]) => `${label} ${p} %`).join(' · ') : 'Presque tout est récupéré')), icon('chevron', 'chev')),
+    h('div', { className: 'stack' }, h('div', { className: 'anatomy' }, bodies,
       h('div', { className: 'legend' }, groups.length ? groups.map(([label, p]) => h('span', {},
         h('i', { className: 'dot', style: `background: ${p >= 80 ? 'var(--ok)' : p >= 50 ? 'var(--warn-ink)' : 'var(--danger)'}` }), `${label} : ${p} %`)) : h('span', {}, 'Tout est récupéré.'))),
+      h('p', { className: 'caption' }, "Vert : récupéré, jaune : en cours, rouge : fatigué. Sur les schémas, plus le rouge est vif, plus le muscle est fatigué. D'après tes séries des 5 derniers jours.")));
+  details.addEventListener('toggle', () => { (ui.open ||= {}).recovery = details.open; });
+  return h('section', { className: 'card' }, details,
     best && best.d !== focus.index && h('div', { className: 'stack' },
       h('p', { className: 'note' }, icon('leaf'), `Aujourd'hui, ${DAYS[best.s.day].toLowerCase()} · ${best.s.name} tombe mieux : ses muscles sont les plus récupérés.`),
-      h('div', {}, button(`Faire ${DAYS[best.s.day].toLowerCase()} · ${best.s.name}`, () => start(best.d), { size: 'compact', icon: 'play' }))),
-    h('p', { className: 'caption' }, "Vert : récupéré, jaune : en cours, rouge : fatigué. Sur les schémas, plus le rouge est vif, plus le muscle est fatigué. D'après tes séries des 5 derniers jours."));
+      h('div', {}, button(`Faire ${DAYS[best.s.day].toLowerCase()} · ${best.s.name}`, () => start(best.d), { size: 'compact', icon: 'play' }))));
 }
 
 // Toutes les séances de la semaine redeviennent à faire ; les séries déjà faites restent dans le suivi (courbes, records, historique).
@@ -924,11 +941,7 @@ async function stopSession() {
       { label: 'Abandonner sans enregistrer', value: 'cancel', variant: 'gray destructive' },
       { label: 'Continuer la séance', value: null }],
   });
-  if (choice === 'end') {
-    closeSession();
-    show('week');
-    toast('Séance enregistrée', 'success');
-  }
+  if (choice === 'end') finishSession();
   if (choice === 'cancel') {
     const active = { ...state.active };
     record({ type: 'cancel' });
@@ -956,6 +969,33 @@ function closeSession() {
   save();
   cloudBackup();
   syncPush();
+}
+
+// Fin de séance : bilan plein écran, comme sur l'écran projeté. Toutes les séries faites, on y arrive sans passer par « Arrêter ».
+const allDone = () => nextItem(activeItems()) >= activeItems().length;
+function finishSession() {
+  closeSession();
+  ui.finished = state.ended;
+  show('done');
+  const n = state.ended.summary.records.length;
+  announce(n ? `Séance enregistrée, avec ${n > 1 ? 'des records' : 'un record'}. Beau travail !` : 'Séance enregistrée. Beau travail !');
+}
+// Records en avant, semaine qui avance d'un segment, prochaine séance. Une seule action.
+function finishScreen() {
+  const f = ui.finished;
+  if (!f) { ui.view = 'week'; return week(); }
+  const { stats, records } = f.summary;
+  const plan = state.plan, done = doneThisWeek(), focus = focusOf(plan, done), next = plan[focus.index];
+  const stat = (value, label) => h('div', { className: 'stat' }, h('strong', {}, value), h('span', { className: 'caption' }, label));
+  return h('div', { className: 'screen' },
+    h('header', { className: 'finish-head' }, h('span', { className: 'finish-mark' }, icon('check')), h('h1', {}, 'Séance terminée'), h('p', { className: 'meta' }, f.title)),
+    h('div', { className: 'stats' }, stats.map(([value, label]) => stat(value, label))),
+    records.length > 0 && h('section', { className: 'card finish-records' },
+      h('div', { className: 'banner-head' }, icon('flag'), h('h2', {}, records.length > 1 ? `${records.length} records` : 'Nouveau record')),
+      h('div', { className: 'stack tight' }, records.map((r) => h('p', {}, r)))),
+    weekProgress(plan, done, focus),
+    !focus.nextWeek && h('p', { className: 'meta center' }, `Prochaine séance : ${DAYS[next.day].toLowerCase()} · ${next.name}`),
+    button('Terminé', () => { ui.finished = null; show('week'); }, { variant: 'primary', size: 'large' }));
 }
 
 function pausedScreen(s) {
@@ -992,7 +1032,7 @@ function session() {
     comeback(state.active.off) && h('p', { className: 'note' }, icon('leaf'), `Reprise après ${state.active.off} jours sans séance : charges réduites aujourd'hui, pour repartir sans te blesser.`),
     list ? [warmBanner(), s.items.map((item, i) => effective(item, true).sets > 0 && block(item, state.active.day, i)),
       // Fin de liste = fin de séance : le bouton est là où on en a besoin, sans remonter.
-      button('Terminer la séance', stopSession, { variant: 'primary', size: 'large' })]
+      allDone() ? button('Enregistrer la séance', finishSession, { variant: 'primary', size: 'large', icon: 'check' }) : button('Terminer la séance', stopSession, { variant: 'primary', size: 'large' })]
       : warm ? warmCard()
       : [!sessionSets(state.active.session).size && h('div', { className: 'stack' }, h('p', { className: 'note' }, icon('flame'), `Avant la première série, échauffe-toi : ${warmMinutes()} minutes guidées et minutées.`), warmButton()),
         focusView(s, state.active.day)]);
@@ -1122,9 +1162,8 @@ function focusView(s, d) {
   if (i >= items.length) {
     return h('section', { className: 'card focus-card' },
       h('div', { className: 'stack tight center' }, icon('flag', 'big-icon'), h('h2', { className: 'title' }, 'Toutes les séries sont faites'),
-        h('p', { className: 'meta' }, "Bravo. Termine la séance pour l'enregistrer.")),
-      sessionSummary(),
-      button('Terminer la séance', stopSession, { variant: 'primary', size: 'large' }),
+        h('p', { className: 'meta' }, 'Enregistre la séance pour voir ton bilan.')),
+      button('Enregistrer la séance', finishSession, { variant: 'primary', size: 'large', icon: 'check' }),
       button('Revenir au dernier exercice', () => move(items.length - 1), { variant: 'gray', size: 'large' }));
   }
   const x = items[i];
@@ -1345,7 +1384,8 @@ function logSet(e, n, kg, reps, mode) {
   record({ type: 'set', ex: e.id, set: n, kg: value, reps, ...(mode !== 'normal' && { mode }), ...(pr && { pr }) });
   const entry = log.at(-1);
   // Erreur de doigt : « Annuler » pendant 5 s retire la série (entrée undo, le journal garde la trace).
-  toast(pr ? `Record : ${setText(e, value, reps)}` : `Série ${n} enregistrée`, 'success', () => undoSet(entry));
+  toast(pr ? `Nouveau record : ${setText(e, value, reps)}` : `Série ${n} enregistrée`, pr ? 'record' : 'success', () => undoSet(entry));
+  if (pr && !projected()) fanfare(); // l'écran projeté a son propre bandeau
   if (pr) announce(micOpen() ? 'Nouveau record !' : `Nouveau record ! ${setSpeech(e, value, reps)}.`);
   return pr;
 }
@@ -1469,6 +1509,20 @@ async function painZone(e) {
 
 let audio = null, rest = null, restEnd = 0, restTotal = 0, restPushed = false, wakeLock = null;
 const restBar = h('div', { className: 'rest', hidden: true, role: 'timer' });
+
+// Record : quatre notes montantes, à ne pas confondre avec les bips de série ou de repos.
+function fanfare() {
+  if (!audio) return;
+  [523, 659, 784, 1047].forEach((freq, i) => {
+    const osc = audio.createOscillator(), gain = audio.createGain(), at = audio.currentTime + i * 0.11;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.22, at);
+    gain.gain.exponentialRampToValueAtTime(0.001, at + (i === 3 ? 0.5 : 0.18));
+    osc.connect(gain).connect(audio.destination);
+    osc.start(at);
+    osc.stop(at + 0.55);
+  });
+}
 
 // Bip court du métronome : grave pendant la descente, aigu pour remonter.
 function tick(freq) {
@@ -1796,7 +1850,7 @@ function summaryData(items) {
   const planned = items.reduce((n, x) => n + x.it.sets, 0);
   const volume = Math.round([...sets.values()].reduce((v, x) => v + (x.kg || 0) * x.reps, 0));
   return {
-    stats: [[`${sets.size}/${planned}`, planned > 1 ? 'séries' : 'série'], [`${activeMinutes(state.active.session)} min`, 'effort'], [kgText(volume), 'volume']],
+    stats: [[`${sets.size}/${planned}`, planned > 1 ? 'séries' : 'série'], [`${activeMinutes(state.active.session)} min`, 'effort'], [volume.toLocaleString('fr-FR'), 'kg soulevés']],
     records: [...sets.values()].filter((x) => x.pr && byId.has(x.ex)).map((x) => `${byId.get(x.ex).name} : ${setText(byId.get(x.ex), x.kg, x.reps)}`),
   };
 }

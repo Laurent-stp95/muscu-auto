@@ -112,10 +112,7 @@ function hear(text, alternatives = [text]) {
   if (cmd.id === 'terminer') {
     if (nextItem(items) < items.length) return heard(alt, 'il reste des séries'); // on ne termine pas par erreur
     heard(alt);
-    closeSession();
-    show('week');
-    announce('Séance enregistrée. Beau travail !');
-    return toast('Séance enregistrée', 'success');
+    return finishSession();
   }
   if (cmd.id === 'prochain') { heard(alt); return goToItem(i + 1); }
   if (cmd.id === 'ressenti') {

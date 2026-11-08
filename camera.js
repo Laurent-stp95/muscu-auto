@@ -26,11 +26,12 @@ async function cameraCoach(f) {
   const count = h('strong', { className: 'cam-count' }, '0');
   const hint = h('p', { className: 'cam-hint' }, 'Préparation de la caméra…');
   const ok = button('Valider', () => close(true), { variant: 'primary', size: 'large', disabled: true });
+  const quit = button('Fermer', () => close(false), { variant: 'gray', size: 'large' });
   const dialog = h('dialog', { className: 'sheet camera' }, h('div', { className: 'sheet-body' },
     h('div', { className: 'cam-view' }, video, canvas, count),
     h('div', { className: 'cam-panel' }, hint,
       h('p', { className: 'caption' }, kind === 'knee' ? "iPhone debout, de côté, à 2 ou 3 m : de la tête aux pieds dans l'image." : "iPhone de côté : épaules, bras et mains dans l'image."),
-      ok, button('Fermer', () => close(false), { variant: 'gray', size: 'large' }))));
+      ok, quit)));
   let stream = null, closed = false, reps = 0;
   const data = []; // { depth, down, full } par répétition, gardé avec la série (suivi de la technique)
   function close(keep) {
@@ -48,7 +49,12 @@ async function cameraCoach(f) {
   try {
     [stream, model] = await Promise.all([navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', aspectRatio: { ideal: 3 / 4 }, height: { ideal: 1280 } }, audio: false }), poseModel()]);
   } catch (err) {
+    // Pas d'écran noir : un panneau qui dit quoi faire, et la saisie à la main comme sortie.
+    dialog.classList.add('failed');
+    hint.before(icon('camera', 'cam-off'));
     hint.textContent = err?.name === 'NotAllowedError' ? "Caméra refusée : autorise-la dans les Réglages de l'iPhone, Steady." : 'Caméra ou suivi du corps indisponible (connexion nécessaire la première fois).';
+    ok.hidden = true;
+    quit.lastChild.textContent = 'Saisir à la main';
     return;
   }
   if (closed) return stream.getTracks().forEach((track) => track.stop());

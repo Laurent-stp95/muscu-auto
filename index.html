@@ -28,7 +28,7 @@
     color-scheme: light dark;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #000; --card: #1c1c1e; --fg: #fff; --muted: #98989f; --line: #38383a; --fill: rgb(120 120 128 / .24); --seg-on: #636366;
+    :root { --bg: #000; --card: #1c1c1e; --fg: #fff; --muted: #a1a1a6; --line: #38383a; --fill: rgb(120 120 128 / .24); --seg-on: #636366;
       --accent-ink: #ff8a5c; --accent-soft: color-mix(in srgb, #c8441d 26%, transparent);
       --ok-ink: #4cd964; --ok-soft: color-mix(in srgb, #1e7d46 30%, transparent); --warn-ink: #ffd60a;
       --body-dim: brightness(.82); --danger-ink: #ff6961; --danger-soft: color-mix(in srgb, #ff6961 18%, transparent); --shadow: 0 4px 20px rgb(0 0 0 / .6); }
@@ -38,6 +38,7 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body { margin: 0; background: var(--bg); color: var(--fg); font-size: var(--t-body); line-height: 1.35; -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%; }
   h1, h2, h3, p, ul, ol, fieldset { margin: 0; }
+  p { text-wrap: pretty; }
   ul, ol { padding-left: 1.25em; }
   a { color: var(--accent-ink); }
   button, input, select, textarea { font: inherit; color: inherit; }
@@ -150,6 +151,13 @@
   .ex > summary { padding: var(--s2) 0; }
   .ex[open] { padding-bottom: var(--s3); }
   .more > summary { color: var(--accent-ink); font-weight: 600; }
+  .recovery > summary { justify-content: space-between; color: var(--fg); font-weight: 400; }
+  /* Fin de séance */
+  .finish-head { display: grid; justify-items: center; gap: var(--s2); padding: var(--s5) 0 var(--s2); text-align: center; }
+  .finish-mark { display: grid; place-items: center; width: 72px; height: 72px; border-radius: var(--r-full); background: var(--ok); color: #fff; animation: pop .5s cubic-bezier(.2, .9, .3, 1.15) both; }
+  .finish-mark .icon { width: 40px; height: 40px; stroke-width: 2.6; }
+  .finish-records { background: var(--accent-soft); }
+  @keyframes pop { from { opacity: 0; transform: scale(.6); } }
   .ex-body { display: grid; gap: var(--s3); }
 
   /* Visuels */
@@ -230,6 +238,11 @@
   dialog.sheet.camera { width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); border-radius: 0; background: #000; color: #fff; }
   dialog.sheet.camera .sheet-body { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: var(--s3); height: 100%; padding: var(--s3); }
   dialog.sheet.camera .caption { color: #c7c7cc; text-align: center; }
+  /* Toujours sombre, même iPhone en mode clair : sans ça « Fermer » s'écrivait en noir sur noir */
+  dialog.sheet.camera { color-scheme: dark; --fg: #fff; --muted: #a1a1a6; --line: #38383a; --fill: rgb(120 120 128 / .24); --card: #1c1c1e; --accent-ink: #ff8a5c; }
+  dialog.sheet.camera.failed .cam-view, dialog.sheet.camera.failed .caption { display: none; }
+  dialog.sheet.camera.failed .sheet-body { grid-template-rows: none; grid-template-columns: minmax(0, 1fr); align-content: center; }
+  .cam-off { justify-self: center; width: 56px; height: 56px; color: var(--muted); }
   .cam-view { position: relative; min-height: 0; overflow: hidden; border-radius: var(--r-m); background: #000; }
   .cam-video, .cam-canvas { position: absolute; top: 0; left: 0; display: block; width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1); }
   /* iPhone tenu en portrait, image livrée en paysage : on remplit la hauteur (bords coupés), le corps debout est au centre */
@@ -266,6 +279,8 @@
   .toast { position: fixed; top: calc(var(--s2) + env(safe-area-inset-top)); left: 50%; z-index: 20; display: flex; align-items: center; gap: var(--s2); width: max-content; max-width: calc(100% - 2 * var(--s4)); min-height: var(--tap); padding: var(--s2) var(--s4) var(--s2) var(--s3); border: 1px solid var(--line); border-radius: var(--r-l); background: var(--card); color: var(--fg); font-size: var(--t-subhead); font-weight: 500; box-shadow: var(--shadow); transform: translateX(-50%); animation: drop .25s ease; }
   .toast > .icon { width: 22px; height: 22px; }
   .toast.success > .icon { color: var(--ok-ink); }
+  .toast.record { border-color: transparent; background: var(--accent); color: #fff; font-weight: 600; }
+  .toast.record > .icon, .toast.record .btn { color: #fff; }
   .toast.info > .icon, .toast.timer > .icon { color: var(--accent-ink); }
   .toast.warning > .icon, .toast.offline > .icon { color: var(--warn-ink); }
   .toast.error > .icon { color: var(--danger-ink); }
@@ -307,7 +322,7 @@
 
   @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
   @keyframes drop { from { opacity: 0; transform: translate(-50%, -8px); } }
-  @media (prefers-reduced-motion: reduce) { .step, .seg-panel, .toast { animation: none; } .progress span, summary .chev { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .step, .seg-panel, .toast, .finish-mark { animation: none; } .progress span, summary .chev { transition: none; } }
 </style>
 </head>
 <body>
