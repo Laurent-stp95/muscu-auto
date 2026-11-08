@@ -570,8 +570,10 @@ function dayCard(s, d, focused, done, nextWeek, date) {
   const row = ({ item, i, e, it }) => {
     const kg = isBodyweight(e) ? null : tipFor(e, historyOf(e.id))?.kg;
     return lazy('ex',
-      h('summary', {}, h('span', { className: 'stack tight' }, h('span', { className: 'with-badge' }, e.name, isFresh(e.id) && h('span', { className: 'badge' }, 'Nouveau')),
-        h('span', { className: 'meta' }, `${it.sets} × ${it.reps}${e.unit === 's' ? ' s' : ''}${kg != null ? ` · ${kgLabel(e, kg)}` : ''}`)), icon('chevron', 'chev')),
+      // « Nouveau » sur la ligne de la dose : après le nom, il passait seul à la ligne sur les noms longs, décalé.
+      h('summary', {}, h('span', { className: 'stack tight' }, h('span', {}, e.name),
+        h('span', { className: 'dose' }, isFresh(e.id) && h('span', { className: 'badge' }, 'Nouveau'),
+          h('span', { className: 'meta' }, `${it.sets} × ${it.reps}${e.unit === 's' ? ' s' : ''}${kg != null ? ` · ${kgLabel(e, kg)}` : ''}`))), icon('chevron', 'chev')),
       () => h('div', { className: 'ex-body' }, h('p', { className: 'meta' }, prescriptionText(e, it)), exerciseInfo(e), !state.active && h('div', {}, button('Remplacer', () => replace(d, i), { size: 'compact' }))));
   };
   const head = h('div', { className: 'session-head' },
