@@ -338,9 +338,10 @@ function fullscreen() {
 
 // --- Miroir : la webcam de l'ordinateur (page ouverte sur le Mac recopié sur la TV) suit le corps, compte les répétitions
 // de la série affichée et vérifie l'amplitude ; le compte part vers l'iPhone, qui remplit son compteur. Calcul sur l'appareil,
-// aucune image envoyée. Squats et fentes (genou), développés (coude) : snapshot.ex.cam. Bibliothèque chargée seulement si on l'active.
+// aucune image envoyée. Squats et fentes (genou), développés et pompes (coude), soulevés de terre et swing (hanche, de profil),
+// élévations latérales (épaule, de face) : snapshot.ex.cam, choisi par l'iPhone. Bibliothèque chargée seulement si on l'active.
 // Constantes, modèle (poseModel), jointAngle et repCounter : shared.js.
-let mirror = null; // { stream, remote, model, tracker, key, reps, data, off }
+let mirror = null; // { stream, remote, model, tracker, tempo, key, kind, reps, data, off }
 
 function mirrorSay(textValue, warn) {
   const node = $('mirror-say');
@@ -436,11 +437,13 @@ function mirrorFrame(me) {
   if (mirror !== me || !me.model) return;
   const video = $('mirror-video'), canvas = $('mirror-canvas'), ctx = canvas.getContext('2d');
   // Nouvelle série affichée : le compte repart de zéro.
-  const key = snapshot && snapshot.ex && snapshot.set ? snapshot.ex.id + '|' + snapshot.set.n : null, kind = snapshot && snapshot.ex ? snapshot.ex.cam : null;
+  const key = snapshot && snapshot.ex && snapshot.set ? snapshot.ex.id + '|' + snapshot.set.n : null;
+  const cam = snapshot && snapshot.ex ? snapshot.ex.cam : null, kind = cam && CAM_TEXT[cam] ? cam : null; // articulation inconnue de cette version de l'écran : pas de comptage
   if (key !== mirror.key || kind !== mirror.kind) {
-    Object.assign(mirror, { key: key, kind: kind, reps: 0, data: [], tracker: kind ? poseTracker(kind, snapshot.ex.id) : null, off: 0 });
+    Object.assign(mirror, { key: key, kind: kind, reps: 0, data: [], tracker: kind ? poseTracker(kind, snapshot.ex.id) : null,
+      tempo: kind ? tempoCoach(counterFor(kind, snapshot.ex.id).fast) : null, off: 0 });
     $('mirror-count').textContent = kind ? '0' : '';
-    mirrorSay(kind ? 'Je compte tes répétitions.' : (key ? 'Comptage disponible pour les squats, les fentes, les pompes et les développés.' : 'Miroir actif.'));
+    mirrorSay(kind ? 'Je compte tes répétitions : place-toi ' + CAM_TEXT[kind].place + '.' : (key ? 'Pas de comptage pour cet exercice.' : 'Miroir actif.'));
   }
   if (video.readyState >= 2 && video.videoWidth) {
     const w = canvas.width = video.videoWidth, hh = canvas.height = video.videoHeight, now = performance.now();
@@ -457,14 +460,16 @@ function mirrorFrame(me) {
       }
       if (r.state === 'ok') mirror.off = 0;
       else if (!mirror.off) mirror.off = now;
-      else if (now - mirror.off > 800) mirrorSay(r.state === 'partial' ? (mirror.kind === 'knee' ? 'Recule : la tête et les pieds doivent être dans l\'image.' : 'Recule : épaules et mains doivent être dans l\'image.') : HOLD[r.state], r.state !== 'paused');
+      else if (now - mirror.off > 800) mirrorSay(r.state === 'partial' ? 'Recule : ' + CAM_TEXT[mirror.kind].need + ' doivent être dans l\'image.' : HOLD[r.state], r.state !== 'paused');
       const ev = r.ev;
-      if (ev && ev.partial) mirrorSay('Pas assez bas : répétition non comptée.', true); // rien n'est dit : un geste anodin ne doit pas faire parler
+      if (ev && ev.partial) mirrorSay(CAM_TEXT[mirror.kind].low, true); // rien n'est dit : un geste anodin ne doit pas faire parler
       else if (ev) {
         mirror.reps = ev.rep;
         mirror.data.push({ depth: ev.depth, down: ev.down, full: ev.full });
         $('mirror-count').textContent = String(ev.rep);
-        mirrorSay(!ev.full ? 'Amplitude incomplète : descends plus bas.' : ev.down < 1000 ? 'Descente trop rapide : contrôle-la.' : 'Répétition ' + ev.rep + ' : bonne amplitude.', !ev.full || ev.down < 1000);
+        // Tempo : deux répétitions trop rapides d'affilée = un rappel écrit, pas à chaque répétition (tempoCoach, shared.js).
+        const slow = mirror.tempo.push(ev);
+        mirrorSay(!ev.full ? CAM_TEXT[mirror.kind].short : slow ? CAM_TEXT[mirror.kind].fast : 'Répétition ' + ev.rep + ' : bonne amplitude.', !ev.full || !!slow);
         // La voix ne dit que le numéro, la consigne reste écrite. Micro de l'iPhone ouvert : rien (il prendrait le nombre pour ta réponse).
         if (snapshot.voice && snapshot.mic !== 'on') speak(String(ev.rep));
         if (sock && sock.readyState === 1) sock.send(JSON.stringify({ type: 'reps', key: mirror.key, n: ev.rep, data: mirror.data }));

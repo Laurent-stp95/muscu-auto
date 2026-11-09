@@ -4,7 +4,8 @@ import {
   cancelled, monday, isBodyweight, PUSH_ZONES, PULL_ZONES, ZONES, suggest, learned, comeback, daysOff, project, kgLabel, LEVELS,
   gearList, extraItem,
 } from './plan.js';
-import { EXOS } from './common.js';
+import { EXOS, CAM_TEXT, COUNTER } from './common.js';
+import { cameraKind } from './camera.js';
 import { DAYS, plural } from './labels.js';
 import { byId } from './constants.js';
 import { h, icon, button } from './ui.js';
@@ -131,7 +132,8 @@ function historyCard() {
     rows.length > shown.length && h('div', {}, button(`Voir ${Math.min(10, rows.length - shown.length)} séances de plus`, () => { ui.historyCount = shown.length + 10; render(); }, { variant: 'plain' })));
 }
 
-// Technique mesurée par la caméra, par séance : angle moyen au point bas (plus petit = plus profond), descente moyenne, répétitions incomplètes.
+// Technique mesurée par la caméra, par séance : angle moyen au point bas (plus petit = plus profond ; élévations : au point haut,
+// plus grand = plus haut), durée moyenne de la descente de la charge, répétitions incomplètes.
 export function technique(e) {
   const skip = cancelled(log), sessions = new Map();
   for (const x of journal()) {
@@ -148,12 +150,14 @@ function techniqueBlock(e) {
   const list = technique(e);
   if (!list.length) return null;
   const first = list[0], last = list.at(-1), delta = last.depth - first.depth;
+  const kind = cameraKind(e) || 'knee', up = COUNTER[kind].dir === 'up'; // élévations : l'angle mesuré est celui du point haut
+  const change = up ? (delta > 0 ? 'plus haut' : 'moins haut') : delta < 0 ? 'plus bas' : 'moins bas';
   return h('div', { className: 'stack' },
     h('p', { className: 'label' }, 'Technique, mesurée par la caméra'),
     list.length > 1 && chart(list.map((s) => ({ x: Date.parse(s.t), y: s.depth })), [], '°'),
-    h('p', { className: 'meta' }, [`${last.depth}° au point bas${list.length > 1 && delta ? ` (${Math.abs(delta)}° ${delta < 0 ? 'plus bas' : 'moins bas'} qu'au début)` : ''}`,
+    h('p', { className: 'meta' }, [`${last.depth}° ${CAM_TEXT[kind].point}${list.length > 1 && delta ? ` (${Math.abs(delta)}° ${change} qu'au début)` : ''}`,
       `descente ${(last.down / 1000).toFixed(1).replace('.', ',')} s`, `${plural(last.partial, 'répétition incomplète', 'répétitions incomplètes')} sur ${last.total}`].join(' · ')),
-    list.length > 1 && h('p', { className: 'caption' }, 'Plus la courbe descend, plus tu descends bas.'));
+    list.length > 1 && h('p', { className: 'caption' }, up ? 'Plus la courbe monte, plus tu lèves haut.' : 'Plus la courbe descend, plus tu descends bas.'));
 }
 
 export function tipFor(e, past) {

@@ -9,6 +9,6 @@ import '../common/shared.js';
 
 export const { FILES, EXOS, PUSH } = globalThis;
 export const {
-  beep, frenchVoices, frenchVoice, FRONT, JOINTS, COUNTER, COUNTER_EX, counterFor, BONES, poseModel, jointAngle, repCounter,
-  HANDS_HIGH, poseTracker, ICE, gathered,
+  beep, frenchVoices, frenchVoice, FRONT, JOINTS, COUNTER, COUNTER_EX, counterFor, CAM_EX, CAM_OFF, camKind, CAM_TEXT, BONES, poseModel,
+  jointAngle, repCounter, tempoCoach, HANDS_HIGH, poseTracker, ICE, gathered,
 } = globalThis.Shared;

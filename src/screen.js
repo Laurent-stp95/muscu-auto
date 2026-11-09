@@ -255,7 +255,7 @@ function live() {
   const sid = state.active.session;
   const items = activeItems();
   // Séance libre encore vide : rien à afficher qu'une invitation (une séance sans exercice n'est pas « terminée »).
-  if (!s.items.length && !state.active.paused) return { ...base, phase: 'idle', title: sessionTitle(s), upcoming: { when: 'Séance libre', items: [{ name: "Ajoute ton premier exercice depuis l'iPhone", detail: '' }], gear: [] } };
+  if (!s.items.length && !state.active.paused) return { ...base, phase: 'idle', title: sessionTitle(s), upcoming: { when: 'En cours', items: [{ name: "Ajoute ton premier exercice depuis l'iPhone", detail: '' }], gear: [] } };
   let i = Math.min(state.listMode ? nextItem(items) : ui.at ?? nextItem(items), items.length);
   // Exercice fini (l'iPhone demande le ressenti) : l'écran montre déjà le suivant, à préparer pendant le repos.
   if (i < items.length && nextSet(items[i]) == null) {
