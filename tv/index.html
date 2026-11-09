@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#000000">
 <title>Steady · Écran</title>
-<link rel="icon" href="../icon-192.png">
+<link rel="icon" href="../assets/icon-192.png">
 <style>
   /* Écran projeté, lu à 3 m (10-foot UI, sombre façon Apple TV). Maquette en rem sur une base 1920 × 1080 :
      tv.js règle 1rem = 24 px en 1080p, 16 px en 720p, 48 px en 4K. Navigateurs de TV (Chromium 68+) :
@@ -194,21 +194,21 @@
 </button>
 
 <div id="pair" class="view center">
-  <img class="app-icon small" src="../icon-192.png" alt="">
+  <img class="app-icon small" src="../assets/icon-192.png" alt="">
   <div id="code" class="code" role="img"></div>
   <p class="lead">Sur ton iPhone, dans Steady : touche l'icône de télévision en haut de Ma semaine, puis tape ce code.</p>
   <p class="net muted">Connexion au serveur…</p>
 </div>
 
 <div id="wait" class="view center" hidden>
-  <img class="app-icon small" src="../icon-192.png" alt="">
+  <img class="app-icon small" src="../assets/icon-192.png" alt="">
   <p class="msg">Lance une séance sur ton iPhone.</p>
   <p class="net muted">Connexion au serveur…</p>
   <button class="btn repair" type="button">Nouveau code d'association</button>
 </div>
 
 <div id="stopped" class="view center" hidden>
-  <img class="app-icon small" src="../icon-192.png" alt="">
+  <img class="app-icon small" src="../assets/icon-192.png" alt="">
   <p class="msg">Rien n'est projeté pour l'instant</p>
   <p class="lead">Pour afficher ta séance ici, touche Projeter dans Steady sur ton iPhone.</p>
   <button class="btn repair" type="button">Nouveau code d'association</button>
@@ -306,8 +306,8 @@
   <svg class="icon exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
 </button>
 
-<script src="../push-config.js"></script>
-<script src="../shared.js?v=6"></script> <!-- v à changer avec shared.js -->
+<script src="../common/push-config.js"></script>
+<script src="../common/shared.js?v=6"></script> <!-- v à changer avec shared.js -->
 <script src="tv.js?v=20"></script> <!-- v à changer avec tv.js -->
 </body>
 </html>

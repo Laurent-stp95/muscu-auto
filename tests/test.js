@@ -1,8 +1,8 @@
-// node test.js
+// node tests/test.js
 const assert = require('assert');
-const EXOS = require('./data.js');
-const P = require('./plan.js');
-const S = require('./shared.js');
+const EXOS = require('../data/data.js');
+const P = require('../src/plan.js');
+const S = require('../common/shared.js');
 const { generate, swap, repair, renew, available, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek } = P;
 
 const byId = new Map(EXOS.map((e) => [e.id, e]));

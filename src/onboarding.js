@@ -173,7 +173,7 @@ function zonesEditor(d) {
 
 function welcome() {
   return h('div', { className: 'step welcome' },
-    h('img', { className: 'app-icon', src: 'icon-180.png', alt: '' }),
+    h('img', { className: 'app-icon', src: 'assets/icon-180.png', alt: '' }),
     h('div', { className: 'stack' }, h('h1', {}, 'Steady'), h('p', { className: 'lead' }, 'Progresse sans te blesser : tes séances, programmées selon ton matériel.')),
     h('ul', { className: 'features' },
       [['calendar', 'Programme automatique', 'Renouvelé par cycles, adapté à tes jours.'],

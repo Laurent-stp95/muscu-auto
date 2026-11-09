@@ -1,13 +1,14 @@
 // Hors-ligne : tout est servi depuis le cache puis revérifié auprès du serveur en arrière-plan.
 // Si l'appli a changé, la page est prévenue et propose de recharger.
-importScripts('data.js', 'push-config.js');
+importScripts('data/data.js', 'common/push-config.js');
 
 const CACHE = 'muscu-auto';
-const SHELL = ['./', 'index.html', 'constants.js', 'ui.js', 'store.js', 'router.js', 'onboarding.js', 'settings.js', 'week.js', 'exercise-info.js', 'session.js', 'warmup.js', 'focus.js', 'rest.js', 'coach.js', 'progress.js', 'update.js',
-  'plan.js', 'data.js', 'push-config.js', 'shared.js', 'voice.js', 'camera.js', 'screen.js', 'push.js', 'backup.js', 'main.js',
-  'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png',
+const SHELL = ['./', 'index.html',
+  'src/constants.js', 'src/ui.js', 'src/store.js', 'src/router.js', 'src/onboarding.js', 'src/settings.js', 'src/week.js', 'src/exercise-info.js', 'src/session.js', 'src/warmup.js', 'src/focus.js',
+  'src/rest.js', 'src/coach.js', 'src/progress.js', 'src/update.js', 'src/plan.js', 'data/data.js', 'common/push-config.js', 'common/shared.js', 'src/voice.js', 'src/camera.js', 'src/screen.js', 'src/push.js', 'src/backup.js', 'src/main.js',
+  'manifest.webmanifest', 'assets/icon-180.png', 'assets/icon-192.png', 'assets/icon-512.png',
   'muscles/muscular_system_front.svg', 'muscles/muscular_system_back.svg'];
-const CODE = /\/(index\.html|constants\.js|ui\.js|store\.js|router\.js|onboarding\.js|settings\.js|week\.js|exercise-info\.js|session\.js|warmup\.js|focus\.js|rest\.js|coach\.js|progress\.js|update\.js|plan\.js|data\.js|push-config\.js|shared\.js|voice\.js|camera\.js|screen\.js|push\.js|backup\.js|main\.js)?$/; // fichiers dont un changement = nouvelle version
+const CODE = /\/(index\.html|(src|common|data)\/[\w-]+\.js)?$/; // fichiers dont un changement = nouvelle version
 const files = () => [...new Set([...SHELL, ...EXOS.flatMap((e) => [...e.img,
   ...e.mus.map((m) => `muscles/main/muscle-${m}.svg`), ...e.mus2.map((m) => `muscles/secondary/muscle-${m}.svg`)])])];
 const version = (res) => res.headers.get('etag') || res.headers.get('last-modified');
@@ -16,7 +17,12 @@ const notify = () => self.clients.matchAll().then((clients) => clients.forEach((
 // cache: 'reload' : sans ça, le cache HTTP du navigateur (10 min sur GitHub Pages) resservirait l'ancienne version.
 self.addEventListener('install', (ev) => ev.waitUntil(caches.open(CACHE)
   .then((c) => c.addAll(files().map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting())));
-self.addEventListener('activate', (ev) => ev.waitUntil(self.clients.claim()));
+// Ménage à chaque nouvelle version : ce qui n'est plus dans la liste sort du cache (anciens chemins d'avant le rangement en dossiers).
+self.addEventListener('activate', (ev) => ev.waitUntil((async () => {
+  const cache = await caches.open(CACHE), keep = new Set(files().map((f) => new URL(f, location).href));
+  await Promise.all((await cache.keys()).filter((req) => !keep.has(req.url)).map((req) => cache.delete(req)));
+  await self.clients.claim();
+})()));
 self.addEventListener('fetch', (ev) => {
   const url = new URL(ev.request.url);
   if (ev.request.method !== 'GET' || url.origin !== location.origin) return; // vidéos wger.de : réseau seulement
@@ -45,7 +51,7 @@ self.addEventListener('push', (ev) => ev.waitUntil((async () => {
     const id = await (await (await caches.open('muscu-auto-push')).match('id'))?.text();
     if (id) message = await (await fetch(`${PUSH.url}/message?id=${id}`, { cache: 'no-store' })).json();
   } catch { /* hors ligne : message générique */ }
-  await self.registration.showNotification(message.title, { body: message.body, tag: message.tag, icon: 'icon-192.png', badge: 'icon-192.png', data: { url: message.url } });
+  await self.registration.showNotification(message.title, { body: message.body, tag: message.tag, icon: 'assets/icon-192.png', badge: 'assets/icon-192.png', data: { url: message.url } });
 })()));
 
 // Toucher la notification : rouvre l'appli (ou la lance). Bilan de la semaine : directement sur Progrès.
