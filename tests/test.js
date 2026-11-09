@@ -1,8 +1,10 @@
 // node tests/test.js
-const assert = require('assert');
-const EXOS = require('../data/data.js');
-const P = require('../src/plan.js');
-const S = require('../common/shared.js');
+import assert from 'node:assert';
+import fs from 'node:fs';
+import path from 'node:path';
+import { EXOS, FILES } from '../src/common.js';
+import * as P from '../src/plan.js';
+import * as S from '../src/common.js';
 const { generate, swap, repair, renew, available, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek } = P;
 
 const byId = new Map(EXOS.map((e) => [e.id, e]));
@@ -292,17 +294,25 @@ assert.strictEqual(S.frenchVoice(synth, 'Absente').voiceURI, 'com.apple.voice.pr
 assert.strictEqual(S.frenchVoice(fakeSynth([['Samantha', 'en-US']])), null);
 
 for (const x of plan) console.log(x.day, x.name, x.items.map((it) => byId.get(it.ex).name).join(' | '));
-// Liste des fichiers (common/files.js) : c'est ce qu'index.html charge, dans le même ordre, tout existe, rien n'est oublié.
+// Liste des fichiers (common/files.js) : exactement ce que charge index.html (src/main.js et tout ce qu'il importe, de proche
+// en proche), tout existe, rien n'est oublié ; sw.js n'importe que des fichiers listés.
 {
-  const fs = require('fs'), path = require('path');
-  const FILES = require('../common/files.js'), root = path.join(__dirname, '..');
-  const scripts = [...fs.readFileSync(path.join(root, 'index.html'), 'utf8').matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepStrictEqual(FILES.code, ['index.html', ...scripts]);
+  const root = path.join(import.meta.dirname, '..');
+  const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
+  const html = read('index.html');
+  const loaded = new Set(['index.html']);
+  const follow = (f) => {
+    if (loaded.has(f)) return;
+    loaded.add(f);
+    for (const m of read(f).matchAll(/^(?:import|export)\s[^'"]*?['"](\.[^'"]+)['"];?$/gm)) follow(path.posix.join(path.posix.dirname(f), m[1]));
+  };
+  for (const m of html.matchAll(/<script[^>]*\ssrc="([^"]+)"/g)) follow(m[1]);
+  for (const m of html.matchAll(/<link rel="stylesheet" href="([^"]+)"/g)) follow(m[1]);
+  assert.deepStrictEqual([...loaded].sort(), [...FILES.code].sort());
   for (const f of [...FILES.code, ...FILES.assets]) assert.ok(fs.existsSync(path.join(root, f)), `${f} listé mais absent`);
   const onDisk = ['src', 'common'].flatMap((dir) => fs.readdirSync(path.join(root, dir)).filter((f) => f.endsWith('.js')).map((f) => `${dir}/${f}`));
   assert.deepStrictEqual(onDisk.filter((f) => !FILES.code.includes(f)), []);
-  const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
-  for (const f of sw.match(/importScripts\(([^)]*)\)/)[1].match(/[\w\/.-]+\.js/g)) assert.ok(FILES.code.includes(f), `${f} importé par sw.js mais pas listé`);
+  for (const f of read('sw.js').match(/importScripts\(([^)]*)\)/)[1].match(/[\w\/.-]+\.js/g)) assert.ok(FILES.code.includes(f), `${f} importé par sw.js mais pas listé`);
 }
 
 console.log('OK');

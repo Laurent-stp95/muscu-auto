@@ -1,31 +1,50 @@
 // --- Programme ---
 
+import { FRONT, EXOS } from './common.js';
+import {
+  cycleWeek, monday, cancelled, sessionMinutes, isBodyweight, kgLabel, CYCLE_WEEKS, recovery, swap, generate, renew,
+} from './plan.js';
+import { MUSCLES, byId, DAYS, BACKUP_DAYS } from './constants.js';
+import { h, icon, button, choose, ask, toast } from './ui.js';
+import { state, log, record, save, setLog } from './store.js';
+import { ui, today, render, show } from './router.js';
+import { openSettings } from './settings.js';
+import { lazy, exerciseInfo } from './exercise-info.js';
+import { sessionSets, historyOf, activeMinutes, start, stopSession, journal, closeSession } from './session.js';
+import { cancelWarm } from './warmup.js';
+import { clock, setText, plural } from './focus.js';
+import { stopRest } from './rest.js';
+import { tipFor, listNote, preview } from './progress.js';
+import { stopEar } from './voice.js';
+import { projectSheet } from './screen.js';
+import { lastCopy, backup } from './backup.js';
+
 const restText = (s) => (s >= 120 ? `${s / 60} min` : `${s} s`);
-const unitText = (e) => (e.unit === 's' ? 's' : 'rép.');
-const cycle = () => cycleWeek(state.cycle);
+export const unitText = (e) => (e.unit === 's' ? 's' : 'rép.');
+export const cycle = () => cycleWeek(state.cycle);
 // live = séance en cours : un point de forme « basse » l'allège comme une semaine allégée.
 // Séance express : state.active.cut = { [ex]: séries gardées } (0 = exercice retiré aujourd'hui).
-const effective = (item, live = false) => {
+export const effective = (item, live = false) => {
   const sets = cycle().deload || (live && state.active?.readiness === 'light') ? Math.ceil(item.sets / 2) : item.sets;
   const cut = live ? state.active?.cut?.[item.ex] : undefined;
   return { ...item, sets: cut != null ? Math.min(sets, cut) : sets };
 };
-const prescriptionText = (e, item) => `${item.sets} × ${item.reps}${e.unit === 's' ? ' s' : ''} · repos ${restText(item.rest)}`;
-const muscles = (e) => e.mus.map((m) => MUSCLES[m]).join(', ');
+export const prescriptionText = (e, item) => `${item.sets} × ${item.reps}${e.unit === 's' ? ' s' : ''} · repos ${restText(item.rest)}`;
+export const muscles = (e) => e.mus.map((m) => MUSCLES[m]).join(', ');
 const daysAgo = (iso) => Math.floor((Date.now() - Date.parse(iso)) / 864e5);
 const freshCycle = () => !log.some((x) => x.type === 'start' && x.t >= state.cycle.start);
 
-function banner(name, title, ...content) {
+export function banner(name, title, ...content) {
   return h('section', { className: 'card' }, h('div', { className: 'banner-head' }, icon(name), h('h2', {}, title)), ...content);
 }
 
-const weekday = (date = new Date()) => (date.getDay() + 6) % 7; // 0 = lundi
+export const weekday = (date = new Date()) => (date.getDay() + 6) % 7; // 0 = lundi
 
 // Séances faites cette semaine (ahead : la semaine suivante), par jour : { t, sets, session }. Une séance abandonnée, vide
 // ou réinitialisée ne compte pas. Une séance compte pour la semaine de son début, ou pour celle notée au départ (week :
 // séance faite en avance, quand plus rien n'était prévu d'ici dimanche).
 const weekOf = (x) => x.week || monday(new Date(x.t)).toISOString();
-function doneThisWeek(ahead = false) {
+export function doneThisWeek(ahead = false) {
   // « Réinitialiser la semaine » : les séances d'avant la réinitialisation ne comptent plus pour la semaine (le suivi les garde).
   const reset = log.findLast((x) => x.type === 'week-reset')?.t || '';
   const week = monday(new Date(Date.now() + (ahead ? 7 * 864e5 : 0))).toISOString();
@@ -58,7 +77,7 @@ function focusOf(plan, done) {
 }
 // Ce que montre Ma semaine : done = cette semaine (avancement), cards = statut des cartes. Plus rien de prévu d'ici dimanche :
 // les cartes passent à la semaine suivante, et une séance faite en avance y compte (sinon elle restait à « Commencer »).
-function weekFrame() {
+export function weekFrame() {
   const done = doneThisWeek(), focus = focusOf(state.plan, done);
   if (!focus.nextWeek) return { done, cards: done, focus };
   const cards = doneThisWeek(true), index = state.plan.findIndex((s) => !cards.has(s.day));
@@ -144,7 +163,7 @@ function weekStrip(plan, done, cards, focus, sel) {
 }
 
 // Avancement de la semaine : un segment par séance, vert quand elle est faite, jour du jour en gras.
-function weekProgress(plan, done, focus, heading) {
+export function weekProgress(plan, done, focus, heading) {
   const count = plan.filter((s) => done.has(s.day)).length;
   // Rien de fait et plus rien de prévu d'ici dimanche (premier lancement un week-end, semaine sautée) : on regarde devant, pas « terminée » à 0.
   const title = !focus.nextWeek ? 'Cette semaine' : count === plan.length ? 'Semaine bouclée' : count ? 'Semaine terminée' : 'Semaine prochaine';
@@ -156,7 +175,7 @@ function weekProgress(plan, done, focus, heading) {
     focus.nextWeek && h('p', { className: 'caption' }, `Prochaine séance ${DAYS[plan[focus.index].day].toLowerCase()}`));
 }
 
-function week() {
+export function week() {
   const { plan } = state;
   const { week: n, deload, ended } = cycle();
   const { done, cards, focus } = weekFrame();
@@ -258,21 +277,21 @@ async function resetWeek() {
 }
 
 // Efface tout le suivi (séances, séries, ressentis, douleurs, technique) ; profil, matériel et programme restent, le cycle repart.
-async function resetLog() {
+export async function resetLog() {
   const text = `Toutes tes séances et séries validées (${plural(log.length, 'saisie')}) seront effacées : records, courbes et historique repartent de zéro, et le cycle recommence cette semaine.${state.active ? ' La séance en cours sera abandonnée.' : ''} Ton profil, ton matériel et ton programme sont gardés.`;
   if (!await ask({ title: 'Es-tu sûr de vouloir réinitialiser tes séances ?', text, confirm: 'Réinitialiser', danger: true })) return;
   const before = { log, cycle: state.cycle, active: state.active };
-  if (warm) { clearInterval(warm.timer); warm = null; }
+  cancelWarm();
   stopEar(false);
   stopRest();
-  log = [];
+  setLog([]);
   state.active = null;
   state.ended = null;
   state.cycle = { start: monday(new Date()).toISOString() };
   ui.at = ui.pick = null;
   save();
   render();
-  toast('Séances réinitialisées', 'success', () => { log = before.log; Object.assign(state, { cycle: before.cycle, active: before.active }); save(); render(); });
+  toast('Séances réinitialisées', 'success', () => { setLog(before.log); Object.assign(state, { cycle: before.cycle, active: before.active }); save(); render(); });
 }
 
 function replace(d, i) {

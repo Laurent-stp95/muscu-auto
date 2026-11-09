@@ -1,6 +1,20 @@
 // --- Progrès ---
 
-function progress() {
+import {
+  cancelled, monday, isBodyweight, PUSH_ZONES, PULL_ZONES, ZONES, suggest, learned, comeback, daysOff, project, kgLabel, LEVELS,
+  gearList,
+} from './plan.js';
+import { byId, DAYS } from './constants.js';
+import { h, icon, button } from './ui.js';
+import { log, state } from './store.js';
+import { show, ui, render } from './router.js';
+import { banner, doneThisWeek, effective, cycle, unitText, weekday } from './week.js';
+import { lazy } from './exercise-info.js';
+import { journal, historyOf, activeMinutes, sessionSets } from './session.js';
+import { plural, setText, kgText } from './focus.js';
+import { lastCopy, backup, exportCsv, copyForClaude, importButton } from './backup.js';
+
+export function progress() {
   const skip = cancelled(log);
   const sets = journal().filter((x) => x.type === 'set' && byId.has(x.ex) && !skip.has(x.session)); // exercices retirés et séances abandonnées : pas comptés
   const sessions = new Set(sets.map((x) => x.session)).size;
@@ -62,7 +76,7 @@ function weekReview() {
 }
 
 // Note à puce suivie d'une ligne par élément : plus lisible qu'une phrase enchaînée de « · ».
-const listNote = (name, title, lines) => h('div', { className: 'note' }, icon(name),
+export const listNote = (name, title, lines) => h('div', { className: 'note' }, icon(name),
   h('div', { className: 'stack tight' }, h('strong', { className: 'note-title' }, title), lines.map((l) => h('span', {}, l))));
 
 // Poussée / tirage sur 2 semaines : trop de poussée use les épaules ; le prochain cycle rééquilibre (balance() dans plan.js).
@@ -116,7 +130,7 @@ function historyCard() {
 }
 
 // Technique mesurée par la caméra, par séance : angle moyen au point bas (plus petit = plus profond), descente moyenne, répétitions incomplètes.
-function technique(e) {
+export function technique(e) {
   const skip = cancelled(log), sessions = new Map();
   for (const x of journal()) {
     if (x.type !== 'cam' || x.ex !== e.id || skip.has(x.session)) continue;
@@ -140,7 +154,7 @@ function techniqueBlock(e) {
     list.length > 1 && h('p', { className: 'caption' }, 'Plus la courbe descend, plus tu descends bas.'));
 }
 
-function tipFor(e, past) {
+export function tipFor(e, past) {
   const item = state.plan.flatMap((s) => s.items).find((it) => it.ex === e.id);
   return item && suggest(e, effective(item), past, { loads: state.config.loads, learned: learned(log, e.id, past), deload: cycle().deload, comeback: comeback(daysOff(journal())) });
 }
@@ -191,11 +205,11 @@ function chart(points, ahead, unit) {
   return box;
 }
 
-const loadText = (e, kg) => (isBodyweight(e) ? 'Poids du corps' : kg == null ? 'Charge à choisir' : kgLabel(e, kg).replace(/^./, (c) => c.toUpperCase()));
-const repsText = (e, reps) => `${reps} ${e.unit === 's' ? 's' : 'rép.'}`;
+export const loadText = (e, kg) => (isBodyweight(e) ? 'Poids du corps' : kg == null ? 'Charge à choisir' : kgLabel(e, kg).replace(/^./, (c) => c.toUpperCase()));
+export const repsText = (e, reps) => `${reps} ${e.unit === 's' ? 's' : 'rép.'}`;
 
 // Aperçu d'une séance à venir : exercices avec la charge conseillée, matériel à préparer.
-function preview(s, nextWeek) {
+export function preview(s, nextWeek) {
   const entries = s.items.map((item) => {
     const e = byId.get(item.ex);
     const it = effective(item);
@@ -209,7 +223,7 @@ function preview(s, nextWeek) {
 }
 
 // Bilan chiffré d'une séance (écran projeté, fin de séance).
-function summaryData(items) {
+export function summaryData(items) {
   const sets = sessionSets(state.active.session);
   const planned = items.reduce((n, x) => n + x.it.sets, 0);
   const volume = Math.round([...sets.values()].reduce((v, x) => v + (x.kg || 0) * x.reps, 0));

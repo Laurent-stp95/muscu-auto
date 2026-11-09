@@ -1,5 +1,5 @@
 // Composants communs : toute l'appli passe par eux, les états et tailles sont définis une fois (index.html).
-function h(tag, props = {}, ...kids) {
+export function h(tag, props = {}, ...kids) {
   const node = Object.assign(document.createElement(tag), props);
   node.append(...kids.flat(Infinity).filter((k) => k != null && k !== false && k !== ''));
   return node;
@@ -34,7 +34,7 @@ const ICONS = {
   share: '<path d="M12 3v12M8 7l4-4 4 4"/><path d="M8 10.5H6.5a2 2 0 0 0-2 2V19a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-6.5a2 2 0 0 0-2-2H16"/>',
   copy: '<rect x="8.5" y="8.5" width="12" height="12" rx="2.5"/><path d="M15.5 8.5V6a2.5 2.5 0 0 0-2.5-2.5H6A2.5 2.5 0 0 0 3.5 6v7A2.5 2.5 0 0 0 6 15.5h2.5"/>',
 };
-function icon(name, className = '') {
+export function icon(name, className = '') {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('class', `icon ${className}`.trim());
@@ -44,17 +44,17 @@ function icon(name, className = '') {
 }
 
 // variant : 'tinted' (défaut) | 'primary' | 'gray' | 'plain' | 'danger' ; size : 'large' | 'compact'.
-function button(label, onclick, { variant, size, icon: name, ...props } = {}) {
+export function button(label, onclick, { variant, size, icon: name, ...props } = {}) {
   return h('button', { type: 'button', className: ['btn', variant, size].filter(Boolean).join(' '), onclick, ...props }, name && icon(name), label);
 }
 
-function chip(label, pressed, onclick, { danger, iconName, variant, ...props } = {}) {
+export function chip(label, pressed, onclick, { danger, iconName, variant, ...props } = {}) {
   return h('button', { type: 'button', className: ['chip', variant, danger && 'danger'].filter(Boolean).join(' '), ariaPressed: String(!!pressed), onclick, ...props }, iconName && icon(iconName), label);
 }
 
 // Message en haut d'écran, icône selon sa nature ; avec `undo`, un bouton Annuler pendant 5 s.
 const TOAST_ICONS = { record: 'flag', success: 'checkCircle', info: 'info', warning: 'warning', error: 'xCircle', timer: 'timer', offline: 'offline' };
-function toast(text, kind = 'info', undo) {
+export function toast(text, kind = 'info', undo) {
   document.querySelector('.toast')?.remove();
   const node = h('div', { className: `toast ${kind}`, role: ['warning', 'error', 'offline'].includes(kind) ? 'alert' : 'status' }, icon(TOAST_ICONS[kind]), h('span', {}, text),
     undo && button('Annuler', () => { node.remove(); undo(); }, { variant: 'plain', size: 'compact' }));
@@ -63,7 +63,7 @@ function toast(text, kind = 'info', undo) {
 }
 
 // Feuille de choix en bas d'écran (façon iOS). actions = [{ label, value, variant }] ; résout la valeur choisie, null si fermée.
-function choose({ title, text, extra, actions }) {
+export function choose({ title, text, extra, actions }) {
   return new Promise((resolve) => {
     const dialog = h('dialog', { className: 'sheet' });
     if (!dialog.showModal) return resolve(confirm(`${title}\n${text || ''}`) ? actions[0].value : null);
@@ -79,6 +79,6 @@ function choose({ title, text, extra, actions }) {
 }
 
 // Confirmation simple : résout true si confirmé.
-async function ask({ confirm: ok, cancel = 'Annuler', danger, ...sheet }) {
+export async function ask({ confirm: ok, cancel = 'Annuler', danger, ...sheet }) {
   return (await choose({ ...sheet, actions: [{ label: ok, value: true, variant: danger ? 'gray destructive' : 'primary' }, { label: cancel, value: false }] })) === true;
 }

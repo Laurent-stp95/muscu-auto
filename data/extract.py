@@ -77,5 +77,5 @@ out = HERE / 'data.js'
 out.write_text(
     '// Généré par extract.py depuis liste.json et wger (https://wger.de), licences par exercice. Ne pas éditer.\n'
     f'const EXOS = {json.dumps(exos, ensure_ascii=False)};\n'
-    "if (typeof module !== 'undefined') module.exports = EXOS;\n")
+    "(typeof self !== 'undefined' ? self : globalThis).EXOS = EXOS; // pour les modules ES (src/common.js) ; le service worker lit la constante\n")
 print(f'{len(exos)} exercices, {len(used)} images, {sum(1 for e in exos if e["vid"])} vidéos -> {out.name}')

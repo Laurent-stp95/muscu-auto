@@ -1,6 +1,17 @@
 // --- Échauffement guidé ---
 // 5 minutes avant la première série : un mouvement général, la mobilité des zones travaillées aujourd'hui, puis le dos.
 // Chaque mouvement est minuté et annoncé ; sur l'écran projeté, il s'affiche comme un repos (anneau, mouvement suivant).
+
+import { beep } from './common.js';
+import { toast, h, button } from './ui.js';
+import { state } from './store.js';
+import { render } from './router.js';
+import { activeItems } from './session.js';
+import { initAudio, audio } from './rest.js';
+import { speak } from './coach.js';
+import { micOpen } from './voice.js';
+import { announce, projected } from './screen.js';
+
 const WARMUP = [
   { name: 'Marche sur place, genoux hauts', s: 60, cue: 'Monte les genoux, bras actifs, respire calmement.', mus: [10, 8], for: 'all' },
   { name: 'Moulinets des bras', s: 30, cue: "Grands cercles lents, vers l'avant puis vers l'arrière.", mus: [2], for: 'upper' },
@@ -13,17 +24,17 @@ const WARMUP = [
 ];
 const UPPER = ['chest', 'back', 'shoulders', 'biceps', 'triceps'], LOWER = ['quad', 'hinge', 'calves'];
 const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-let warm = null; // { list, i, end, total, timer }
+export let warm = null; // { list, i, end, total, timer }
 
 function warmupPlan() {
   const zones = new Set(activeItems().map((x) => x.e.zone));
   const want = { all: true, upper: UPPER.some((z) => zones.has(z)), lower: LOWER.some((z) => zones.has(z)) };
   return WARMUP.filter((m) => want[m.for] && (!m.eq || state.config.equipment.includes(m.eq)));
 }
-const warmMinutes = () => Math.round(warmupPlan().reduce((t, m) => t + m.s, 0) / 60);
+export const warmMinutes = () => Math.round(warmupPlan().reduce((t, m) => t + m.s, 0) / 60);
 
 function startWarm() {
-  audio ||= new (window.AudioContext || window.webkitAudioContext)(); // créé au geste : iOS n'autorise le son qu'après
+  initAudio(); // créé au geste : iOS n'autorise le son qu'après
   audio.resume?.();
   warm = { list: warmupPlan(), i: -1 };
   nextWarm();
@@ -53,6 +64,10 @@ function nextWarm() {
   }, 250);
   render();
 }
+// Arrêt sans réaffichage (pause, fin de séance, remise à zéro), depuis les autres fichiers.
+export function cancelWarm() {
+  if (warm) { clearInterval(warm.timer); warm = null; }
+}
 function stopWarm() {
   if (!warm) return;
   clearInterval(warm.timer);
@@ -60,7 +75,7 @@ function stopWarm() {
   render();
 }
 
-function warmCard() {
+export function warmCard() {
   const m = warm.list[warm.i], next = warm.list[warm.i + 1];
   return h('section', { className: 'card focus-card' },
     h('div', { className: 'stack tight center' },
@@ -71,4 +86,4 @@ function warmCard() {
       h('div', { className: 'row' }, button('Passer', nextWarm, { variant: 'gray', size: 'compact' }), button('Arrêter', stopWarm, { variant: 'gray', size: 'compact' }))),
     next && h('p', { className: 'caption center' }, `Ensuite : ${next.name} · ${next.s} s`));
 }
-const warmButton = () => button(`Échauffement guidé · ${warmMinutes()} min`, startWarm, { variant: 'tinted', icon: 'flame' });
+export const warmButton = () => button(`Échauffement guidé · ${warmMinutes()} min`, startWarm, { variant: 'tinted', icon: 'flame' });

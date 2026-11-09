@@ -1,7 +1,16 @@
 // --- Onboarding (premier lancement) ---
 
-const standalone = () => navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
-const iphone = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+import { EXOS } from './common.js';
+import { LOADED_GEAR, loadable, WEIGHT_LISTS, generate, MAX_DAYS, backToBack, exerciseCount, ZONES, LEVELS, GOALS, TAGS } from './plan.js';
+import { DEFAULTS, PLATES, DAYS, byId } from './constants.js';
+import { h, button, icon, chip, toast } from './ui.js';
+import { ui, render } from './router.js';
+import { applyConfig } from './settings.js';
+import { kgText } from './focus.js';
+import { restoreFlow } from './backup.js';
+
+export const standalone = () => navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+export const iphone = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 
 // Écrans selon le contexte : installation seulement dans Safari sur iPhone, charges seulement si du matériel chargeable est coché.
 function steps(d) {
@@ -9,7 +18,7 @@ function steps(d) {
     d.equipment.some((q) => LOADED_GEAR.includes(q)) && stepLoads, stepPlanning, stepZones, stepFirstWeek].filter(Boolean);
 }
 
-function onboarding() {
+export function onboarding() {
   const d = (ui.draft ||= structuredClone(DEFAULTS));
   const list = steps(d);
   const last = ui.step === list.length - 1;
@@ -43,7 +52,7 @@ function choice(d, key, entries) {
 }
 
 // Choix unique en pastilles : entries = [[valeur, libellé]].
-function pills(d, key, entries) {
+export function pills(d, key, entries) {
   const group = h('div', { className: 'chips' }, entries.map(([value, label]) => chip(label, d[key] === value, () => { d[key] = value; renderInPlace(key); })));
   group.dataset.key = key;
   return group;
@@ -59,7 +68,7 @@ function renderInPlace(key) {
 }
 
 // Choix multiple en pastilles : entries = [[valeur, libellé]].
-function chips(d, key, entries, { max, className = 'chips' } = {}) {
+export function chips(d, key, entries, { max, className = 'chips' } = {}) {
   const toggle = (value) => {
     if (d[key].includes(value)) d[key] = d[key].filter((v) => v !== value);
     else if (max && d[key].length >= max) return toast(`${max} jours maximum : garde au moins un jour de repos.`, 'warning');
@@ -123,7 +132,7 @@ function weights(d, key) {
 }
 
 // Charges exactes : le programme ne proposera que ce que tu peux monter.
-function loadsEditor(d) {
+export function loadsEditor(d) {
   const has = (q) => d.equipment.includes(q);
   const range = h('p', { className: 'meta' });
   const refresh = () => {
@@ -147,7 +156,7 @@ function loadsEditor(d) {
 }
 
 // Jours et durée, avec ce que ça donne : la répartition des séances change selon les jours choisis.
-function planningEditor(d) {
+export function planningEditor(d) {
   const sessions = d.days.length ? generate(EXOS, d) : [];
   return [
     h('div', { className: 'group' }, h('span', { className: 'label' }, 'Jours'),
@@ -160,7 +169,7 @@ function planningEditor(d) {
   ];
 }
 
-function zonesEditor(d) {
+export function zonesEditor(d) {
   const reintegrate = (id) => { d.avoid = d.avoid.filter((x) => x !== id); render(); };
   return [
     chips(d, 'zones', Object.entries(ZONES)),

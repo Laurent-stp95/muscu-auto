@@ -4,8 +4,17 @@
 // Modèle, constantes et compteur partagés avec l'écran projeté : shared.js.
 // Mouvements où le coude ou le genou se plie peu, ou où l'on avance : pas de comptage (fentes marchées, écarté, élévations
 // latérales, oiseau, haussements d'épaules).
+
+import { poseModel, poseTracker, BONES } from './common.js';
+import { h, button, icon } from './ui.js';
+import { validateSet, plural } from './focus.js';
+import { tick, initAudio, rest } from './rest.js';
+import { voiceOn, speak } from './coach.js';
+import { technique } from './progress.js';
+import { micOpen } from './voice.js';
+
 const NO_COUNT = new Set([206, 238, 348, 828, 571, 572]);
-const cameraKind = (e) => (NO_COUNT.has(e.id) ? null : e.zone === 'quad' ? 'knee' : ['chest', 'shoulders'].includes(e.zone) ? 'elbow' : null);
+export const cameraKind = (e) => (NO_COUNT.has(e.id) ? null : e.zone === 'quad' ? 'knee' : ['chest', 'shoulders'].includes(e.zone) ? 'elbow' : null);
 
 // Consigne écrite seulement : la voix ne dit que le numéro (repCounted).
 function repFeedback(kind, ev) {
@@ -18,7 +27,7 @@ function repCounted(n) {
   if (micOpen()) { if (voiceOn()) tick(1320); } else speak(String(n), true);
 }
 
-async function cameraCoach(f) {
+export async function cameraCoach(f) {
   if (!f) return;
   const kind = cameraKind(f.x.e);
   const video = h('video', { playsInline: true, muted: true, autoplay: true, className: 'cam-video' });
@@ -44,7 +53,7 @@ async function cameraCoach(f) {
   dialog.addEventListener('cancel', (ev) => { ev.preventDefault(); close(false); });
   document.body.append(dialog);
   dialog.showModal();
-  audio ||= new (window.AudioContext || window.webkitAudioContext)();
+  initAudio();
   let model;
   try {
     [stream, model] = await Promise.all([navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', aspectRatio: { ideal: 3 / 4 }, height: { ideal: 1280 } }, audio: false }), poseModel()]);

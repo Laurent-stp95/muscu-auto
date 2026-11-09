@@ -1,4 +1,18 @@
-// Démarrage : seul code exécuté au chargement, après tous les autres scripts (index.html les charge dans l'ordre).
+// Démarrage : seul module chargé par index.html, il importe tous les autres ; son code s'exécute en dernier.
+// Les modules s'importent en rond (un écran en appelle un autre) : c'est permis tant que rien n'est utilisé avant d'exister.
+// Règle : au premier niveau d'un fichier (hors fonctions), n'utiliser que ui.js, store.js, constants.js, common.js et plan.js,
+// qui n'importent aucun écran ; tout le reste s'appelle depuis une fonction.
+
+import { toast } from './ui.js';
+import { state } from './store.js';
+import { ui, render, show } from './router.js';
+import { staleSession } from './session.js';
+import { keepAwake, restBar } from './rest.js';
+import { offlineBar, placeBars, resumeAfterReload, showUpdate } from './update.js';
+import { mic, startEar } from './voice.js';
+import { stopCam, connectScreen, resumeCam, link } from './screen.js';
+import { pushOn, subscribePush } from './push.js';
+import { cloudBackup } from './backup.js';
 
 // Retour dans l'appli après un verrouillage : on tente de relancer le micro (sinon « Micro coupé » reste affiché).
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && mic.wanted && !mic.rec && state.active) startEar(); });

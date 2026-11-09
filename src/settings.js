@@ -1,12 +1,24 @@
 // --- Réglages : chaque section se modifie seule, enregistrement en une fois ---
 
-function openSettings() {
+import { frenchVoices, frenchVoice, EXOS } from './common.js';
+import { LEVELS, GOALS, TAGS, generate, monday, repair } from './plan.js';
+import { h, button, icon, toast } from './ui.js';
+import { state, log, record, save } from './store.js';
+import { ui, show, setUi, render } from './router.js';
+import { pills, chips, loadsEditor, planningEditor, zonesEditor } from './onboarding.js';
+import { resetLog } from './week.js';
+import { forceUpdate } from './update.js';
+import { forgetScreen } from './screen.js';
+import { notifyEditor, syncPush } from './push.js';
+import { cloudEditor } from './backup.js';
+
+export function openSettings() {
   ui.draft = structuredClone(state.config);
   ui.draft.mirrorCam ||= 'front';
   show('settings');
 }
 
-function settings() {
+export function settings() {
   const d = (ui.draft ||= structuredClone(state.config));
   const restart = ['days', 'goal', 'level', 'minutes'].some((k) => JSON.stringify(d[k]) !== JSON.stringify(state.config[k]));
   // Pendant une séance, un nouveau programme la casserait : seuls matériel, poids, zones et mise à jour restent modifiables.
@@ -62,12 +74,12 @@ function voicePicker(d) {
 }
 
 // Interrupteur iOS : toute la ligne se touche.
-function toggle(label, checked, onchange) {
+export function toggle(label, checked, onchange) {
   return h('label', { className: 'line' }, h('span', {}, label),
     h('input', { type: 'checkbox', className: 'switch', role: 'switch', checked, onchange: (ev) => onchange(ev.target.checked) }));
 }
 
-function applyConfig() {
+export function applyConfig() {
   const prev = state.config;
   state.config = structuredClone(ui.draft);
   const c = state.config;
@@ -79,7 +91,7 @@ function applyConfig() {
     repair(EXOS, state.plan, c);
   }
   for (const id of prev?.avoid || []) if (!c.avoid.includes(id)) record({ type: 'reintegrate', ex: id });
-  ui = { view: 'week', step: 0, draft: null };
+  setUi({ view: 'week', step: 0, draft: null });
   save();
   render();
   scrollTo(0, 0);

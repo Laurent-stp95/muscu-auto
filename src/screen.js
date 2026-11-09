@@ -2,16 +2,33 @@
 // La séance s'affiche en grand sur une TV ou un ordinateur (page tv/), l'iPhone sert de télécommande.
 // Relais WebSocket par le serveur (push/worker.js, objet Screen) : l'iPhone envoie un instantané à chaque changement,
 // l'écran ne fait qu'afficher et tient seul le chrono du repos (il sonne et annonce même si l'iPhone se verrouille).
+
+import { PUSH, ICE, gathered } from './common.js';
+import { warmup, CUES } from './plan.js';
+import { DAYS, byId } from './constants.js';
+import { toast, chip, h, choose, button } from './ui.js';
+import { state, onSave, save } from './store.js';
+import { ui, render } from './router.js';
+import { weekFrame } from './week.js';
+import { activeItems, nextItem, nextSet, activeMinutes, sessionSets, startKg, plannedReps } from './session.js';
+import { warm } from './warmup.js';
+import { focusTarget, barPlan, setText, kgText, clock } from './focus.js';
+import { rest, restEnd, restTotal, restSay } from './rest.js';
+import { speak, voiceOn } from './coach.js';
+import { preview, summaryData, repsText, loadText } from './progress.js';
+import { Recognition, mic, stopEar, startEar, voiceHelp, micOpen, saysCommand, hush } from './voice.js';
+import { cameraKind } from './camera.js';
+
 const TV_URL = 'laurent-stp95.github.io/muscu-auto/tv';
 // Liaison avec l'écran : socket WebSocket, relancé après timer (délai doublé à chaque échec, jusqu'à 30 s) ; tvCount = écrans connectés ;
 // sending = envoi déjà prévu dans ce tour de boucle ; lastSay, lastNotice = dernière annonce et dernière série validée à la voix (reprises
 // dans l'instantané) ; cam = caméra de l'iPhone envoyée à l'écran { stream, pc }, camWanted = relancée au retour dans l'appli.
-const link = { socket: null, timer: null, delay: 1000, tvCount: 0, sending: false, lastSay: null, lastNotice: null, cam: null, camWanted: false };
+export const link = { socket: null, timer: null, delay: 1000, tvCount: 0, sending: false, lastSay: null, lastNotice: null, cam: null, camWanted: false };
 const wsUrl = (room, role) => `${PUSH.url.replace(/^http/, 'ws')}/screen?room=${room}&role=${role}`;
 const parse = (text) => { try { return JSON.parse(text); } catch { return null; } };
-const projected = () => link.tvCount > 0;
+export const projected = () => link.tvCount > 0;
 
-function connectScreen() {
+export function connectScreen() {
   clearTimeout(link.timer);
   if (link.socket && link.socket.readyState > 1) link.socket = null; // ancienne connexion en train de se fermer : on n'attend pas
   if (!state.screen?.on || link.socket || document.visibilityState !== 'visible') return;
@@ -89,7 +106,7 @@ async function startCam() {
   }
 }
 // forget = false : arrêt subi (écran verrouillé, écran parti), la caméra repart d'elle-même.
-function stopCam(forget = true) {
+export function stopCam(forget = true) {
   if (forget) link.camWanted = false;
   if (!link.cam) return;
   link.cam.stream?.getTracks().forEach((track) => track.stop());
@@ -99,12 +116,12 @@ function stopCam(forget = true) {
   if (link.socket?.readyState === 1) link.socket.send(JSON.stringify({ type: 'rtc', stop: true }));
   refreshStatus();
 }
-function resumeCam() {
+export function resumeCam() {
   if (link.camWanted && projected() && document.visibilityState === 'visible') startCam();
 }
 
 // Barre d'état de la séance : écran, micro, miroir, chacun allumé (pastille pleine) ou non, d'un geste.
-function statusBar(list = state.listMode) {
+export function statusBar(list = state.listMode) {
   const pill = (label, name, on, onclick, warn) => chip(label, on, onclick, { iconName: name, variant: warn ? 'status warn' : 'status' });
   return h('div', { className: 'status-bar' }, h('div', { className: 'chips' },
     pill(!state.screen?.on || projected() ? 'Écran' : 'Écran en attente', 'tv', projected(), projectSheet),
@@ -113,9 +130,9 @@ function statusBar(list = state.listMode) {
     mic.rec && h('button', { type: 'button', className: `caption heard${mic.lastHeard && Date.now() - mic.lastHeard.t < 10000 && mic.lastHeard.why ? ' ignored' : ''}`, onclick: voiceHelp },
       mic.lastHeard && Date.now() - mic.lastHeard.t < 10000 ? mic.lastHeard.text : 'Micro prêt : dis « dix répétitions validées ». Toutes les phrases ›'));
 }
-function refreshStatus() { document.querySelector('.status-bar')?.replaceWith(statusBar()); }
+export function refreshStatus() { document.querySelector('.status-bar')?.replaceWith(statusBar()); }
 
-function setTv(n) {
+export function setTv(n) {
   if (link.tvCount === n) return;
   link.tvCount = n;
   // Couleur « connecté » portée par body : juste aussi sur les écrans gardés en mémoire.
@@ -129,14 +146,15 @@ function send() {
   if (link.socket?.readyState === 1) link.socket.send(JSON.stringify({ type: 'state', s: live() }));
 }
 // Un seul envoi par tour de boucle, même si plusieurs changements s'enchaînent.
-function broadcast() {
+export function broadcast() {
   if (!state.screen?.on || link.sending) return;
   link.sending = true;
   queueMicrotask(() => { link.sending = false; send(); });
 }
+onSave(broadcast); // chaque enregistrement est envoyé à l'écran
 
 // Annonce vocale : lue par l'iPhone, ou par l'écran projeté s'il est connecté.
-function announce(text) {
+export function announce(text) {
   if (micOpen() && saysCommand(text)) return; // l'écran ne doit pas la dire non plus
   link.lastSay = { id: String(Date.now()), text, t: Date.now() };
   hush(text);
@@ -144,7 +162,7 @@ function announce(text) {
   broadcast();
 }
 
-async function projectSheet() {
+export async function projectSheet() {
   if (!state.screen) return pairSheet();
   const choice = await choose({
     title: 'Écran projeté',
@@ -212,7 +230,7 @@ async function pair(code) {
   toast('Écran connecté', 'success');
 }
 
-function forgetScreen() {
+export function forgetScreen() {
   if (link.socket?.readyState === 1) link.socket.send(JSON.stringify({ type: 'forget' }));
   state.screen = null;
   save();

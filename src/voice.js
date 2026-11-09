@@ -3,18 +3,28 @@
 // « passer le repos », « plus trente », « prochain exercice », « annuler la série », « c'était facile / bien / dur »,
 // « mets en pause », « terminer la séance ». Garde-fous : micro sourd pendant que l'iPhone ou l'écran parle, aucune annonce
 // ne contient de nombre ni de phrase de commande tant que le micro écoute.
-const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+import { toast, choose, h } from './ui.js';
+import { state, save, record } from './store.js';
+import { ui, render } from './router.js';
+import { activeItems, nextItem, journal, pause, finishSession, nextSet } from './session.js';
+import { undoSet, onFeel, focusTarget, validateSet } from './focus.js';
+import { rest, stopRest, extendRest, tick } from './rest.js';
+import { repsText } from './progress.js';
+import { refreshStatus, broadcast, link, announce } from './screen.js';
+
+export const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const WORDS = { 'dix-sept': 17, 'dix-huit': 18, 'dix-neuf': 19, un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10,
   onze: 11, douze: 12, treize: 13, quatorze: 14, quinze: 15, seize: 16, vingt: 20, trente: 30 };
 // État de l'écoute : rec = reconnaissance en cours (null : micro fermé), wanted = micro voulu (relancé s'il s'arrête),
 // spokeAt = dernière annonce de l'iPhone, quietUntil = micro sourd jusque-là, lastHeard = dernière phrase entendue (voir heard).
-const mic = { rec: null, wanted: false, spokeAt: 0, quietUntil: 0, lastHeard: null };
+export const mic = { rec: null, wanted: false, spokeAt: 0, quietUntil: 0, lastHeard: null };
 // Micro ouvert : rien de ce que disent l'iPhone ou l'écran ne contient de nombre (il pourrait être pris pour ta réponse).
-const micOpen = () => !!mic.rec;
+export const micOpen = () => !!mic.rec;
 // Durée estimée d'une annonce (environ 14 caractères par seconde) : le micro reste sourd jusque-là.
-const hush = (text) => { mic.quietUntil = Math.max(mic.quietUntil, Date.now() + 1500 + String(text || '').length * 70); };
+export const hush = (text) => { mic.quietUntil = Math.max(mic.quietUntil, Date.now() + 1500 + String(text || '').length * 70); };
 
-function startEar() {
+export function startEar() {
   if (!Recognition) return toast("Commande vocale indisponible sur cet appareil.", 'warning');
   mic.wanted = true;
   state.voiceInput = true;
@@ -42,7 +52,7 @@ function startEar() {
   broadcast();
 }
 // forget = false : coupure voulue par l'appli (pause, fin de séance) ; la préférence reste pour la prochaine séance.
-function stopEar(forget = true) {
+export function stopEar(forget = true) {
   const rec = mic.rec;
   mic.rec = null;
   mic.wanted = false;
@@ -85,7 +95,7 @@ function commandIn(text) {
 }
 
 // Une phrase d'annonce contient-elle une commande (en entier, ou une de ses phrases) ? Sert de garde-fou à speak et à l'écran.
-const saysCommand = (text) => [text, ...String(text).split(/[.!?:;,]/)].some((part) => commandIn(part));
+export const saysCommand = (text) => [text, ...String(text).split(/[.!?:;,]/)].some((part) => commandIn(part));
 
 function hear(text, alternatives = [text]) {
   if (!state.active || ui.view !== 'session') return;
@@ -147,7 +157,7 @@ function heard(text, why = '') {
   node.classList.toggle('ignored', !!why);
 }
 // Les phrases que comprend le micro, rappelées d'un geste.
-function voiceHelp() {
+export function voiceHelp() {
   choose({ title: 'Ce que comprend le micro', text: 'Dis la phrase telle quelle, après ta série. Le coach et l’écran ne la prononcent jamais.',
     extra: h('div', { className: 'list' }, COMMANDS.map((c) => h('div', { className: 'line' }, h('span', { className: 'stack tight' }, h('strong', {}, `« ${c.say} »`), h('span', { className: 'caption' }, c.help))))),
     actions: [{ label: 'Fermer', value: null }] });

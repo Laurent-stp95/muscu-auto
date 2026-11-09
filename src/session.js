@@ -1,6 +1,25 @@
 // --- Séance ---
 
-async function start(d) {
+import { EXOS } from './common.js';
+import {
+  daysOff, express, monday, sessionMinutes, exerciseHistory, withoutUndone, comeback, suggest, learned, targetReps, isBodyweight,
+} from './plan.js';
+import { byId, DAYS } from './constants.js';
+import { ask, chip, h, choose, icon, toast, button } from './ui.js';
+import { state, record, log, save } from './store.js';
+import { ui, show, render, today } from './router.js';
+import { toggle } from './settings.js';
+import { weekFrame, effective, weekday, week, weekProgress, banner, cycle } from './week.js';
+import { cancelWarm, warm, warmCard, warmMinutes, warmButton } from './warmup.js';
+import { plural, setText, clock, block, focusView } from './focus.js';
+import { stopRest, releaseAwake } from './rest.js';
+import { summaryData } from './progress.js';
+import { startEar, Recognition, stopEar } from './voice.js';
+import { link, connectScreen, setTv, announce, statusBar } from './screen.js';
+import { syncPush } from './push.js';
+import { cloudBackup } from './backup.js';
+
+export async function start(d) {
   if (state.active && state.active.day !== d) {
     if (!await ask({ title: 'Une séance est déjà en cours', text: 'Elle sera terminée et enregistrée avant de commencer celle-ci.', confirm: 'Terminer et commencer' })) return;
     closeSession();
@@ -73,25 +92,25 @@ function expressText() {
 // Historique d'un exercice, relu une seule fois par état du journal (il ne fait que grandir, ou change d'objet à l'import).
 let histories = { log: null, n: 0, byEx: new Map(), clean: null };
 function syncHistoryCache() { if (histories.log !== log || histories.n !== log.length) histories = { log, n: log.length, byEx: new Map(), clean: null }; }
-function historyOf(id) {
+export function historyOf(id) {
   syncHistoryCache();
   if (!histories.byEx.has(id)) histories.byEx.set(id, exerciseHistory(log, id));
   return histories.byEx.get(id);
 }
 // Journal tel qu'on le lit : sans les séries annulées (le journal enregistré, lui, garde tout).
-function journal() {
+export function journal() {
   syncHistoryCache();
   return (histories.clean ||= withoutUndone(log));
 }
 
-const sessionSets = (sid) => {
+export const sessionSets = (sid) => {
   const sets = new Map();
   for (const x of journal()) if (x.session === sid && x.type === 'set') sets.set(`${x.ex}-${x.set}`, x);
   return sets;
 };
 
 // Durée d'effort : de l'ouverture à maintenant (ou au début de la pause en cours), pauses déduites.
-function activeMinutes(sid) {
+export function activeMinutes(sid) {
   let paused = 0, since = null, end = null;
   for (const x of log) {
     if (x.session !== sid) continue;
@@ -119,14 +138,13 @@ function sessionSummary() {
 }
 
 // Pause : minuteur coupé, écran libre de s'éteindre, temps de pause hors durée. Réversible, donc sans confirmation.
-function pause() {
-  if (warm) { clearInterval(warm.timer); warm = null; }
+export function pause() {
+  cancelWarm();
   stopEar(false);
   record({ type: 'pause' });
   state.active.paused = new Date().toISOString();
   stopRest();
-  wakeLock?.release().catch(() => {});
-  wakeLock = null;
+  releaseAwake();
   save();
   render();
   scrollTo(0, 0);
@@ -140,7 +158,7 @@ function resume() {
 }
 
 // Arrêter : terminer (enregistrée), abandonner (marquée, ignorée dans le suivi, annulable 5 s) ou continuer.
-async function stopSession() {
+export async function stopSession() {
   const choice = await choose({
     title: 'Arrêter la séance ?',
     text: 'Terminer enregistre tes séries. Abandonner retire la séance de ton suivi.',
@@ -169,7 +187,7 @@ function abandonSession() {
 // Séance restée ouverte (iPhone verrouillé puis oublié) : passé 6 h sans aucune saisie, on demande quoi en faire, une fois par
 // ouverture de l'appli. Enregistrée, sa durée s'arrête à la dernière saisie, pas à maintenant.
 let staleAsked = false;
-async function staleSession() {
+export async function staleSession() {
   if (!state.active || staleAsked) return;
   const sid = state.active.session, last = log.findLast((x) => x.session === sid);
   if (!last || Date.now() - Date.parse(last.t) < 6 * 3600e3) return;
@@ -191,17 +209,16 @@ async function staleSession() {
 }
 
 // at : heure de fin à retenir (séance restée ouverte : sa dernière saisie), sinon maintenant.
-function closeSession(at) {
+export function closeSession(at) {
   const s = state.plan[state.active.day];
   ui.weekPick = null;
   record({ type: 'end', ...(at && { t: at }) });
   state.ended = { t: Date.now(), title: `${DAYS[s.day]} · ${s.name}`, summary: summaryData(activeItems()) };
-  if (warm) { clearInterval(warm.timer); warm = null; }
+  cancelWarm();
   stopEar(false);
   state.active = null;
   stopRest();
-  wakeLock?.release().catch(() => {});
-  wakeLock = null;
+  releaseAwake();
   save();
   cloudBackup();
   syncPush();
@@ -209,7 +226,7 @@ function closeSession(at) {
 
 // Fin de séance : bilan plein écran, comme sur l'écran projeté. Toutes les séries faites, on y arrive sans passer par « Arrêter ».
 const allDone = () => nextItem(activeItems()) >= activeItems().length;
-function finishSession() {
+export function finishSession() {
   const ahead = !!log.findLast((x) => x.type === 'start' && x.session === state.active.session)?.week;
   closeSession();
   ui.finished = { ...state.ended, ahead };
@@ -218,7 +235,7 @@ function finishSession() {
   announce(n ? `Séance enregistrée, avec ${n > 1 ? 'des records' : 'un record'}. Beau travail !` : 'Séance enregistrée. Beau travail !');
 }
 // Records en avant, semaine qui avance d'un segment, prochaine séance. Une seule action.
-function finishScreen() {
+export function finishScreen() {
   const f = ui.finished;
   if (!f) { ui.view = 'week'; return week(); }
   const { stats, records } = f.summary;
@@ -248,7 +265,7 @@ function pausedScreen(s) {
         button('Arrêter la séance', stopSession, { variant: 'gray', size: 'large' }))));
 }
 
-function session() {
+export function session() {
   const s = state.plan[state.active.day];
   if (state.active.paused) return pausedScreen(s);
   const list = !!state.listMode;
@@ -277,15 +294,15 @@ function session() {
 }
 
 // Contrôle segmenté iOS : options = [[valeur, libellé]]. value undefined : pas d'aria-pressed (onglets, voir tabs).
-function segmented(options, value, onPick) {
+export function segmented(options, value, onPick) {
   return h('div', { className: 'seg' }, options.map(([v, label]) => h('button', { type: 'button', className: 'seg-tab', ariaPressed: value === undefined ? null : String(v === value), onclick: () => onPick(v) }, label)));
 }
 
 // Exercices de la séance en cours, sans ceux que la séance express retire ; k = place dans le programme (douleur, Remplacer).
-const activeItems = () => state.plan[state.active.day].items.map((item, k) => ({ ...exercise(item), k })).filter((x) => x.it.sets > 0);
+export const activeItems = () => state.plan[state.active.day].items.map((item, k) => ({ ...exercise(item), k })).filter((x) => x.it.sets > 0);
 
 // Tout ce qu'il faut pour un exercice de la séance en cours : conseil du jour, historique, séries déjà faites.
-function exercise(item) {
+export function exercise(item) {
   const e = byId.get(item.ex);
   const sid = state.active.session;
   const it = effective(item, true);
@@ -297,16 +314,16 @@ function exercise(item) {
   return { e, it, past, tip, done };
 }
 // Prochaine série d'un exercice (la première pas encore validée), null si toutes sont faites.
-const nextSet = (x) => Array.from({ length: x.it.sets }, (_, k) => k + 1).find((k) => !x.done.has(k)) ?? null;
+export const nextSet = (x) => Array.from({ length: x.it.sets }, (_, k) => k + 1).find((k) => !x.done.has(k)) ?? null;
 // Exercice en cours : le premier qui a encore une série à faire (items.length = tout est fait).
-const nextItem = (items) => { const i = items.findIndex((x) => nextSet(x) != null); return i < 0 ? items.length : i; };
+export const nextItem = (items) => { const i = items.findIndex((x) => nextSet(x) != null); return i < 0 ? items.length : i; };
 // Charge de départ d'une série : celle de la série précédente du jour, sinon la charge conseillée.
 // Répétitions prévues d'une série de l'exercice x, à la charge kg (null : poids du corps).
-const plannedReps = (x, kg, n) => targetReps(x.it, x.past, kg, n, x.e.unit);
-const startKg = (x) => (isBodyweight(x.e) ? null : [...x.done.values()].at(-1)?.kg ?? x.tip.kg);
+export const plannedReps = (x, kg, n) => targetReps(x.it, x.past, kg, n, x.e.unit);
+export const startKg = (x) => (isBodyweight(x.e) ? null : [...x.done.values()].at(-1)?.kg ?? x.tip.kg);
 
 // Prochaine série à faire de la séance en cours : { x, i, n, kg, reps }, null si tout est fait.
-function upNext() {
+export function upNext() {
   const items = activeItems();
   const i = nextItem(items);
   if (i >= items.length) return null;

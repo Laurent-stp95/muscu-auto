@@ -1,5 +1,12 @@
 // --- Fiche d'un exercice : images ou vidéo, consignes, muscles ---
 
+import { FRONT } from './common.js';
+import { CUES, TAGS } from './plan.js';
+import { MUSCLES } from './constants.js';
+import { h, icon } from './ui.js';
+import { muscles } from './week.js';
+import { segmented } from './session.js';
+
 // Onglets ARIA : un seul panneau construit à la fois (la vidéo ne charge qu'à l'ouverture), flèches pour naviguer.
 // Même barre que le contrôle segmenté (segmented), sans aria-pressed : rôles tablist / tab et aria-selected à la place.
 function tabs(segments) {
@@ -27,14 +34,14 @@ function tabs(segments) {
 }
 
 // Repli dont le contenu n'est construit qu'à la première ouverture : rien à créer ni à charger tant qu'on ne regarde pas.
-function lazy(className, summary, build) {
+export function lazy(className, summary, build) {
   const node = h('details', { className }, summary);
   node.addEventListener('toggle', () => { if (node.open && node.childElementCount === 1) node.append(build()); });
   return node;
 }
 
 // Visuels en onglets (mouvement, vidéo, muscles), puis consignes et description.
-function exerciseInfo(e) {
+export function exerciseInfo(e) {
   const img = (src, alt = '') => h('img', { src, alt, loading: 'lazy', onerror: (ev) => ev.target.remove() });
   const names = (ids) => ids.map((m) => MUSCLES[m]).join(', ');
   const side = (front) => h('div', { className: 'body' },

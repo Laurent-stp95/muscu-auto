@@ -1,19 +1,19 @@
 // Générateur de séances et règles de progression. Exercices = liste.json (via data.js), matériel = étiquettes ci-dessous.
 
-const BODYWEIGHT = 'pdc';
-const isBodyweight = (e) => e.load === BODYWEIGHT;
-const TAGS = { smith: 'Smith machine', halteres: 'Haltères', kettlebell: 'Kettlebell', banc: 'Banc plat', 'banc-incline': 'Banc inclinable',
+export const BODYWEIGHT = 'pdc';
+export const isBodyweight = (e) => e.load === BODYWEIGHT;
+export const TAGS = { smith: 'Smith machine', halteres: 'Haltères', kettlebell: 'Kettlebell', banc: 'Banc plat', 'banc-incline': 'Banc inclinable',
   traction: 'Barre de traction', elastique: 'Élastiques', tapis: 'Tapis' };
 // Charges à poids listés par l'utilisateur → clé de leur liste dans loads. Sans aucun poids, l'exercice n'est pas faisable.
-const WEIGHT_LISTS = { halteres: 'halteres', kettlebell: 'kettlebell', elastique: 'elastiques' };
+export const WEIGHT_LISTS = { halteres: 'halteres', kettlebell: 'kettlebell', elastique: 'elastiques' };
 // Matériel dont il faut renseigner les charges (étape « Tes charges ») : la Smith (barre et disques) et le matériel à poids listés.
-const LOADED_GEAR = ['smith', ...Object.keys(WEIGHT_LISTS)];
+export const LOADED_GEAR = ['smith', ...Object.keys(WEIGHT_LISTS)];
 const TOP = 6; // tirage au hasard parmi 6 candidats
-const LEARNING = 2; // séances d'apprentissage sans augmentation, pour tout exercice nouveau ou réintégré
-const CYCLE_WEEKS = 6; // 5 semaines de travail + 1 semaine allégée
+export const LEARNING = 2; // séances d'apprentissage sans augmentation, pour tout exercice nouveau ou réintégré
+export const CYCLE_WEEKS = 6; // 5 semaines de travail + 1 semaine allégée
 
 // Un créneau = une ou plusieurs zones de liste.json.
-const SLOTS = {
+export const SLOTS = {
   quad: { label: 'Quadriceps', zones: ['quad'] },
   hinge: { label: 'Ischios et fessiers', zones: ['hinge'] },
   chest: { label: 'Pectoraux', zones: ['chest'] },
@@ -27,7 +27,7 @@ const SLOTS = {
 };
 
 // Créneaux par ordre de priorité : une séance courte garde les premiers.
-const SESSIONS = {
+export const SESSIONS = {
   full: { name: 'Full body', slots: ['quad', 'chest', 'back', 'hinge', 'shoulders', 'arms', 'abs'] },
   upper: { name: 'Haut du corps', slots: ['chest', 'back', 'shoulders', 'back', 'chest', 'biceps', 'triceps'] },
   lower: { name: 'Bas du corps', slots: ['quad', 'hinge', 'quad', 'hinge', 'calves', 'abs', 'abs'] },
@@ -47,10 +47,10 @@ const SPLITS = [
 ];
 // Jours consécutifs : jamais deux séances d'affilée sur les mêmes muscles (48 h de récupération).
 const SPLITS_BACK_TO_BACK = { 2: ['upper', 'lower'], 3: ['push', 'pull', 'lower'] };
-const MAX_DAYS = 6;
+export const MAX_DAYS = 6;
 
 // [séries, répétitions, repos en s] pour les 2 premiers exercices (main) puis les suivants (acc).
-const GOALS = {
+export const GOALS = {
   muscle: { label: 'Prise de muscle', hint: '8 à 12 répétitions, le plus polyvalent', main: [4, '8-10', 90], acc: [3, '10-12', 60] },
   force: { label: 'Force', hint: 'Charges lourdes, peu de répétitions', main: [5, '5', 180], acc: [3, '8', 90] },
   endurance: { label: 'Endurance', hint: 'Plus de répétitions, repos courts', main: [3, '15-20', 45], acc: [3, '15-20', 45] },
@@ -58,17 +58,17 @@ const GOALS = {
 const HOLD = '30-45'; // gainage, en secondes
 
 // rir = répétitions gardées en réserve, sets = séries en plus ou en moins, weekly = progression indicative par semaine.
-const LEVELS = {
+export const LEVELS = {
   debutant: { label: 'Débutant', hint: "Moins de 6 mois d'entraînement", rir: 3, sets: -1, weekly: 0.025 },
   intermediaire: { label: 'Intermédiaire', hint: '6 mois à 2 ans', rir: 2, sets: 0, weekly: 0.015 },
   confirme: { label: 'Confirmé', hint: 'Plus de 2 ans', rir: 1, sets: 0, weekly: 0.0075 },
 };
 // Zones fragiles : les exercices marqués `risk` dans liste.json sont écartés.
-const ZONES = { shoulders: 'Épaules', elbows: 'Coudes', wrists: 'Poignets', back: 'Bas du dos', knees: 'Genoux' };
-const ISOLATION_ZONES = ['biceps', 'triceps', 'calves', 'abs'];
+export const ZONES = { shoulders: 'Épaules', elbows: 'Coudes', wrists: 'Poignets', back: 'Bas du dos', knees: 'Genoux' };
+export const ISOLATION_ZONES = ['biceps', 'triceps', 'calves', 'abs'];
 
 // Consigne générale par zone, quand l'exercice n'a pas les siennes.
-const CUES = {
+export const CUES = {
   quad: "Genoux dans l'axe des pieds, dos neutre ; descends tant que le dos reste droit.",
   hinge: 'Dos neutre du début à la fin, le mouvement vient des hanches.',
   chest: 'Omoplates serrées, coudes à 45° du buste, descente contrôlée.',
@@ -93,7 +93,7 @@ function rng(seed) {
 const family = (e) => e.fam || e.id;
 
 // Matériel coché sans poids renseigné (haltères sans aucun poids, par exemple) = pas faisable.
-function available(exos, { equipment, loads = {}, zones = [], avoid = [] }) {
+export function available(exos, { equipment, loads = {}, zones = [], avoid = [] }) {
   const own = new Set([...equipment, BODYWEIGHT]);
   return exos.filter((e) => e.eq.every((q) => own.has(q)) && !avoid.includes(e.id) && !(e.risk || []).some((z) => zones.includes(z))
     && (!WEIGHT_LISTS[e.load] || loadable(e, loads).length > 0));
@@ -119,11 +119,11 @@ function prescription(goal, level, index, e) {
   return { sets: Math.max(2, sets + LEVELS[level].sets), reps: e.unit === 's' ? HOLD : reps, rest };
 }
 
-const backToBack = (days) => days.some((d) => days.includes((d + 1) % 7));
-const exerciseCount = (minutes) => Math.min(7, Math.max(4, Math.round(minutes / 15) + 2));
+export const backToBack = (days) => days.some((d) => days.includes((d + 1) % 7));
+export const exerciseCount = (minutes) => Math.min(7, Math.max(4, Math.round(minutes / 15) + 2));
 
 // days = jours choisis (0 = lundi). Retourne [{ day, name, items: [{ slot, ex, sets, reps, rest }] }].
-function generate(exos, config) {
+export function generate(exos, config) {
   const { days, goal, level, minutes, seed } = config;
   const rand = rng(seed);
   const pool = available(exos, config);
@@ -148,7 +148,7 @@ function generate(exos, config) {
 }
 
 // Remplace un exercice par un autre du même créneau. Modifie plan en place, retourne false si aucun autre choix.
-function swap(exos, plan, config, dayIndex, itemIndex, rand = Math.random) {
+export function swap(exos, plan, config, dayIndex, itemIndex, rand = Math.random) {
   const session = plan[dayIndex];
   const item = session.items[itemIndex];
   const byId = new Map(exos.map((e) => [e.id, e]));
@@ -161,7 +161,7 @@ function swap(exos, plan, config, dayIndex, itemIndex, rand = Math.random) {
 }
 
 // Matériel ou zones changés : remplace ce qui n'est plus faisable, garde le reste (le cycle continue).
-function repair(exos, plan, config) {
+export function repair(exos, plan, config) {
   const ok = new Set(available(exos, config).map((e) => e.id));
   plan.forEach((s, d) => {
     for (let i = s.items.length - 1; i >= 0; i--) {
@@ -172,21 +172,21 @@ function repair(exos, plan, config) {
 }
 
 // Fin de cycle : mêmes mouvements principaux (la progression continue), exercices secondaires renouvelés, poussée / tirage rééquilibrés.
-function renew(exos, plan, config, rand) {
+export function renew(exos, plan, config, rand) {
   const byId = new Map(exos.map((e) => [e.id, e]));
   plan.forEach((s, d) => s.items.forEach((it, i) => { if (!byId.get(it.ex)?.main) swap(exos, plan, config, d, i, rand); }));
   return balance(exos, plan, config, rand);
 }
 
 // Poussée (pectoraux, épaules, triceps) contre tirage (dos, biceps) : trop de poussée use les épaules.
-const PUSH_ZONES = ['chest', 'shoulders', 'triceps'], PULL_ZONES = ['back', 'biceps'];
-const pushPull = (exos, plan) => {
+export const PUSH_ZONES = ['chest', 'shoulders', 'triceps'], PULL_ZONES = ['back', 'biceps'];
+export const pushPull = (exos, plan) => {
   const zone = new Map(exos.map((e) => [e.id, e.zone]));
   const items = plan.flatMap((s) => s.items);
   return { push: items.filter((it) => PUSH_ZONES.includes(zone.get(it.ex))).length, pull: items.filter((it) => PULL_ZONES.includes(zone.get(it.ex))).length };
 };
 // Tant que la semaine compte 2 exercices de poussée de plus que de tirage, le dernier exercice secondaire de poussée devient un exercice de dos.
-function balance(exos, plan, config, rand) {
+export function balance(exos, plan, config, rand) {
   const zone = new Map(exos.map((e) => [e.id, e.zone]));
   for (let guard = 0; guard < 4; guard++) {
     const { push, pull } = pushPull(exos, plan);
@@ -202,14 +202,14 @@ function balance(exos, plan, config, rand) {
 
 // --- Cycle ---
 const DAY = 864e5;
-function monday(date) {
+export function monday(date) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
   return d;
 }
 // cycle = { start: lundi du début (ISO) }. week > CYCLE_WEEKS : cycle terminé.
-function cycleWeek(cycle, now = new Date()) {
+export function cycleWeek(cycle, now = new Date()) {
   const week = Math.floor((monday(now) - monday(cycle.start)) / (7 * DAY)) + 1;
   return { week, deload: week === CYCLE_WEEKS, ended: week > CYCLE_WEEKS };
 }
@@ -221,20 +221,20 @@ function cycleWeek(cycle, now = new Date()) {
 
 // Séries annulées (« Annuler » juste après la validation) : une entrée undo { target: t de la série } les retire de la lecture ;
 // le journal lui-même ne change jamais.
-function withoutUndone(log) {
+export function withoutUndone(log) {
   const undone = new Set(log.filter((x) => x.type === 'undo').map((x) => x.target));
   return undone.size ? log.filter((x) => !(x.type === 'set' && undone.has(x.t))) : log;
 }
 
 // Séances abandonnées : marquées dans le journal (jamais effacées), la dernière entrée cancel/restore fait foi.
-function cancelled(log) {
+export function cancelled(log) {
   const last = new Map();
   for (const x of log) if (x.type === 'cancel' || x.type === 'restore') last.set(x.session, x.type);
   return new Set([...last].filter(([, type]) => type === 'cancel').map(([session]) => session));
 }
 
 // Séances passées d'un exercice, de la plus ancienne à la plus récente : [{ session, t, sets, feel, tech, mode }].
-function exerciseHistory(log, exId) {
+export function exerciseHistory(log, exId) {
   const skip = cancelled(log);
   const sessions = new Map();
   for (const entry of withoutUndone(log)) {
@@ -255,17 +255,17 @@ function exerciseHistory(log, exId) {
 }
 
 // Séances faites depuis l'ajout ou la dernière réintégration : < LEARNING = en apprentissage.
-function learned(log, exId, past) {
+export function learned(log, exId, past) {
   const since = log.findLast((x) => x.type === 'reintegrate' && x.ex === exId)?.t || '';
   return past.filter((s) => s.t > since).length;
 }
 
-const range = (reps) => { const [lo, hi = lo] = String(reps).split('-').map(Number); return [lo, hi]; };
+export const range = (reps) => { const [lo, hi = lo] = String(reps).split('-').map(Number); return [lo, hi]; };
 const roundHalf = (kg) => Math.round(kg * 2) / 2;
 const topKg = (s) => Math.max(0, ...s.sets.map((x) => x.kg || 0));
 
 // Charges réalisables avec le matériel. Smith : barre + paires de disques (un disque de chaque côté).
-function loadable(e, loads) {
+export function loadable(e, loads) {
   if (e.load === 'smith') {
     const pairs = Object.entries(loads.plates || {}).flatMap(([kg, n]) => Array(Math.floor(n / 2)).fill(Number(kg)));
     let sums = new Set([0]);
@@ -278,12 +278,12 @@ const below = (list, kg) => list.findLast((x) => x <= kg) ?? list[0] ?? null;
 const nearest = (list, kg) => list.reduce((a, b) => (Math.abs(b - kg) < Math.abs(a - kg) ? b : a), list[0]);
 
 // Répétitions gardées en réserve : jamais moins de 2 sur les mouvements qui font travailler plusieurs articulations.
-const rir = (e, level) => (ISOLATION_ZONES.includes(e.zone) ? LEVELS[level].rir : Math.max(2, LEVELS[level].rir));
+export const rir = (e, level) => (ISOLATION_ZONES.includes(e.zone) ? LEVELS[level].rir : Math.max(2, LEVELS[level].rir));
 
 // Charge conseillée pour la prochaine séance. ctx = { loads, learned, deload, hold, comeback (ratio de reprise ou null) }.
 // Retourne { kg (null = à choisir), note, mode ('normal'|'tempo'|'pause', à enregistrer avec les séries), plafond, learning }.
 // hold = forme moyenne au point de forme : la charge n'augmente pas aujourd'hui.
-function suggest(e, item, past, { loads, learned: done = past.length, deload = false, hold = false, comeback: back = null }) {
+export function suggest(e, item, past, { loads, learned: done = past.length, deload = false, hold = false, comeback: back = null }) {
   const [lo, hi] = range(item.reps);
   const list = loadable(e, loads);
   const unit = e.unit === 's' ? 's' : 'répétitions';
@@ -333,12 +333,12 @@ function suggest(e, item, past, { loads, learned: done = past.length, deload = f
     : same(kg, `Ajoute une répétition par série (jusqu'à ${ceiling}).`);
 }
 
-const kgLabel = (e, kg) => `${e.load === 'elastique' ? 'élastique ' : ''}${kg.toLocaleString('fr-FR')}\u00a0kg`;
+export const kgLabel = (e, kg) => `${e.load === 'elastique' ? 'élastique ' : ''}${kg.toLocaleString('fr-FR')}\u00a0kg`;
 
 // Disques par côté de la barre Smith pour une charge, en gardant le plus possible ceux déjà montés (current, [] = barre nue).
 // Retourne { side, remove, add } (disques par côté, du plus lourd au plus léger) ou null si la charge est impossible.
 // ponytail: essai de toutes les combinaisons, 2^n avec n = disques par côté (6 ici) ; au-delà de 16, ne garde que le moins de disques.
-function plateChange(current, kg, loads) {
+export function plateChange(current, kg, loads) {
   const target = Math.round(((kg - loads.bar) / 2) * 100) / 100;
   if (target < 0) return null;
   const pairs = Object.entries(loads.plates || {}).flatMap(([w, n]) => Array(Math.floor(n / 2)).fill(Number(w))).sort((a, b) => b - a);
@@ -360,10 +360,10 @@ function minus(a, b) {
   return a.filter((x) => { const i = left.indexOf(x); if (i < 0) return true; left.splice(i, 1); return false; });
 }
 // Disques à mettre de chaque côté pour une charge (le moins de disques possible), [] = barre seule, null = impossible.
-const plates = (kg, loads) => plateChange([], kg, loads)?.side ?? null;
+export const plates = (kg, loads) => plateChange([], kg, loads)?.side ?? null;
 
 // Répétitions prévues pour une série : une de plus que la même série la dernière fois à la même charge, dans la fourchette.
-function targetReps(item, past, kg, set, unit) {
+export function targetReps(item, past, kg, set, unit) {
   const [lo, hi] = range(item.reps);
   const prev = past.at(-1)?.sets.find((x) => x.set === set);
   if (!prev || (kg != null && prev.kg !== kg)) return lo;
@@ -371,7 +371,7 @@ function targetReps(item, past, kg, set, unit) {
 }
 
 // Séries d'approche avant un mouvement principal à la Smith : barre seule × 10, ~50 % × 5, ~70 % × 3. Non enregistrées.
-function warmup(e, kg, loads) {
+export function warmup(e, kg, loads) {
   if (e.load !== 'smith' || !e.main || kg == null || kg <= loads.bar) return [];
   const list = loadable(e, loads);
   const sets = [];
@@ -383,7 +383,7 @@ function warmup(e, kg, loads) {
 
 // Record personnel : charge jamais atteinte, ou plus de répétitions (secondes) qu'avant à la meilleure charge.
 // history = séances de l'exercice avant cette série (séance en cours comprise) ; jamais de record à la première séance.
-function recordKind(history, sid, set) {
+export function recordKind(history, sid, set) {
   if (!history.some((s) => s.session !== sid)) return null;
   const sets = history.flatMap((s) => s.sets);
   const best = Math.max(0, ...sets.map((x) => x.kg || 0));
@@ -393,17 +393,17 @@ function recordKind(history, sid, set) {
 }
 
 // Jours écoulés depuis la dernière série enregistrée (hors séance `current` et séances abandonnées), null si aucune.
-function daysOff(log, now = Date.now(), current = null) {
+export function daysOff(log, now = Date.now(), current = null) {
   const skip = cancelled(log);
   const last = withoutUndone(log).findLast((x) => x.type === 'set' && x.session && x.session !== current && !skip.has(x.session));
   return last ? Math.floor((now - Date.parse(last.t)) / DAY) : null;
 }
 // Reprise après une pause : charges réduites le temps d'une séance (2 semaines : −10 %, 4 semaines : −20 %).
-const comeback = (days) => (days >= 28 ? 0.8 : days >= 14 ? 0.9 : null);
+export const comeback = (days) => (days >= 28 ? 0.8 : days >= 14 ? 0.9 : null);
 
 // Matériel à sortir avant la séance. entries = [{ e, kg }] (kg conseillé, null = à choisir).
 // Smith : disques de chaque côté pour la charge la plus lourde ; haltères, kettlebell, élastiques : poids utilisés.
-function gearList(entries, loads) {
+export function gearList(entries, loads) {
   const used = (load) => [...new Set(entries.filter(({ e, kg }) => e.load === load && kg != null).map(({ kg }) => kg))].sort((a, b) => a - b);
   const kgs = (list) => list.length && ` ${list.map((x) => x.toLocaleString('fr-FR')).join(' et ')}\u00a0kg`;
   const tags = new Set(entries.flatMap(({ e }) => e.eq));
@@ -419,12 +419,12 @@ function gearList(entries, loads) {
 
 // Durée estimée d'un exercice, en minutes : séries × (45 s d'effort + repos) + 2 min de mise en place (charge, réglages).
 const itemMinutes = (it) => (it.sets * (45 + it.rest) + 120) / 60;
-const sessionMinutes = (items) => Math.round(items.reduce((m, it) => m + (it.sets ? itemMinutes(it) : 0), 0));
+export const sessionMinutes = (items) => Math.round(items.reduce((m, it) => m + (it.sets ? itemMinutes(it) : 0), 0));
 
 // Séance express : tenir en `minutes`. Les 2 premiers exercices (les plus lourds) restent entiers ; on retire d'abord
 // une série aux suivants (2 minimum), puis les exercices d'isolation en partant de la fin, puis les autres.
 // items = [{ ex, sets, rest }] ; retourne { [ex]: séries gardées } (0 = exercice retiré aujourd'hui).
-function express(exos, items, minutes) {
+export function express(exos, items, minutes) {
   const zone = new Map(exos.map((e) => [e.id, e.zone]));
   const keep = items.map((it) => ({ ...it }));
   const over = () => sessionMinutes(keep) > minutes;
@@ -438,7 +438,7 @@ function express(exos, items, minutes) {
 // (τ = 30 h : 80 % récupéré après 48 h, 91 % après 72 h) ; 6 séries récentes = muscle à 0 %. Retourne { [muscle]: % récupéré }
 // pour les muscles travaillés ces 5 derniers jours (les autres sont à 100 %).
 const RECOVERY_TAU = 30 * 3600e3, FULL_FATIGUE = 6;
-function recovery(log, exos, now = Date.now()) {
+export function recovery(log, exos, now = Date.now()) {
   const byId = new Map(exos.map((e) => [e.id, e]));
   const skip = cancelled(log);
   const sets = new Map(); // la dernière saisie d'une série fait foi
@@ -455,11 +455,6 @@ function recovery(log, exos, now = Date.now()) {
 }
 
 // Courbe indicative sur `weeks` semaines au rythme du niveau.
-function project(kg, level, weeks = 8) {
+export function project(kg, level, weeks = 8) {
   return Array.from({ length: weeks }, (_, w) => roundHalf(kg * (1 + LEVELS[level].weekly) ** (w + 1)));
-}
-
-if (typeof module !== 'undefined') {
-  module.exports = { recovery, withoutUndone, balance, pushPull, PUSH_ZONES, PULL_ZONES, express, sessionMinutes, plates, plateChange, recordKind, daysOff, comeback, gearList, targetReps, generate, exerciseCount, backToBack, swap, repair, renew, available, cancelled, exerciseHistory, learned, loadable, suggest, warmup, rir, cycleWeek, monday, project,
-    kgLabel, range, ISOLATION_ZONES, SLOTS, SESSIONS, GOALS, LEVELS, ZONES, CUES, TAGS, BODYWEIGHT, isBodyweight, MAX_DAYS, LEARNING, CYCLE_WEEKS };
 }

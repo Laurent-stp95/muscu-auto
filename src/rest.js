@@ -1,11 +1,21 @@
 // --- Minuteur de repos et écran allumé ---
 // Une appli web iPhone ne peut ni vibrer ni notifier sans serveur : le son ne joue que si l'écran reste allumé.
 
-let audio = null, rest = null, restEnd = 0, restTotal = 0, restPushed = false, wakeLock = null;
-const restBar = h('div', { className: 'rest', hidden: true, role: 'timer' });
+import { beep } from './common.js';
+import { h, button, toast } from './ui.js';
+import { state } from './store.js';
+import { upNext } from './session.js';
+import { setSpeech } from './focus.js';
+import { speak } from './coach.js';
+import { hush, micOpen } from './voice.js';
+import { projected, broadcast } from './screen.js';
+import { pushOn, pushCall } from './push.js';
+
+export let audio = null, rest = null, restEnd = 0, restTotal = 0, restPushed = false, wakeLock = null;
+export const restBar = h('div', { className: 'rest', hidden: true, role: 'timer' });
 
 // Record : quatre notes montantes, à ne pas confondre avec les bips de série ou de repos.
-function fanfare() {
+export function fanfare() {
   if (!audio) return;
   [523, 659, 784, 1047].forEach((freq, i) => {
     const osc = audio.createOscillator(), gain = audio.createGain(), at = audio.currentTime + i * 0.11;
@@ -19,7 +29,7 @@ function fanfare() {
 }
 
 // Bip court du métronome : grave pendant la descente, aigu pour remonter.
-function tick(freq) {
+export function tick(freq) {
   if (!audio) return;
   const osc = audio.createOscillator(), gain = audio.createGain();
   osc.frequency.value = freq;
@@ -30,9 +40,14 @@ function tick(freq) {
   osc.stop(audio.currentTime + 0.1);
 }
 
-function startRest(seconds) {
-  // Créé au premier ✓ : iOS n'autorise le son qu'après un geste.
+// AudioContext créé au premier geste (iOS n'autorise le son qu'après), une fois pour toute l'appli.
+export function initAudio() {
   audio ||= new (window.AudioContext || window.webkitAudioContext)();
+}
+
+export function startRest(seconds) {
+  // Créé au premier ✓ : iOS n'autorise le son qu'après un geste.
+  initAudio();
   audio.resume?.();
   restPushed = false; // le nouvel envoi remplace l'ancien côté serveur : pas d'annulation qui pourrait arriver après lui
   stopRest();
@@ -75,7 +90,7 @@ function startRest(seconds) {
   broadcast();
 }
 
-function stopRest() {
+export function stopRest() {
   clearInterval(rest);
   rest = null;
   restBar.hidden = true;
@@ -84,14 +99,14 @@ function stopRest() {
   if (restPushed) { restPushed = false; pushCall('DELETE', '/rest').catch(() => {}); }
 }
 
-const restClock = () => { const left = Math.max(0, Math.ceil((restEnd - Date.now()) / 1000)); return `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; };
-const extendRest = (seconds) => startRest(Math.ceil((restEnd - Date.now()) / 1000) + seconds);
+export const restClock = () => { const left = Math.max(0, Math.ceil((restEnd - Date.now()) / 1000)); return `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; };
+export const extendRest = (seconds) => startRest(Math.ceil((restEnd - Date.now()) / 1000) + seconds);
 
 // Annonce de fin de repos : la série qui suit, ou l'exercice suivant. La tournure varie d'une série à l'autre, mais reste la même
 // pour une série donnée (restSay est recalculée à chaque envoi vers l'écran projeté).
 const ORDINALS = ['Première', 'Deuxième', 'Troisième', 'Quatrième', 'Cinquième', 'Sixième', 'Septième', 'Huitième', 'Neuvième', 'Dixième'];
 const vary = (list, seed) => list[Math.abs(seed) % list.length];
-function restSay() {
+export function restSay() {
   const u = upNext();
   if (!u) return 'Repos terminé.';
   const seed = u.n + u.x.e.id, last = u.n === u.x.it.sets;
@@ -103,7 +118,12 @@ function restSay() {
   return `${vary(["C'est reparti", 'Allez, on y retourne', 'À toi'], seed)}. ${which}, ${what}.`;
 }
 
-async function keepAwake() {
+export function releaseAwake() {
+  wakeLock?.release().catch(() => {});
+  wakeLock = null;
+}
+
+export async function keepAwake() {
   if (!state.active || state.active.paused || wakeLock || !navigator.wakeLock) return;
   try {
     wakeLock = await navigator.wakeLock.request('screen');

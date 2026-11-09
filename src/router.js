@@ -1,15 +1,29 @@
 // Navigation entre les écrans : vue courante (ui), onglets gardés en mémoire, barre d'onglets.
-const app = document.getElementById('app');
 
-let ui = { view: state.config ? 'week' : 'onboarding', step: 0, draft: null };
+import { h, icon } from './ui.js';
+import { state, revision } from './store.js';
+import { onboarding } from './onboarding.js';
+import { settings } from './settings.js';
+import { week } from './week.js';
+import { session, finishScreen } from './session.js';
+import { keepAwake } from './rest.js';
+import { progress } from './progress.js';
+import { placeBars } from './update.js';
+import { broadcast } from './screen.js';
+
+export const app = document.getElementById('app');
+
+export let ui = { view: state.config ? 'week' : 'onboarding', step: 0, draft: null };
+// Un `let` exporté ne se réaffecte que depuis son module : les autres fichiers passent par setUi.
+export function setUi(next) { ui = next; }
 
 // Onglets gardés en mémoire : y revenir est instantané et retrouve la position de défilement, comme sur iOS.
 // Reconstruits seulement si quelque chose a été enregistré depuis, ou si la date a changé (« Aujourd'hui »).
 const screens = new Map(); // vue → { node, revision, day, scroll }
 const KEPT = ['week', 'session', 'progress'];
-const today = () => new Date().toDateString();
+export const today = () => new Date().toDateString();
 
-function show(view) {
+export function show(view) {
   const from = screens.get(ui.view);
   if (from) from.scroll = scrollY;
   ui.view = view;
@@ -23,7 +37,7 @@ function show(view) {
   scrollTo(0, 0);
 }
 
-function render() {
+export function render() {
   const views = { onboarding, week, session, progress, settings, done: finishScreen };
   if (ui.view === 'session' && !state.active) ui.view = 'week'; // séance terminée ailleurs (remise à zéro, autre appareil) : retour au programme
   const node = views[ui.view]();

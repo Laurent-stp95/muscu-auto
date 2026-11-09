@@ -1,11 +1,20 @@
 // --- Notifications ---
 // Web Push (iOS 16.4+, appli installée) via push/worker.js : rappels de séance, fin du repos quand l'écran est verrouillé.
 
+import { PUSH } from './common.js';
+import { cancelled } from './plan.js';
+import { toast, h, icon, button } from './ui.js';
+import { state, log, save } from './store.js';
+import { render } from './router.js';
+import { iphone, standalone, pills } from './onboarding.js';
+import { toggle } from './settings.js';
+import { journal } from './session.js';
+
 const NOTIFY = { reminders: true, time: '18:00', before: 30, rest: true, weekly: true }; // réglages par défaut des notifications
 
 const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
-const pushOn = () => !!state.push?.on && pushSupported() && Notification.permission === 'granted';
-const pushCall = (method, path, body) => fetch(`${PUSH.url}${path}?id=${state.push.id}`, {
+export const pushOn = () => !!state.push?.on && pushSupported() && Notification.permission === 'granted';
+export const pushCall = (method, path, body) => fetch(`${PUSH.url}${path}?id=${state.push.id}`, {
   method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body && JSON.stringify(body),
 });
 const keyBytes = (b64url) => Uint8Array.from(atob(b64url.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
@@ -17,7 +26,7 @@ const reminderPayload = (c) => {
     weekly: n.weekly !== false, last };
 };
 
-async function subscribePush(c) {
+export async function subscribePush(c) {
   const reg = await navigator.serviceWorker.ready;
   const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(PUSH.key) });
   const res = await pushCall('POST', '/subscribe', { subscription: sub.toJSON(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone, reminders: reminderPayload(c) });
@@ -53,11 +62,11 @@ async function disablePush() {
 }
 
 // Réglages enregistrés : le serveur reçoit les nouveaux jours, horaires et noms de séance.
-function syncPush() {
+export function syncPush() {
   if (pushOn()) subscribePush(state.config).catch(() => toast('Rappels non mis à jour : hors ligne.', 'offline'));
 }
 
-function notifyEditor(d) {
+export function notifyEditor(d) {
   const n = (d.notify ||= { ...NOTIFY });
   if (!pushSupported() || (iphone() && !standalone())) return h('p', { className: 'note' }, icon('info'), "Installe l'appli sur l'écran d'accueil pour recevoir des notifications.");
   if (Notification.permission === 'denied') return h('p', { className: 'note' }, icon('warning'), "Notifications refusées. Pour les autoriser : Réglages de l'iPhone, Notifications, Steady.");

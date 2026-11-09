@@ -1,4 +1,5 @@
 // Code commun à l'appli (index.html) et à l'écran projeté (tv/index.html) : son, voix, caméra qui compte, WebRTC.
+// Script classique, pas un module ES : la page TV le charge tel quel ; l'appli l'importe par src/common.js.
 // Lu par les navigateurs de TV (Chromium 68+) : ES2018 au plus (pas de ?., ??, ||=, flat/flatMap, Object.fromEntries,
 // replaceChildren, catch sans variable).
 
@@ -198,6 +199,9 @@ function gathered(pc) {
   });
 }
 
-if (typeof module !== 'undefined') {
-  module.exports = { jointAngle, repCounter, poseTracker, COUNTER, counterFor, frenchVoice };
-}
+// Les déclarations ci-dessus sont des globales pour la page TV (script classique). Les modules ES de l'appli et les tests Node
+// ne les voient pas : ils passent par cet objet (voir src/common.js).
+(typeof self !== 'undefined' ? self : globalThis).Shared = {
+  beep, frenchVoices, frenchVoice, FRONT, JOINTS, COUNTER, COUNTER_EX, counterFor, BONES, poseModel, jointAngle, repCounter,
+  HANDS_HIGH, poseTracker, ICE, gathered,
+};

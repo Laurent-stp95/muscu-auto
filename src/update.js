@@ -1,17 +1,22 @@
 // --- Mises à jour ---
 // Le service worker sert la version en cache puis revérifie : s'il trouve du neuf, il prévient et on propose de recharger.
 
+import { FILES } from './common.js';
+import { h, button, icon, toast } from './ui.js';
+import { state } from './store.js';
+import { app, ui, setUi } from './router.js';
+
 const updateBar = h('div', { className: 'update', hidden: true, role: 'status' },
   h('span', {}, 'Nouvelle version disponible'), button('Recharger', reloadApp, { variant: 'primary', size: 'compact' }));
-const showUpdate = () => { updateBar.hidden = false; placeBars(); };
+export const showUpdate = () => { updateBar.hidden = false; placeBars(); };
 
 // --- Réseau ---
 // Hors ligne, tout marche (données sur l'iPhone, appli en cache) sauf les vidéos : bandeau tant que ça dure, message à chaque bascule.
-const offlineBar = h('div', { className: 'offline', hidden: navigator.onLine, role: 'status' }, icon('offline'),
+export const offlineBar = h('div', { className: 'offline', hidden: navigator.onLine, role: 'status' }, icon('offline'),
   h('div', { className: 'stack tight' }, h('strong', {}, 'Hors ligne'), h('span', { className: 'caption' }, "Tes séances marchent et tes saisies restent sur l'iPhone. L'écran projeté, la sauvegarde et les vidéos attendent le réseau.")));
 
 // Bandeaux d'état (hors ligne, nouvelle version) : sous l'en-tête de l'écran affiché, jamais par-dessus la barre collante.
-function placeBars() {
+export function placeBars() {
   const bars = [offlineBar, updateBar];
   bars.forEach((b) => b.remove());
   const view = app.firstElementChild;
@@ -23,7 +28,7 @@ function placeBars() {
 }
 
 // Bouton des Réglages : retélécharge le code sans passer par aucun cache, puis recharge.
-async function forceUpdate() {
+export async function forceUpdate() {
   if (!navigator.onLine) return toast('Hors ligne : reconnecte-toi pour mettre à jour.', 'offline');
   toast('Mise à jour en cours…', 'info');
   try {
@@ -44,11 +49,11 @@ function reloadApp() {
   location.reload();
 }
 
-function resumeAfterReload() {
+export function resumeAfterReload() {
   let view = null;
   try { view = sessionStorage.getItem(RELOAD_KEY); sessionStorage.removeItem(RELOAD_KEY); } catch { /* rien à reprendre */ }
   if (!view || !state.config) return false;
-  if (view === 'settings') ui = { view, step: 0, draft: structuredClone(state.config) };
+  if (view === 'settings') setUi({ view, step: 0, draft: structuredClone(state.config) });
   else if (view === 'progress' || (view === 'session' && state.active)) ui.view = view;
   return true;
 }

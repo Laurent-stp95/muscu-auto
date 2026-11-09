@@ -1,8 +1,27 @@
 // --- Mode focus ---
 // Une série à la fois : gros chiffres, gros boutons, sans clavier. C'est aussi la télécommande de l'écran projeté.
+
+import { EXOS } from './common.js';
+import {
+  isBodyweight, loadable, warmup, CUES, plateChange, recordKind, kgLabel, plates, rir, swap, ZONES, cancelled, repair,
+} from './plan.js';
+import { byId, FEELS, LOAD_HEAD } from './constants.js';
+import { h, icon, button, toast, chip, choose, ask } from './ui.js';
+import { state, record, log, save } from './store.js';
+import { ui, render } from './router.js';
+import { unitText, prescriptionText } from './week.js';
+import { lazy, exerciseInfo } from './exercise-info.js';
+import { activeItems, nextItem, finishSession, nextSet, startKg, plannedReps, journal, historyOf, exercise } from './session.js';
+import { warm } from './warmup.js';
+import { startRest, initAudio, audio, tick, rest, restClock, stopRest, extendRest, fanfare } from './rest.js';
+import { speak } from './coach.js';
+import { micOpen } from './voice.js';
+import { cameraKind, cameraCoach } from './camera.js';
+import { broadcast, announce, projected } from './screen.js';
+
 const LOAD_CAPTION = { smith: 'kg au total', halteres: 'kg par haltère', kettlebell: 'kg', elastique: "kg d'élastique" };
 
-function focusView(s, d) {
+export function focusView(s, d) {
   const items = activeItems();
   const i = Math.min(ui.at ?? nextItem(items), items.length);
   const move = (to) => { ui.at = to; ui.pick = null; render(); scrollTo(0, 0); };
@@ -74,7 +93,7 @@ function setPanel(x, n, i, count) {
 }
 
 // Valide la série affichée par le mode focus : bouton, voix ou caméra.
-function validateSet({ x, n, i, count, pick }) {
+export function validateSet({ x, n, i, count, pick }) {
   const { e, it, tip } = x;
   if (!isBodyweight(e) && pick.kg == null) return toast('Choisis la charge utilisée.', 'warning');
   stopTempo();
@@ -90,7 +109,7 @@ function validateSet({ x, n, i, count, pick }) {
 }
 
 // Série affichée par le mode focus, avec son réglage (ui.pick, créé avec les valeurs prévues) : { x, n, i, count, pick }, null si rien à faire.
-function focusTarget() {
+export function focusTarget() {
   if (!state.active || state.active.paused || state.listMode || warm) return null;
   const items = activeItems();
   const i = Math.min(ui.at ?? nextItem(items), items.length);
@@ -136,7 +155,7 @@ function tempoControl(reps, mode) {
 }
 function startTempo(reps, mode) {
   stopTempo();
-  audio ||= new (window.AudioContext || window.webkitAudioContext)();
+  initAudio();
   audio.resume?.();
   const [down, hold] = TEMPO[mode];
   const rep = down + hold + 1500, lead = 3500, timers = [];
@@ -185,7 +204,7 @@ async function replay(file) {
 }
 
 // Disques pour une charge à la Smith, et le changement depuis la dernière charge montée pendant la séance.
-function barPlan(e, kg) {
+export function barPlan(e, kg) {
   if (e.load !== 'smith' || kg == null) return {};
   const loads = state.config.loads;
   let side = [];
@@ -236,22 +255,22 @@ function logSet(e, n, kg, reps, mode) {
   if (pr) announce(micOpen() ? 'Nouveau record !' : `Nouveau record ! ${setSpeech(e, value, reps)}.`);
   return pr;
 }
-function undoSet(entry) {
+export function undoSet(entry) {
   record({ type: 'undo', target: entry.t, ex: entry.ex, set: entry.set });
   stopRest();
   ui.pick = null;
   render();
   toast(`Série ${entry.set} retirée`, 'info');
 }
-const setText = (e, kg, reps) => (isBodyweight(e) ? `${reps}\u00a0${unitText(e)}` : `${kgLabel(e, kg)}\u00a0×\u00a0${reps}${e.unit === 's' ? '\u00a0s' : ''}`);
+export const setText = (e, kg, reps) => (isBodyweight(e) ? `${reps}\u00a0${unitText(e)}` : `${kgLabel(e, kg)}\u00a0×\u00a0${reps}${e.unit === 's' ? '\u00a0s' : ''}`);
 // Texte d'une série pour la voix : « 10 répétitions à 42,5 kilos ».
-function setSpeech(e, kg, reps) {
+export function setSpeech(e, kg, reps) {
   const what = `${reps} ${e.unit === 's' ? 'secondes' : 'répétitions'}`;
   if (isBodyweight(e) || kg == null) return what;
   return `${what} à ${kg.toLocaleString('fr-FR')} kilos${{ halteres: ' par haltère', elastique: " d'élastique" }[e.load] || ''}`;
 }
 
-function block(item, d, i) {
+export function block(item, d, i) {
   const x = exercise(item);
   const { e, it, tip, done } = x;
   const side = e.load === 'smith' && tip.kg != null ? plates(tip.kg, state.config.loads) : null;
@@ -273,9 +292,9 @@ function block(item, d, i) {
 }
 
 // « 0 série », « 1 série », « 2 séries » : en français, 0 et 1 restent au singulier.
-const plural = (n, one, many = `${one}s`) => `${n} ${n > 1 ? many : one}`;
-const kgText = (kg) => `${kg.toLocaleString('fr-FR')}\u00a0kg`; // espace insécable : « kg » ne part jamais seul à la ligne
-const clock = (iso) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+export const plural = (n, one, many = `${one}s`) => `${n} ${n > 1 ? many : one}`;
+export const kgText = (kg) => `${kg.toLocaleString('fr-FR')}\u00a0kg`; // espace insécable : « kg » ne part jamais seul à la ligne
+export const clock = (iso) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
 // Menus de charges : construits une fois par liste puis clonés (une séance en affiche une douzaine d'environ 50 choix).
 const menus = new Map();
@@ -318,7 +337,7 @@ function setRow(x, n, done, tip) {
   return [h('span', { className: 'n' }, String(n)), kg, reps, ok];
 }
 
-async function onFeel(e, value, d, i, buttons) {
+export async function onFeel(e, value, d, i, buttons) {
   if (value === 'pain' && !await painZone(e)) return; // feuille fermée ou Annuler : rien n'est noté
   record({ type: 'feel', ex: e.id, feel: value });
   buttons.forEach((b) => { b.ariaPressed = String(b.dataset.feel === value); });
