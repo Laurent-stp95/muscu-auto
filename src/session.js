@@ -4,7 +4,7 @@ import { EXOS } from './common.js';
 import {
   daysOff, express, monday, sessionMinutes, exerciseHistory, withoutUndone, comeback, suggest, learned, targetReps, isBodyweight,
 } from './plan.js';
-import { DAYS, plural } from './labels.js';
+import { DAYS, FREE_SESSION, plural } from './labels.js';
 import { byId } from './constants.js';
 import { ask, chip, h, choose, icon, toast, button } from './ui.js';
 import { state, record, log, save } from './store.js';
@@ -19,17 +19,31 @@ import { startEar, Recognition, stopEar } from './voice.js';
 import { link, connectScreen, setTv, announce, statusBar } from './screen.js';
 import { syncPush } from './push.js';
 import { cloudBackup } from './backup.js';
+import { addExercise } from './add-exercise.js';
 
+// Séance en cours : state.active = { session, day, readiness, off, express?, cut?, paused?, extra?, free? }.
+// day = index dans state.plan ; séance libre (hors programme) : day null et free true. extra = exercices ajoutés à la volée
+// ([{ slot, ex, sets, reps, rest, added: true }]) : ils ne valent que pour cette séance, le programme ne change pas.
+// Tout l'écran lit la séance par activeSession(), jamais state.plan[state.active.day] directement.
+export function activeSession() {
+  const a = state.active, extra = a.extra || [];
+  if (a.free || !state.plan[a.day]) return { day: null, name: FREE_SESSION, free: true, items: extra };
+  return { ...state.plan[a.day], items: [...state.plan[a.day].items, ...extra] };
+}
+export const sessionTitle = (s) => (s.free ? s.name : `${DAYS[s.day]} · ${s.name}`);
+
+// d = index dans le programme ; null = séance libre.
 export async function start(d) {
-  if (state.active && state.active.day !== d) {
+  const free = d == null;
+  if (state.active && (free ? !state.active.free : state.active.day !== d)) {
     if (!await ask({ title: 'Une séance est déjà en cours', text: 'Elle sera terminée et enregistrée avant de commencer celle-ci.', confirm: 'Terminer et commencer' })) return;
     closeSession();
   }
   if (!state.active) {
-    const ahead = weekFrame().focus.nextWeek; // plus rien cette semaine : la séance compte pour la suivante
-    const fit = await fitnessCheck(state.plan[d]);
+    const ahead = !free && weekFrame().focus.nextWeek; // plus rien cette semaine : la séance compte pour la suivante
+    const fit = await fitnessCheck(free ? null : state.plan[d]);
     if (!fit) return;
-    state.active = { session: new Date().toISOString(), day: d, readiness: fit.level, off: daysOff(journal()) };
+    state.active = { session: new Date().toISOString(), day: free ? null : d, readiness: fit.level, off: daysOff(journal()), ...(free && { free: true, extra: [] }) };
     if (fit.minutes) {
       state.active.express = fit.minutes;
       state.active.cut = express(EXOS, state.plan[d].items.map((item) => effective(item, true)), fit.minutes);
@@ -41,7 +55,9 @@ export async function start(d) {
     }
     if (fit.voice) startEar(); else if (state.voiceInput) { state.voiceInput = false; }
     ui.at = ui.pick = ui.weekPick = null;
-    record({ type: 'start', day: state.plan[d].day, name: state.plan[d].name, ...(ahead && { week: monday(new Date(Date.now() + 7 * 864e5)).toISOString() }) });
+    // Séance libre : ni jour ni semaine (elle ne compte pas dans le programme), free: true.
+    if (free) record({ type: 'start', name: FREE_SESSION, free: true });
+    else record({ type: 'start', day: state.plan[d].day, name: state.plan[d].name, ...(ahead && { week: monday(new Date(Date.now() + 7 * 864e5)).toISOString() }) });
     record({ type: 'readiness', sleep: fit.sleep, soreness: fit.soreness, energy: fit.energy, level: fit.level });
   } else if (state.active.paused) resume();
   show('session');
@@ -58,8 +74,8 @@ async function fitnessCheck(s) {
     }));
     return h('div', { className: 'group' }, h('span', { className: 'label' }, label), h('div', { className: 'chips' }, buttons));
   });
-  // Séance express : seulement les durées plus courtes que la séance complète estimée.
-  const full = sessionMinutes(s.items.map((item) => effective(item)));
+  // Séance express : seulement les durées plus courtes que la séance complète estimée. Séance libre (s null) : pas de durée.
+  const full = s ? sessionMinutes(s.items.map((item) => effective(item))) : 0;
   const times = [[null, `Complète · ${full} min`], ...[30, 20].filter((m) => m < full - 5).map((m) => [m, `${m} min`])];
   const timeButtons = times.map(([m, label], i) => chip(label, i === 0, () => {
     answers.minutes = m;
@@ -73,7 +89,7 @@ async function fitnessCheck(s) {
     Recognition && toggle('Valider à la voix', answers.voice, (v) => { answers.voice = v; })].filter(Boolean);
   if (options.length) groups.push(h('div', { className: 'list' }, options));
   const go = await choose({
-    title: 'Comment tu te sens ?', text: "La séance s'adapte si ça va moins bien.", extra: h('div', { className: 'stack' }, groups),
+    title: 'Comment tu te sens ?', text: s ? "La séance s'adapte si ça va moins bien." : "Séance libre : tu ajoutes tes exercices un à un. Les charges s'adaptent si ça va moins bien.", extra: h('div', { className: 'stack' }, groups),
     actions: [{ label: 'Commencer la séance', value: true, variant: 'primary' }, { label: 'Annuler', value: null }],
   });
   if (!go) return null;
@@ -83,7 +99,7 @@ async function fitnessCheck(s) {
 
 // « Séance express (30 min) : 2 exercices retirés, séries réduites. »
 function expressText() {
-  const items = state.plan[state.active.day].items;
+  const items = activeSession().items;
   const dropped = items.filter((it) => state.active.cut?.[it.ex] === 0).length;
   const fewer = items.some((it) => state.active.cut?.[it.ex] > 0 && state.active.cut[it.ex] < it.sets);
   const parts = [dropped && `${plural(dropped, 'exercice retiré', 'exercices retirés')}`, fewer && 'séries réduites'].filter(Boolean);
@@ -125,7 +141,7 @@ export function activeMinutes(sid) {
 // Bilan : séries faites, durée d'effort, volume, exercices pas commencés.
 function sessionSummary() {
   const sid = state.active.session;
-  const s = state.plan[state.active.day];
+  const s = activeSession();
   const sets = sessionSets(sid);
   const planned = s.items.reduce((n, it) => n + effective(it, true).sets, 0); // 0 pour un exercice retiré (séance express)
   const volume = Math.round([...sets.values()].reduce((v, x) => v + (x.kg || 0) * x.reps, 0));
@@ -193,11 +209,11 @@ export async function staleSession() {
   const sid = state.active.session, last = log.findLast((x) => x.session === sid);
   if (!last || Date.now() - Date.parse(last.t) < 6 * 3600e3) return;
   staleAsked = true;
-  const s = state.plan[state.active.day], sets = sessionSets(sid).size, at = new Date(last.t);
+  const s = activeSession(), sets = sessionSets(sid).size, at = new Date(last.t);
   const yesterday = new Date(Date.now() - 864e5).toDateString();
   const day = at.toDateString() === today() ? "aujourd'hui" : at.toDateString() === yesterday ? 'hier' : DAYS[weekday(at)].toLowerCase();
   const choice = await choose({ title: 'Séance restée ouverte',
-    text: `${DAYS[s.day]} · ${s.name} : rien d'enregistré depuis ${day} à ${clock(last.t)}${sets ? `, ${plural(sets, 'série')} faite${sets > 1 ? 's' : ''}` : ', aucune série'}.`,
+    text: `${sessionTitle(s)} : rien d'enregistré depuis ${day} à ${clock(last.t)}${sets ? `, ${plural(sets, 'série')} faite${sets > 1 ? 's' : ''}` : ', aucune série'}.`,
     actions: [sets && { label: 'Enregistrer la séance', value: 'end', variant: 'primary' },
       { label: sets ? 'Abandonner sans enregistrer' : 'Abandonner', value: 'cancel', variant: 'gray destructive' },
       { label: 'Reprendre la séance', value: null }].filter(Boolean) });
@@ -211,10 +227,10 @@ export async function staleSession() {
 
 // at : heure de fin à retenir (séance restée ouverte : sa dernière saisie), sinon maintenant.
 export function closeSession(at) {
-  const s = state.plan[state.active.day];
+  const s = activeSession();
   ui.weekPick = null;
   record({ type: 'end', ...(at && { t: at }) });
-  state.ended = { t: Date.now(), title: `${DAYS[s.day]} · ${s.name}`, summary: summaryData(activeItems()) };
+  state.ended = { t: Date.now(), title: sessionTitle(s), summary: summaryData(activeItems()), ...(s.free && { free: true }) };
   cancelWarm();
   stopEar(false);
   state.active = null;
@@ -248,8 +264,10 @@ export function finishScreen() {
     records.length > 0 && h('section', { className: 'card finish-records' },
       h('div', { className: 'banner-head' }, icon('flag'), h('h2', {}, records.length > 1 ? `${records.length} records` : 'Nouveau record')),
       h('div', { className: 'stack tight' }, records.map((r) => h('p', {}, r)))),
+    // Séance libre : la semaine du programme n'avance pas, on le dit plutôt que de montrer une barre qui ne bouge pas.
+    f.free && h('p', { className: 'note' }, icon('info'), 'Séance libre : tes séries sont dans ton suivi (records, courbes, récupération), mais elle ne remplace pas une séance de ta semaine.'),
     // Séance faite en avance : c'est la semaine suivante qui avance d'un segment.
-    f.ahead ? weekProgress(plan, cards, { ...focus, nextWeek: false }, 'Semaine prochaine') : weekProgress(plan, done, focus),
+    !f.free && (f.ahead ? weekProgress(plan, cards, { ...focus, nextWeek: false }, 'Semaine prochaine') : weekProgress(plan, done, focus)),
     (f.ahead || !focus.nextWeek) && !cards.has(next.day) && h('p', { className: 'meta center' }, `Prochaine séance : ${DAYS[next.day].toLowerCase()} · ${next.name}`),
     button('Terminé', () => { ui.finished = null; show('week'); }, { variant: 'primary', size: 'large' }));
 }
@@ -257,7 +275,7 @@ export function finishScreen() {
 function pausedScreen(s) {
   const since = clock(state.active.paused);
   return h('div', { className: 'screen' },
-    h('header', { className: 'top' }, h('h1', {}, `${DAYS[s.day]} · ${s.name}`)),
+    h('header', { className: 'top' }, h('h1', {}, sessionTitle(s))),
     h('section', { className: 'card empty' }, icon('pause'), h('h2', { className: 'title' }, 'Séance en pause'),
       h('p', { className: 'meta' }, `Depuis ${since}. Le minuteur est coupé et le temps de pause ne compte pas dans la durée.`),
       sessionSummary(),
@@ -267,7 +285,7 @@ function pausedScreen(s) {
 }
 
 export function session() {
-  const s = state.plan[state.active.day];
+  const s = activeSession();
   if (state.active.paused) return pausedScreen(s);
   const list = !!state.listMode;
   const warmBanner = () => (warm ? warmCard() : banner('flame', `Échauffement · ${warmMinutes()} min`,
@@ -277,7 +295,7 @@ export function session() {
   return h('div', { className: 'screen' },
     h('header', { className: 'navbar' },
       button('Pause', pause, { variant: 'plain', icon: 'pause', className: 'btn plain start' }),
-      h('h1', {}, `${DAYS[s.day]} · ${s.name}`),
+      h('h1', {}, sessionTitle(s)),
       button('Arrêter', stopSession, { variant: 'plain', className: 'btn plain end destructive' })),
     segmented([[false, 'Une série à la fois'], [true, 'Toute la séance']], list, (v) => { state.listMode = v; ui.pick = null; save(); render(); }),
     statusBar(list),
@@ -286,13 +304,19 @@ export function session() {
     state.active.readiness === 'light' && h('p', { className: 'note' }, icon('leaf'), 'Forme basse : séance allégée, moitié moins de séries et charges −10 %. Écoute ton corps.'),
     state.active.express && h('p', { className: 'note' }, icon('timer'), expressText()),
     comeback(state.active.off) && h('p', { className: 'note' }, icon('leaf'), `Reprise après ${state.active.off} jours sans séance : charges réduites aujourd'hui, pour repartir sans te blesser.`),
-    list ? [warmBanner(), s.items.map((item, i) => effective(item, true).sets > 0 && block(item, state.active.day, i)),
-      // Fin de liste = fin de séance : le bouton est là où on en a besoin, sans remonter.
-      allDone() ? button('Enregistrer la séance', finishSession, { variant: 'primary', size: 'large', icon: 'check' }) : button('Terminer la séance', stopSession, { variant: 'primary', size: 'large' })]
+    // Séance libre encore vide : une seule chose à faire, ajouter le premier exercice.
+    !s.items.length ? h('section', { className: 'card empty' }, icon('plus'), h('h2', { className: 'title' }, 'Ajoute ton premier exercice'),
+      h('p', { className: 'meta' }, "Séries, répétitions et charge sont proposées d'après tes réglages et ton historique. La séance ne change pas ton programme."),
+      addButton('primary'))
+      : list ? [warmBanner(), activeItems().map((x) => block(x, state.active.day)), addButton(),
+        // Fin de liste = fin de séance : le bouton est là où on en a besoin, sans remonter.
+        allDone() ? button('Enregistrer la séance', finishSession, { variant: 'primary', size: 'large', icon: 'check' }) : button('Terminer la séance', stopSession, { variant: 'primary', size: 'large' })]
       : warm ? warmCard()
       : [!sessionSets(state.active.session).size && h('div', { className: 'stack' }, h('p', { className: 'note' }, icon('flame'), `Avant la première série, échauffe-toi : ${warmMinutes()} minutes guidées et minutées.`), warmButton()),
-        focusView(s, state.active.day)]);
+        focusView(s, state.active.day), addButton()]);
 }
+// Exercice en plus, pour cette séance seulement (feuille de choix : add-exercise.js).
+const addButton = (variant = 'gray') => button('Ajouter un exercice', addExercise, { variant, size: 'large', icon: 'plus' });
 
 // Contrôle segmenté iOS : options = [[valeur, libellé]]. value undefined : pas d'aria-pressed (onglets, voir tabs).
 export function segmented(options, value, onPick) {
@@ -300,7 +324,8 @@ export function segmented(options, value, onPick) {
 }
 
 // Exercices de la séance en cours, sans ceux que la séance express retire ; k = place dans le programme (douleur, Remplacer).
-export const activeItems = () => state.plan[state.active.day].items.map((item, k) => ({ ...exercise(item), k })).filter((x) => x.it.sets > 0);
+// Exercice ajouté à la volée : added true et k null (il n'a pas de place dans le programme).
+export const activeItems = () => activeSession().items.map((item, k) => ({ ...exercise(item), k: item.added ? null : k, added: !!item.added })).filter((x) => x.it.sets > 0);
 
 // Tout ce qu'il faut pour un exercice de la séance en cours : conseil du jour, historique, séries déjà faites.
 export function exercise(item) {

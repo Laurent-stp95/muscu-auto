@@ -2,7 +2,7 @@
 // Web Push (iOS 16.4+, appli installée) via push/worker.js : rappels de séance, fin du repos quand l'écran est verrouillé.
 
 import { PUSH } from './common.js';
-import { cancelled } from './plan.js';
+import { cancelled, freeSessions } from './plan.js';
 import { toast, h, icon, button } from './ui.js';
 import { state, log, save } from './store.js';
 import { render } from './router.js';
@@ -21,7 +21,9 @@ const keyBytes = (b64url) => Uint8Array.from(atob(b64url.replace(/-/g, '+').repl
 const reminderPayload = (c) => {
   const n = c.notify || NOTIFY;
   // last : dernière série enregistrée, pour le rappel de reprise après des séances manquées ; weekly : bilan du dimanche soir.
-  const last = journal().findLast((x) => x.type === 'set' && !cancelled(log).has(x.session))?.t || null;
+  // Une séance libre ne remplace pas une séance du programme : elle ne remet pas ce compte à zéro.
+  const skip = new Set([...cancelled(log), ...freeSessions(log)]);
+  const last = journal().findLast((x) => x.type === 'set' && !skip.has(x.session))?.t || null;
   return { on: n.reminders, days: c.days, time: n.time, before: n.before, sessions: Object.fromEntries((state.plan || []).map((s) => [s.day, s.name])),
     weekly: n.weekly !== false, last };
 };

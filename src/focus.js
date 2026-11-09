@@ -12,12 +12,13 @@ import { state, record, log, save } from './store.js';
 import { ui, render } from './router.js';
 import { unitText, prescriptionText } from './week.js';
 import { lazy, exerciseInfo } from './exercise-info.js';
-import { activeItems, nextItem, finishSession, nextSet, startKg, plannedReps, journal, historyOf, exercise } from './session.js';
+import { activeItems, nextItem, finishSession, nextSet, startKg, plannedReps, journal, historyOf } from './session.js';
 import { warm } from './warmup.js';
 import { startRest, initAudio, audio, tick, rest, restClock, stopRest, extendRest, fanfare } from './rest.js';
 import { speak } from './coach.js';
 import { micOpen } from './voice.js';
 import { cameraKind, cameraCoach } from './camera.js';
+import { removeButton } from './add-exercise.js';
 import { broadcast, announce, projected } from './screen.js';
 
 const LOAD_CAPTION = { smith: 'kg au total', halteres: 'kg par haltère', kettlebell: 'kg', elastique: "kg d'élastique" };
@@ -49,7 +50,8 @@ export function focusView(s, d) {
     n ? setPanel(x, n, i, items.length)
       : [h('p', { className: 'note' }, icon('checkCircle'), "Exercice terminé. Comment ça s'est passé ?"), ...feedback(e, d, x.k),
         button(i + 1 < items.length ? 'Exercice suivant' : 'Voir le bilan', () => move(i + 1), { variant: 'primary', size: 'large' })],
-    lazy('more', h('summary', {}, "Voir l'exercice et les consignes", icon('chevron', 'chev')), () => exerciseInfo(e)));
+    lazy('more', h('summary', {}, "Voir l'exercice et les consignes", icon('chevron', 'chev')), () => exerciseInfo(e)),
+    removeButton(x));
 }
 
 // Série à faire : répétitions et charge en − / +, disques à monter, puis un seul geste pour valider.
@@ -271,8 +273,8 @@ export function setSpeech(e, kg, reps) {
   return `${what} à ${kg.toLocaleString('fr-FR')} kilos${{ halteres: ' par haltère', elastique: " d'élastique" }[e.load] || ''}`;
 }
 
-export function block(item, d, i) {
-  const x = exercise(item);
+// x = un exercice de activeItems().
+export function block(x, d) {
   const { e, it, tip, done } = x;
   const side = e.load === 'smith' && tip.kg != null ? plates(tip.kg, state.config.loads) : null;
   const approach = warmup(e, tip.kg, state.config.loads);
@@ -289,7 +291,8 @@ export function block(item, d, i) {
       h('span', { className: 'caption head n' }, 'Série'), h('span', { className: 'caption head' }, LOAD_HEAD[e.load]), h('span', { className: 'caption head' }, e.unit === 's' ? 'Secondes' : 'Répét.'), h('span'),
       Array.from({ length: it.sets }, (_, n) => setRow(x, n + 1, done.get(n + 1), { ...tip, kg: [...done.values()].at(-1)?.kg ?? tip.kg }))),
     hint,
-    ...feedback(e, d, i));
+    ...feedback(e, d, x.k),
+    removeButton(x));
 }
 
 // « 0 série », « 1 série », « 2 séries » : en français, 0 et 1 restent au singulier.
@@ -342,9 +345,19 @@ export async function onFeel(e, value, d, i, buttons) {
   record({ type: 'feel', ex: e.id, feel: value });
   buttons.forEach((b) => { b.ariaPressed = String(b.dataset.feel === value); });
   if (value !== 'pain') return;
+  const item = d != null && i != null ? state.plan[d]?.items[i] : null;
   if (!await ask({ title: 'Douleur notée', text: "Bien de l'avoir signalé. Pour les prochaines séances : écarter cet exercice et le remplacer (tu pourras le réintégrer dans Réglages), ou le garder avec une charge réduite. Si la douleur persiste, consulte un professionnel de santé.",
-    confirm: 'Écarter et remplacer', cancel: 'Garder, charge réduite' })) return;
-  const item = state.plan[d].items[i];
+    confirm: item?.ex === e.id ? 'Écarter et remplacer' : 'Écarter', cancel: 'Garder, charge réduite' })) return;
+  // Exercice ajouté à la volée ou séance libre (pas de place dans le programme) : écarté pour la suite, et remplacé partout où
+  // le programme le prévoit un autre jour.
+  if (item?.ex !== e.id) {
+    const before = { avoid: state.config.avoid, plan: structuredClone(state.plan) };
+    state.config.avoid = [...state.config.avoid, e.id];
+    repair(EXOS, state.plan, state.config);
+    toast(`Exercice écarté : ${e.name}`, 'info', () => { state.config.avoid = before.avoid; state.plan = before.plan; save(); render(); });
+    save();
+    return render();
+  }
   const before = { ...item };
   state.config.avoid = [...state.config.avoid, e.id];
   if (!swap(EXOS, state.plan, state.config, d, i)) toast("Aucun exercice de remplacement : saute-le aujourd'hui.", 'warning');

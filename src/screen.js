@@ -11,7 +11,7 @@ import { toast, chip, h, choose, button } from './ui.js';
 import { state, onSave, save } from './store.js';
 import { ui, render } from './router.js';
 import { weekFrame } from './week.js';
-import { activeItems, nextItem, nextSet, activeMinutes, sessionSets, startKg, plannedReps } from './session.js';
+import { activeItems, nextItem, nextSet, activeMinutes, sessionSets, startKg, plannedReps, activeSession, sessionTitle } from './session.js';
 import { warm } from './warmup.js';
 import { focusTarget, barPlan, setText, kgText, clock } from './focus.js';
 import { rest, restEnd, restTotal, restSay } from './rest.js';
@@ -251,16 +251,18 @@ function live() {
     const s = state.plan[index];
     return { ...base, phase: 'idle', title: `${DAYS[s.day]} · ${s.name}`, upcoming: preview(s, nextWeek) };
   }
-  const s = state.plan[state.active.day];
+  const s = activeSession();
   const sid = state.active.session;
   const items = activeItems();
+  // Séance libre encore vide : rien à afficher qu'une invitation (une séance sans exercice n'est pas « terminée »).
+  if (!s.items.length && !state.active.paused) return { ...base, phase: 'idle', title: sessionTitle(s), upcoming: { when: 'Séance libre', items: [{ name: "Ajoute ton premier exercice depuis l'iPhone", detail: '' }], gear: [] } };
   let i = Math.min(state.listMode ? nextItem(items) : ui.at ?? nextItem(items), items.length);
   // Exercice fini (l'iPhone demande le ressenti) : l'écran montre déjà le suivant, à préparer pendant le repos.
   if (i < items.length && nextSet(items[i]) == null) {
     const k = items.findIndex((y, j) => j > i && nextSet(y) != null);
     i = k < 0 ? nextItem(items) : k;
   }
-  const title = `${DAYS[s.day]} · ${s.name}`;
+  const title = sessionTitle(s);
   const progress = { ex: Math.min(i + 1, items.length), exCount: items.length, sets: items.reduce((n, x) => n + x.done.size, 0),
     setCount: items.reduce((n, x) => n + x.it.sets, 0), minutes: activeMinutes(sid) };
   const say = link.lastSay && Date.now() - link.lastSay.t < 10000 ? { id: link.lastSay.id, text: link.lastSay.text } : null;

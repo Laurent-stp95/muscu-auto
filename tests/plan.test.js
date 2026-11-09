@@ -249,3 +249,73 @@ test('Récupération : 6 séries de squat juste faites = quadriceps à 0 %, 80 %
   assert.deepStrictEqual(P.recovery(fresh6, EXOS, at(6 * 24)), {});
   assert.strictEqual(P.recovery([...fresh6, { t: '2026-11-10T18:30:00Z', type: 'cancel', session: 'r' }], EXOS, at(1))[10], undefined);
 });
+
+// --- Séance libre et exercice ajouté à la volée ---
+test('Exercice ajouté : dose du programme (accessoire au-delà des 2 premiers, dose principale réservée aux mouvements principaux, gainage en secondes)', () => {
+  const lateral = P.extraItem(EXOS, gym, 348, 5);
+  assert.deepStrictEqual(lateral, { slot: 'shoulders', ex: 348, sets: 3, reps: '10-12', rest: 60, added: true });
+  assert.deepStrictEqual(P.extraItem(EXOS, gym, 1747, 0), { slot: 'quad', ex: 1747, sets: 4, reps: '8-10', rest: 90, added: true }); // 1er d'une séance libre
+  assert.strictEqual(P.extraItem(EXOS, gym, curl.id, 0).rest, 60); // un curl en premier reste un accessoire
+  assert.strictEqual(P.extraItem(EXOS, gym, 348, 1).sets, 3);
+  assert.strictEqual(P.extraItem(EXOS, gym, 1747, 2).sets, 3); // 3e de la séance : dose d'accessoire, comme au programme
+  assert.strictEqual(P.extraItem(EXOS, { ...gym, level: 'debutant' }, 348, 5).sets, 2);
+  assert.strictEqual(P.extraItem(EXOS, { ...gym, goal: 'force' }, 1747, 1).reps, '5');
+  assert.strictEqual(P.extraItem(EXOS, gym, 458, 3).reps, P.HOLD);
+  assert.strictEqual(P.extraItem(EXOS, gym, -1, 0), null);
+  // Charge conseillée : l'historique compte, d'où qu'il vienne.
+  const sess = sessions(), log = [...sess(squat, 59, [10, 10, 10, 10]), ...sess(squat, 59, [10, 10, 10, 10]), ...sess(squat, 59, [10, 10, 10, 10])];
+  assert.strictEqual(P.suggest(squat, P.extraItem(EXOS, gym, squat.id, 0), exerciseHistory(log, squat.id), { loads: LOADS }).kg, 61.5);
+});
+
+test('Exercices proposés à l\'ajout : matériel, zones fragiles et exercices écartés respectés, groupés par zone, sans ceux de la séance', () => {
+  const groups = P.addable(EXOS, { ...gym, zones: ['knees'], avoid: [348] }, [1747]);
+  const all = groups.flatMap((g) => g.list);
+  assert.deepStrictEqual(groups.map((g) => g.zone), ['quad', 'hinge', 'chest', 'back', 'shoulders', 'biceps', 'triceps', 'calves', 'abs']);
+  assert.ok(groups.every((g) => g.label && g.list.every((e) => e.zone === g.zone)));
+  assert.ok(!all.some((e) => e.id === 1747 || e.id === 348 || (e.risk || []).includes('knees')));
+  assert.strictEqual(new Set(all.map((e) => e.id)).size, all.length);
+  const bw = P.addable(EXOS, { ...gym, equipment: [] }).flatMap((g) => g.list);
+  assert.ok(bw.length > 0 && bw.every((e) => e.eq.every((q) => q === 'pdc')));
+  assert.ok(!P.addable(EXOS, { ...gym, equipment: [] }).some((g) => g.zone === 'hinge')); // zone sans exercice faisable : pas de groupe vide
+});
+
+test('Séance libre : ses séries comptent (historique, records, récupération, reprise), pas la semaine du programme', () => {
+  const now = new Date(), t = (min) => new Date(now.getTime() - min * 60000).toISOString(), week = P.monday(now).toISOString();
+  const old = [ // séance du programme d'avant : format inchangé (ni free, ni extra)
+    { t: '2026-01-05T10:00:00.000Z', type: 'start', session: 'old', day: 0, name: 'Full body' },
+    { t: '2026-01-05T10:05:00.000Z', type: 'set', session: 'old', ex: 1747, set: 1, kg: 50, reps: 8 },
+    { t: '2026-01-05T10:30:00.000Z', type: 'end', session: 'old' }];
+  const free = [
+    { t: t(30), type: 'start', session: 'free', name: 'Séance libre', free: true },
+    { t: t(29), type: 'set', session: 'free', ex: 1747, set: 1, kg: 55, reps: 8, pr: 'kg' },
+    { t: t(28), type: 'set', session: 'free', ex: 1747, set: 2, kg: 55, reps: 8 },
+    { t: t(20), type: 'end', session: 'free' }];
+  const log = [...old, ...free];
+  assert.deepStrictEqual([...P.freeSessions(log)], ['free']);
+  assert.strictEqual(P.sessionsDone(log, week).size, 0); // la semaine du programme n'avance pas
+  assert.deepStrictEqual(exerciseHistory(log, 1747).map((s) => [s.session, s.sets.length]), [['old', 1], ['free', 2]]);
+  assert.strictEqual(P.recordKind(exerciseHistory(log, 1747), 'next', { kg: 55, reps: 9 }), 'reps'); // le record à battre est celui de la séance libre
+  assert.strictEqual(P.daysOff(log, now.getTime()), 0);
+  assert.ok(P.recovery(log, EXOS, now.getTime())[10] < 100); // quadriceps fatigués
+  // La même séance, lancée depuis le programme (day), compte pour la semaine ; avec un exercice ajouté aussi.
+  const program = free.map((x) => (x.type === 'start' ? { t: x.t, type: 'start', session: 'free', day: 2, name: 'Full body' } : x));
+  const done = P.sessionsDone([...old, ...program, { t: t(27), type: 'set', session: 'free', ex: 348, set: 1, kg: 10, reps: 12 }], week);
+  assert.deepStrictEqual([...done.keys()], [2]);
+  assert.strictEqual(done.get(2).sets, 3);
+  assert.strictEqual(P.sessionsDone(old, P.monday(new Date('2026-01-05T10:00:00.000Z')).toISOString()).get(0).sets, 1); // vieille entrée : toujours lue
+});
+
+test('Semaine du programme : séance abandonnée, vide, réinitialisée ou d\'une autre semaine non comptée ; faite en avance comptée pour la suivante', () => {
+  const now = new Date(), t = (min) => new Date(now.getTime() - min * 60000).toISOString(), week = P.monday(now).toISOString();
+  const next = P.monday(new Date(now.getTime() + 7 * 864e5)).toISOString();
+  const one = (id, day, extra = {}) => [{ t: t(10), type: 'start', session: id, day, name: 'x', ...extra }, { t: t(9), type: 'set', session: id, ex: 92, set: 1, kg: 10, reps: 10 }, { t: t(8), type: 'end', session: id }];
+  assert.deepStrictEqual([...P.sessionsDone(one('a', 1), week).keys()], [1]);
+  assert.strictEqual(P.sessionsDone([...one('a', 1), { t: t(7), type: 'cancel', session: 'a' }], week).size, 0);
+  assert.strictEqual(P.sessionsDone(one('a', 1).filter((x) => x.type !== 'set'), week).size, 0);
+  assert.strictEqual(P.sessionsDone(one('a', 1).filter((x) => x.type !== 'end'), week).size, 0); // encore en cours
+  assert.strictEqual(P.sessionsDone([...one('a', 1), { t: t(7), type: 'session-reset', target: 'a' }], week).size, 0);
+  assert.strictEqual(P.sessionsDone([...one('a', 1), { t: t(7), type: 'session-reset', target: 'a' }, { t: t(6), type: 'session-restore', target: 'a' }], week).size, 1);
+  assert.strictEqual(P.sessionsDone([...one('a', 1), { t: t(1), type: 'week-reset' }], week).size, 0);
+  assert.strictEqual(P.sessionsDone(one('a', 1, { week: next }), week).size, 0);
+  assert.strictEqual(P.sessionsDone(one('a', 1, { week: next }), next).size, 1);
+});

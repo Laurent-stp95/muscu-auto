@@ -17,7 +17,8 @@ src/                                      l'appli, en modules ES
   config.js                               configuration personnelle (matériel et réglages proposés au premier lancement)
   labels.js, constants.js                 libellés (labels.js sert aussi au serveur push/), constantes, exercices par identifiant
   ui.js, store.js, router.js              composants, données (state, journal, localStorage), navigation
-  onboarding.js, settings.js, week.js, exercise-info.js, session.js, warmup.js, focus.js, rest.js, coach.js, progress.js, update.js
+  onboarding.js, settings.js, week.js, exercise-info.js, session.js, add-exercise.js, warmup.js, focus.js, rest.js, coach.js,
+  progress.js, update.js
                                           un fichier par écran ou domaine
   voice.js, camera.js, screen.js, push.js, backup.js
                                           micro, caméra qui compte, écran projeté, notifications, sauvegarde
@@ -39,6 +40,7 @@ push/                                     serveur Cloudflare (notifications, sau
 ```
 
 - Modules : les fichiers de `src/` s'importent en rond (un écran en appelle un autre). Au premier niveau d'un fichier, hors fonctions, n'utiliser que `ui.js`, `store.js`, `constants.js`, `labels.js`, `config.js`, `common.js` et `plan.js`, qui n'importent aucun écran. Une variable `let` exportée ne se réaffecte que dans son module (`setLog`, `setUi`…).
+- Séance en cours : `state.active` ; les écrans la lisent par `activeSession()` (src/session.js), jamais par `state.plan[state.active.day]` : une séance libre n'a pas de jour (`day` null, `free`), et un exercice ajouté à la volée (`extra`) ne vaut que pour la séance. Le journal est en ajout seul : de nouveaux champs facultatifs (`free` sur l'entrée `start`), jamais de changement de format.
 - Nouveau fichier dans `src/`, `common/` ou `styles/` : l'ajouter à `common/files.js`, sinon un test échoue.
 - `data/extract.py` reconstruit `data/data.js` et `img/` depuis `data/liste.json` et les données wger (`python3 data/extract.py [clone wger]`).
 - `tv/` : un petit chargeur dans `tv/index.html` revalide chaque fichier auprès du serveur à l'ouverture, plus de `?v=` à changer à la main.

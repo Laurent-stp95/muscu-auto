@@ -2,16 +2,16 @@
 
 import { FRONT, EXOS } from './common.js';
 import {
-  cycleWeek, monday, cancelled, sessionMinutes, isBodyweight, kgLabel, CYCLE_WEEKS, recovery, swap, generate, renew,
+  cycleWeek, monday, sessionsDone, sessionMinutes, isBodyweight, kgLabel, CYCLE_WEEKS, recovery, swap, generate, renew,
 } from './plan.js';
-import { DAYS, plural } from './labels.js';
+import { DAYS, FREE_SESSION, plural } from './labels.js';
 import { MUSCLES, byId, BACKUP_DAYS } from './constants.js';
 import { h, icon, button, choose, ask, toast } from './ui.js';
 import { state, log, record, save, setLog } from './store.js';
 import { ui, today, render, show } from './router.js';
 import { openSettings } from './settings.js';
 import { lazy, exerciseInfo } from './exercise-info.js';
-import { sessionSets, historyOf, activeMinutes, start, stopSession, journal, closeSession } from './session.js';
+import { sessionSets, historyOf, activeMinutes, start, stopSession, journal, closeSession, activeSession } from './session.js';
 import { cancelWarm } from './warmup.js';
 import { clock, setText } from './focus.js';
 import { stopRest } from './rest.js';
@@ -33,7 +33,7 @@ export const effective = (item, live = false) => {
 export const prescriptionText = (e, item) => `${item.sets} × ${item.reps}${e.unit === 's' ? ' s' : ''} · repos ${restText(item.rest)}`;
 export const muscles = (e) => e.mus.map((m) => MUSCLES[m]).join(', ');
 const daysAgo = (iso) => Math.floor((Date.now() - Date.parse(iso)) / 864e5);
-const freshCycle = () => !log.some((x) => x.type === 'start' && x.t >= state.cycle.start);
+const freshCycle = () => !log.some((x) => x.type === 'start' && !x.free && x.t >= state.cycle.start); // une séance libre n'entame pas le cycle
 
 export function banner(name, title, ...content) {
   return h('section', { className: 'card' }, h('div', { className: 'banner-head' }, icon(name), h('h2', {}, title)), ...content);
@@ -41,38 +41,13 @@ export function banner(name, title, ...content) {
 
 export const weekday = (date = new Date()) => (date.getDay() + 6) % 7; // 0 = lundi
 
-// Séances faites cette semaine (ahead : la semaine suivante), par jour : { t, sets, session }. Une séance abandonnée, vide
-// ou réinitialisée ne compte pas. Une séance compte pour la semaine de son début, ou pour celle notée au départ (week :
-// séance faite en avance, quand plus rien n'était prévu d'ici dimanche).
-const weekOf = (x) => x.week || monday(new Date(x.t)).toISOString();
-export function doneThisWeek(ahead = false) {
-  // « Réinitialiser la semaine » : les séances d'avant la réinitialisation ne comptent plus pour la semaine (le suivi les garde).
-  const reset = log.findLast((x) => x.type === 'week-reset')?.t || '';
-  const week = monday(new Date(Date.now() + (ahead ? 7 * 864e5 : 0))).toISOString();
-  const skip = cancelled(log), undone = sessionResets();
-  const ended = new Set(log.filter((x) => x.type === 'end').map((x) => x.session));
-  const done = new Map();
-  for (const x of log) {
-    if (x.type !== 'start' || x.t < reset || weekOf(x) !== week || !ended.has(x.session) || skip.has(x.session) || undone.has(x.session)) continue;
-    const sets = sessionSets(x.session).size;
-    if (sets) done.set(x.day, { t: x.t, sets, session: x.session });
-  }
-  return done;
-}
-// Séances remises à faire une à une (journal en ajout seul : la dernière saisie pour une séance fait foi).
-function sessionResets() {
-  const out = new Set();
-  for (const x of log) {
-    if (x.type === 'session-reset') out.add(x.target);
-    if (x.type === 'session-restore') out.delete(x.target);
-  }
-  return out;
-}
+// Séances du programme faites cette semaine (ahead : la semaine suivante), par jour : { t, sets, session } (sessionsDone, plan/journal.js).
+export const doneThisWeek = (ahead = false) => sessionsDone(log, monday(new Date(Date.now() + (ahead ? 7 * 864e5 : 0))).toISOString());
 
 // Séance mise en avant : celle en cours, sinon la première pas faite à partir d'aujourd'hui,
 // sinon (plus rien cette semaine) la première de la semaine suivante.
 function focusOf(plan, done) {
-  if (state.active) return { index: state.active.day, nextWeek: false };
+  if (state.active && !state.active.free && plan[state.active.day]) return { index: state.active.day, nextWeek: false }; // séance libre : la semaine suit son cours
   const index = plan.findIndex((s) => s.day >= weekday() && !done.has(s.day));
   return index >= 0 ? { index, nextWeek: false } : { index: 0, nextWeek: true };
 }
@@ -195,6 +170,7 @@ export function week() {
       button('Lancer le nouveau cycle', newCycle, { variant: 'primary' })),
     deload && banner('leaf', 'Semaine allégée',
       h('p', {}, 'Moitié moins de séries et charges baissées de 10 %. Ce repos fait partie de la progression : il évite la fatigue qui mène aux blessures.')),
+    state.active?.free && freeCard(),
     weekStrip(plan, done, cards, focus, sel),
     dayCard(plan[sel], sel, true, cards, focus.nextWeek && sel === focus.index, weekDate(focus, plan[sel].day)),
     recoveryCard(plan, cards, focus),
@@ -204,7 +180,24 @@ export function week() {
       h('span', { className: 'stack tight' }, h('strong', {}, 'Sauvegarde ton journal'),
         h('span', { className: 'caption' }, copied ? `Dernière copie il y a ${plural(daysAgo(copied), 'jour')}` : "Ton suivi n'existe que sur cet iPhone")),
       icon('chevron', 'chev')),
+    // Hors programme : une séance libre, où l'on ajoute ses exercices un à un. Elle ne compte pas dans la semaine.
+    !state.active?.free && h('button', { type: 'button', className: 'card notice', onclick: () => start(null) },
+      h('span', { className: 'notice-icon' }, icon('plus')),
+      h('span', { className: 'stack tight' }, h('strong', {}, FREE_SESSION),
+        h('span', { className: 'caption' }, 'Hors programme : choisis tes exercices un à un')),
+      icon('chevron', 'chev')),
     (canResetWeek(done) || canReroll()) && h('div', { className: 'center' }, button('Options de la semaine', weekOptions, { variant: 'plain' })));
+}
+
+// Séance libre en cours : reprise et arrêt depuis Ma semaine, comme pour une séance du programme.
+function freeCard() {
+  const s = activeSession(), sets = sessionSets(state.active.session).size;
+  return h('section', { className: 'card' },
+    h('div', { className: 'session-head' },
+      h('div', { className: 'stack tight' }, h('h2', { className: 'title' }, s.name),
+        h('span', { className: 'meta' }, `${plural(s.items.length, 'exercice')} · ${plural(sets, 'série faite', 'séries faites')}`)),
+      h('span', { className: 'badge' }, state.active.paused ? 'En pause' : 'En cours')),
+    h('div', { className: 'stack' }, button('Reprendre la séance', () => start(null), { variant: 'primary', size: 'large', icon: 'play' }), button('Arrêter', stopSession, { variant: 'plain', className: 'btn plain destructive' })));
 }
 
 // Remise à zéro et autre variante : rares, rangées dans une feuille plutôt qu'en grands boutons sous les séances.

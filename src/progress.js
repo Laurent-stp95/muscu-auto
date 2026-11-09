@@ -2,8 +2,9 @@
 
 import {
   cancelled, monday, isBodyweight, PUSH_ZONES, PULL_ZONES, ZONES, suggest, learned, comeback, daysOff, project, kgLabel, LEVELS,
-  gearList,
+  gearList, extraItem,
 } from './plan.js';
+import { EXOS } from './common.js';
 import { DAYS, plural } from './labels.js';
 import { byId } from './constants.js';
 import { h, icon, button } from './ui.js';
@@ -156,7 +157,8 @@ function techniqueBlock(e) {
 }
 
 export function tipFor(e, past) {
-  const item = state.plan.flatMap((s) => s.items).find((it) => it.ex === e.id);
+  // Hors programme (séance libre, exercice ajouté à la volée) : la dose qu'il aurait s'il était ajouté aujourd'hui.
+  const item = state.plan.flatMap((s) => s.items).find((it) => it.ex === e.id) || extraItem(EXOS, state.config, e.id, 2);
   return item && suggest(e, effective(item), past, { loads: state.config.loads, learned: learned(log, e.id, past), deload: cycle().deload, comeback: comeback(daysOff(journal())) });
 }
 

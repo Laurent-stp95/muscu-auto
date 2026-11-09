@@ -280,6 +280,17 @@ body.projecting .screen-btn { color: var(--ok-ink); }
 dialog.sheet { width: min(100% - 2 * var(--s2), 560px); max-height: calc(100dvh - 2 * var(--s6)); margin: auto auto calc(var(--s2) + env(safe-area-inset-bottom)); padding: var(--s5) var(--s4) var(--s4); border: 0; border-radius: var(--r-l); background: var(--card); color: var(--fg); box-shadow: var(--shadow); }
 dialog.sheet::backdrop { background: rgb(0 0 0 / .4); }
 .sheet-body { display: grid; gap: var(--s4); }
+/* Feuille « Ajouter un exercice » : recherche et zones fixes, la liste défile */
+dialog.sheet.picker { overflow: hidden; }
+dialog.sheet.picker .sheet-body { grid-template-rows: auto auto auto minmax(0, 1fr) auto; height: min(640px, 100dvh - 2 * var(--s6) - var(--s5) - var(--s4)); }
+.picker-list { display: grid; align-content: start; gap: var(--s4); overflow-y: auto; overscroll-behavior: contain; }
+.chips.scroll { flex-wrap: nowrap; margin: 0 calc(-1 * var(--s4)); padding: 0 var(--s4); overflow-x: auto; scrollbar-width: none; }
+.chips.scroll::-webkit-scrollbar { display: none; }
+.chips.scroll .chip { flex: none; }
+.line.pick { width: 100%; border-width: 0; border-top-width: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.list > .line.pick + .line.pick { border-top: 1px solid var(--line); }
+.line.pick:active { opacity: .55; }
+.line.pick .chev { flex: none; color: var(--accent-ink); }
 
 /* Onboarding : retour en haut, bouton principal collé en bas */
 .ob { display: flex; flex-direction: column; gap: var(--s5); min-height: calc(100dvh - var(--s4) - env(safe-area-inset-top)); }

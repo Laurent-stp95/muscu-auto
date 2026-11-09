@@ -1,8 +1,8 @@
 // Sauvegarde et export du journal : fichier JSON, CSV, texte pour Claude, sauvegarde automatique sur le serveur et restauration.
 
 import { PUSH, EXOS } from './common.js';
-import { cancelled, LEVELS, GOALS, TAGS, ZONES, generate, monday } from './plan.js';
-import { DAYS, plural } from './labels.js';
+import { cancelled, freeSessions, LEVELS, GOALS, TAGS, ZONES, generate, monday } from './plan.js';
+import { DAYS, FREE_SESSION, plural } from './labels.js';
 import { byId, FEELS } from './constants.js';
 import { h, toast, ask, button, choose } from './ui.js';
 import { state, log, save, setLog } from './store.js';
@@ -42,7 +42,8 @@ export async function backup() {
 
 export function exportCsv() {
   const dayOf = new Map(log.filter((x) => x.type === 'start').map((x) => [x.session, x.day]));
-  const cols = [['horodatage', (x) => x.t], ['type', (x) => x.type], ['seance', (x) => x.session], ['jour', (x) => DAYS[x.day ?? dayOf.get(x.session)]],
+  const free = freeSessions(log); // séance libre : pas de jour du programme, la colonne le dit
+  const cols = [['horodatage', (x) => x.t], ['type', (x) => x.type], ['seance', (x) => x.session], ['jour', (x) => (free.has(x.session) ? FREE_SESSION : DAYS[x.day ?? dayOf.get(x.session)])],
     ['exercice_id', (x) => x.ex], ['exercice', (x) => byId.get(x.ex)?.name], ['serie', (x) => x.set], ['kg', (x) => x.kg],
     ['repetitions', (x) => x.reps], ['mode', (x) => x.mode], ['technique_ok', (x) => x.ok], ['ressenti', (x) => x.feel]];
   const cell = (v) => `"${String(v ?? '').replaceAll('"', '""')}"`;

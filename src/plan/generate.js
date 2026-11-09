@@ -43,6 +43,23 @@ function prescription(goal, level, index, e) {
   return { sets: Math.max(2, sets + LEVELS[level].sets), reps: e.unit === 's' ? HOLD : reps, rest };
 }
 
+// Exercice ajouté à la volée (séance du programme en cours, ou séance libre) : même dose qu'au programme. index = sa place dans
+// la séance ; les 2 premiers ne prennent la dose des mouvements principaux que s'ils en sont (marqués main).
+// Retourne { slot, ex, sets, reps, rest, added: true }, null si l'exercice n'existe pas.
+export function extraItem(exos, config, exId, index) {
+  const e = exos.find((x) => x.id === exId);
+  if (!e) return null;
+  const heavy = index < 2 && !!e.main;
+  return { slot: e.zone, ex: e.id, ...prescription(config.goal, config.level, heavy ? 0 : 2, e), added: true };
+}
+// Exercices proposés à l'ajout : faisables (matériel, charges, zones fragiles, exercices écartés), hors ceux déjà dans la séance
+// (present = identifiants), groupés par zone dans l'ordre des créneaux. Retourne [{ zone, label, list: [exercice] }].
+export function addable(exos, config, present = []) {
+  const pool = available(exos, config).filter((e) => !present.includes(e.id));
+  return Object.entries(SLOTS).filter(([, slot]) => slot.zones.length === 1)
+    .map(([zone, slot]) => ({ zone, label: slot.label, list: pool.filter((e) => e.zone === zone) })).filter((g) => g.list.length);
+}
+
 export const backToBack = (days) => days.some((d) => days.includes((d + 1) % 7));
 export const exerciseCount = (minutes) => Math.min(7, Math.max(4, Math.round(minutes / 15) + 2));
 
