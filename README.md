@@ -10,11 +10,12 @@ L'appli est en modules ES (`import` / `export`), sans étape de build : `index.h
 
 - `index.html`, `sw.js` (service worker : sa portée impose la racine), `manifest.webmanifest` : restent à la racine.
 - `src/` : l'appli (modules ES). `common.js` : pont vers les scripts classiques ; `plan.js` : génération des séances et règles de progression ; interface découpée par écran (`ui.js` composants, `store.js` données, `router.js` navigation, `onboarding.js`, `settings.js`, `week.js`, `exercise-info.js`, `session.js`, `warmup.js`, `focus.js`, `rest.js`, `coach.js`, `progress.js`, `update.js`) ; `voice.js`, `camera.js`, `screen.js`, `push.js`, `backup.js` : micro, caméra qui compte, écran projeté, notifications, sauvegarde ; `main.js` : démarrage.
+- `styles/` : `tokens.css` (jetons du système de design) et `app.css`, sortis d'`index.html`.
 - `common/` : code commun à l'appli, à la page TV et au service worker. `files.js` (liste unique des fichiers de l'appli : précache, détection de nouvelle version, « Mettre à jour » ; un test échoue si elle diverge de ce que charge `index.html`), `shared.js` (ES2018, lu par les TV), `push-config.js` (adresse du serveur).
 - `data/` : `liste.json` (les exercices retenus : nom français, zone, matériel, consignes), `descriptions-fr.json`, `extract.py` (reconstruit `data/data.js` et `img/` depuis `liste.json` et les données wger), `data.js` (généré, ne pas éditer).
 - `img/`, `muscles/` : images des exercices et schémas des muscles (chemins inscrits dans `data.js`) ; `assets/` : icônes.
 - `tests/` : tests de l'appli.
-- `tv/` : écran projeté (TV, ordinateur), piloté par l'iPhone ; `push/` : serveur Cloudflare (notifications, sauvegarde, relais de l'écran). Tests du relais : `node push/screen-test.mjs <url du serveur>`.
+- `tv/` : écran projeté (TV, ordinateur), piloté par l'iPhone (`index.html`, `tv.js`, `tv.css` : scripts classiques ES2018, jamais mis en cache par le service worker) ; `push/` : serveur Cloudflare (notifications, sauvegarde, relais de l'écran). Tests du relais : `node push/screen-test.mjs <url du serveur>`.
 
 ## Sources et licences
 

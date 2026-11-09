@@ -1,4 +1,4 @@
-// Composants communs : toute l'appli passe par eux, les états et tailles sont définis une fois (index.html).
+// Composants communs : toute l'appli passe par eux, les états et tailles sont définis une fois (styles/tokens.css, styles/app.css).
 export function h(tag, props = {}, ...kids) {
   const node = Object.assign(document.createElement(tag), props);
   node.append(...kids.flat(Infinity).filter((k) => k != null && k !== false && k !== ''));

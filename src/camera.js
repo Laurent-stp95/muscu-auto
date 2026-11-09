@@ -69,7 +69,7 @@ export async function cameraCoach(f) {
   if (closed) return stream.getTracks().forEach((track) => track.stop());
   video.srcObject = stream;
   await video.play().catch(() => {});
-  // Image en paysage : rognée seulement si l'iPhone est tenu en portrait (.cam-view.wide, index.html). Recalculé quand l'iPhone tourne.
+  // Image en paysage : rognée seulement si l'iPhone est tenu en portrait (.cam-view.wide, styles/app.css). Recalculé quand l'iPhone tourne.
   const fit = () => video.parentElement.classList.toggle('wide', video.videoWidth > video.videoHeight);
   fit();
   video.addEventListener('resize', fit);
