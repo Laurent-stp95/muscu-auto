@@ -15,7 +15,7 @@ L'appli est en modules ES (`import` / `export`), sans étape de build : `index.h
 - `data/` : `liste.json` (les exercices retenus : nom français, zone, matériel, consignes), `descriptions-fr.json`, `extract.py` (reconstruit `data/data.js` et `img/` depuis `liste.json` et les données wger), `data.js` (généré, ne pas éditer).
 - `img/`, `muscles/` : images des exercices et schémas des muscles (chemins inscrits dans `data.js`) ; `assets/` : icônes.
 - `tests/` : tests de l'appli, en cas nommés (`node:test`) : `plan.test.js` (programme, progression), `shared.test.js` (caméra qui compte, voix), `structure.test.js` (liste des fichiers, scripts classiques), `helpers.js` (jeux d'essai).
-- `tv/` : écran projeté (TV, ordinateur), piloté par l'iPhone (`index.html`, `tv.js`, `tv.css` : scripts classiques ES2018, jamais mis en cache par le service worker) ; `push/` : serveur Cloudflare (notifications, sauvegarde, relais de l'écran). Tests du relais : `node push/screen-test.mjs <url du serveur>`.
+- `tv/` : écran projeté (TV, ordinateur), piloté par l'iPhone (`index.html`, `tv.js`, `tv.css` : scripts classiques ES2018, jamais mis en cache par le service worker ; un petit chargeur dans `tv/index.html` revalide chaque fichier auprès du serveur à l'ouverture, plus de `?v=` à changer à la main) ; `push/` : serveur Cloudflare (notifications, sauvegarde, relais de l'écran). Tests du relais : `node push/screen-test.mjs <url du serveur>`.
 
 ## Sources et licences
 

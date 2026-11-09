@@ -1,7 +1,7 @@
 // Écran projeté (TV, ordinateur) : affiche la séance envoyée par l'iPhone, qui reste la source de vérité.
 // Relais WebSocket du serveur (push/worker.js, objet Screen). L'écran tient seul le chrono du repos : il sonne et annonce
 // même si l'iPhone se verrouille et coupe la connexion. Navigateurs de TV (Chromium 68+) : ES2018 au plus
-// (pas de ?., ??, flat, Object.fromEntries, replaceChildren, catch sans variable). Code commun avec l'appli : ../shared.js.
+// (pas de ?., ??, flat, Object.fromEntries, replaceChildren, catch sans variable). Code commun avec l'appli : ../common/shared.js. Chargé par le chargeur de index.html.
 //
 // Instantané reçu (snapshot, version 1), construit par live() dans screen.js (phase 'stopped' seule : projection arrêtée sur l'iPhone) :
 // { v: 1, at: Date.now() du téléphone à l'envoi, phase: 'idle'|'work'|'rest'|'paused'|'done'|'stopped', title, voice: bool,

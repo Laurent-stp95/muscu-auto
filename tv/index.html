@@ -6,7 +6,11 @@
 <meta name="theme-color" content="#000000">
 <title>Steady · Écran</title>
 <link rel="icon" href="../assets/icon-192.png">
-<link rel="stylesheet" href="tv.css">
+<style>
+  /* Rien n'est affiché tant que tv.css n'est pas arrivé (chargeur en bas de page). */
+  html { background: #000; }
+  body { visibility: hidden; }
+</style>
 </head>
 <body>
 <button id="sound" class="sound" type="button">
@@ -127,8 +131,33 @@
   <svg class="icon exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
 </button>
 
-<script src="../common/push-config.js"></script>
-<script src="../common/shared.js?v=6"></script> <!-- v à changer avec shared.js -->
-<script src="tv.js?v=20"></script> <!-- v à changer avec tv.js -->
+<script>
+  // Chargeur, à la place des « ?v= » à changer à la main : chaque fichier est revalidé auprès du serveur (cache: 'no-cache',
+  // un simple 304 s'il n'a pas changé), puis chargé normalement depuis le cache du navigateur, ainsi à jour. Jamais une
+  // ancienne version de tv.js avec une nouvelle de shared.js. ES2018 au plus (Chromium 68).
+  (function () {
+    var fresh = function (url) {
+      var done = function () { return url; }; // hors ligne ou refusé : on charge quand même ce que le navigateur a
+      if (!window.fetch) return Promise.resolve(url);
+      return fetch(url, { cache: 'no-cache' }).then(function (res) { return res.text(); }).then(done, done);
+    };
+    var show = function () { document.body.style.visibility = 'visible'; };
+    fresh('tv.css').then(function (url) {
+      var link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = url;
+      link.onload = link.onerror = show;
+      document.head.appendChild(link);
+    });
+    Promise.all(['../common/push-config.js', '../common/shared.js', 'tv.js'].map(fresh)).then(function (urls) {
+      urls.forEach(function (url) {
+        var script = document.createElement('script');
+        script.src = url;
+        script.async = false; // exécutés dans cet ordre
+        document.body.appendChild(script);
+      });
+    });
+  })();
+</script>
 </body>
 </html>
