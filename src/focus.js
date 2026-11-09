@@ -4,15 +4,16 @@
 import { EXOS } from './common.js';
 import {
   isBodyweight, loadable, warmup, CUES, plateChange, recordKind, kgLabel, plates, rir, swap, ZONES, cancelled, repair,
+  supersetTurn, supersetChain,
 } from './plan.js';
 import { plural } from './labels.js';
 import { byId, FEELS, LOAD_HEAD } from './constants.js';
 import { h, icon, button, toast, chip, choose, ask } from './ui.js';
 import { state, record, log, save } from './store.js';
 import { ui, render } from './router.js';
-import { unitText, prescriptionText } from './week.js';
+import { unitText, prescriptionText, restText } from './week.js';
 import { lazy, exerciseInfo } from './exercise-info.js';
-import { activeItems, nextItem, finishSession, nextSet, startKg, plannedReps, journal, historyOf } from './session.js';
+import { activeItems, nextItem, finishSession, nextSet, startKg, plannedReps, journal, historyOf, tally } from './session.js';
 import { warm } from './warmup.js';
 import { startRest, initAudio, audio, tick, rest, restClock, stopRest, extendRest, fanfare } from './rest.js';
 import { speak } from './coach.js';
@@ -45,13 +46,43 @@ export function focusView(s, d) {
     h('div', { className: 'stack tight center' },
       h('h2', { className: 'title' }, e.name),
       h('p', { className: 'meta' }, n ? `Série ${n} sur ${it.sets} · ${it.reps}${e.unit === 's' ? ' s' : ' rép.'}` : plural(x.done.size, 'série faite', 'séries faites')),
-      tip.learning && h('div', {}, h('span', { className: 'badge' }, 'Apprentissage du geste'))),
+      (tip.learning || x.pair) && h('div', { className: 'badges' }, x.pair && h('span', { className: 'badge' }, icon('swap'), 'Superset'), tip.learning && h('span', { className: 'badge' }, 'Apprentissage du geste'))),
     restPanel(),
+    n && supersetNote(x),
     n ? setPanel(x, n, i, items.length)
       : [h('p', { className: 'note' }, icon('checkCircle'), "Exercice terminé. Comment ça s'est passé ?"), ...feedback(e, d, x.k),
         button(i + 1 < items.length ? 'Exercice suivant' : 'Voir le bilan', () => move(i + 1), { variant: 'primary', size: 'large' })],
     lazy('more', h('summary', {}, "Voir l'exercice et les consignes", icon('chevron', 'chev')), () => exerciseInfo(e)),
     removeButton(x));
+}
+
+// Superset : ce qui suit la série affichée. Le premier : « puis enchaîne sans repos » ; le second : le repos vient après.
+// Quand l'autre exercice a fini ses séries, celui-ci termine seul, avec son repos : rien à dire.
+function supersetNote(x) {
+  const other = x.pair?.with;
+  if (!other || nextSet(other) == null) return null;
+  const mine = { ...tally(x), done: x.done.size + 1 }; // une fois cette série faite
+  const chain = x.pair.role === 'A' ? supersetChain('A', mine, tally(other)) : supersetChain('B', tally(other), mine);
+  return h('p', { className: 'note superset' }, icon('swap'), chain
+    ? h('span', {}, 'Fais ta série, ', h('strong', {}, 'puis enchaîne sans repos'), ` : ${other.e.name}.`)
+    : h('span', {}, `Enchaîné après ${other.e.name}. `, h('strong', {}, `Repos de ${restText(x.pair.rest)} après cette série.`)));
+}
+// Après une série d'un exercice en superset (mode focus ou liste) : l'autre s'enchaîne sans repos s'il a un tour de retard ;
+// sinon repos, une fois la paire faite. focus : l'écran suit le tour de rôle ; la paire finie, on note le ressenti des deux.
+// Retourne false si l'exercice n'est pas (ou plus) en superset.
+function afterSupersetSet(exId, pr, focus) {
+  const items = activeItems(), me = items.find((y) => y.e.id === exId);
+  if (!me?.pair) return false;
+  const other = me.pair.with, [a, b] = me.pair.role === 'A' ? [me, other] : [other, me];
+  const turn = supersetTurn(tally(a), tally(b)), chain = supersetChain(me.pair.role, tally(a), tally(b));
+  if (focus) ui.at = items.indexOf(turn === 'B' ? b : a);
+  if (chain) {
+    stopRest();
+    const kg = startKg(other), said = `Enchaîne sans repos : ${other.e.name}.`;
+    if (!pr) announce(micOpen() ? said : `${said} ${setSpeech(other.e, kg, plannedReps(other, kg, nextSet(other))).replace(/^./, (c) => c.toUpperCase())}.`);
+  } else if (turn || (focus && nextItem(items) < items.length)) startRest(me.done.size <= other.it.sets ? me.pair.rest : me.it.rest); // série faite seule (l'autre a fini) : son repos habituel
+  else if (focus) announce('Dernière série faite, bien joué !');
+  return true;
 }
 
 // Série à faire : répétitions et charge en − / +, disques à monter, puis un seul geste pour valider.
@@ -100,9 +131,10 @@ export function validateSet({ x, n, i, count, pick }) {
   const { e, it, tip } = x;
   if (!isBodyweight(e) && pick.kg == null) return toast('Choisis la charge utilisée.', 'warning');
   stopTempo();
-  logSet(e, n, pick.kg, pick.reps, tip.mode);
+  const pr = logSet(e, n, pick.kg, pick.reps, tip.mode);
   // Série comptée par une caméra (iPhone ou miroir de l'écran) : profondeur et descente de chaque répétition, pour le suivi de la technique.
   if (pick.cam?.length) record({ type: 'cam', ex: e.id, set: n, kind: cameraKind(e), reps: pick.cam });
+  if (afterSupersetSet(e.id, pr, true)) { ui.pick = null; return render(); }
   // Dernière série de l'exercice : on reste dessus pour le ressenti, « Exercice suivant » fait avancer.
   if (x.done.size + 1 >= it.sets) ui.at = i;
   if (n < it.sets || i + 1 < count) startRest(it.rest);
@@ -262,6 +294,7 @@ export function undoSet(entry) {
   record({ type: 'undo', target: entry.t, ex: entry.ex, set: entry.set });
   stopRest();
   ui.pick = null;
+  if (state.active && activeItems().some((x) => x.e.id === entry.ex && x.pair)) ui.at = null; // superset : retour au tour de rôle
   render();
   toast(`Série ${entry.set} retirée`, 'info');
 }
@@ -282,6 +315,9 @@ export function block(x, d) {
   return h('section', { className: 'card' },
     h('div', { className: 'card-head' }, h('h2', { className: 'title' }, e.name), tip.learning && h('span', { className: 'badge' }, 'Apprentissage du geste')),
     h('p', { className: 'meta' }, `${prescriptionText(e, it)} · garde ${rir(e, state.config.level)} rép. en réserve`),
+    x.pair && h('p', { className: 'note superset' }, icon('swap'), x.pair.role === 'A'
+      ? h('span', {}, 'Superset : une série ici, ', h('strong', {}, 'puis enchaîne sans repos'), ` avec ${x.pair.with.e.name}. Repos de ${restText(x.pair.rest)} après les deux.`)
+      : h('span', {}, `Superset : chaque série se fait juste après celle de ${x.pair.with.e.name}, `, h('strong', {}, 'sans repos entre les deux'), `. Repos de ${restText(x.pair.rest)} ensuite.`)),
     h('p', { className: 'tip' }, tip.kg != null && h('strong', {}, `${kgLabel(e, tip.kg)} · `), tip.note),
     side && h('p', { className: 'meta' }, side.length ? `De chaque côté : ${side.map((w) => w.toLocaleString('fr-FR')).join(' + ')}\u00a0kg` : 'Barre seule, sans disque'),
     approach.length > 0 && h('p', { className: 'meta' }, `Approche : ${approach.map(([kg, reps]) => `${kgText(kg)}\u00a0×\u00a0${reps}`).join(' · ')}`),
@@ -334,7 +370,7 @@ function setRow(x, n, done, tip) {
     mark(log.at(-1).t);
     // Séries suivantes pas encore choisies : même charge par défaut.
     ok.parentElement.querySelectorAll('select').forEach((s) => { if (s.value === '') s.value = kg.value; });
-    if (n < item.sets) startRest(item.rest);
+    if (!afterSupersetSet(e.id, false, false) && n < item.sets) startRest(item.rest);
   }, { variant: 'gray', icon: 'check', ariaLabel: `Valider la série ${n}` });
   if (done) mark(done.t);
   return [h('span', { className: 'n' }, String(n)), kg, reps, ok];

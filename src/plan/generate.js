@@ -3,6 +3,7 @@
 
 import { BODYWEIGHT, WEIGHT_LISTS, TOP, GOALS, LEVELS, HOLD, SPLITS_BACK_TO_BACK, SPLITS, SESSIONS, SLOTS, ISOLATION_ZONES } from './catalog.js';
 import { loadable } from './loads.js';
+import { supersets, supersetSeconds, EFFORT, SETUP } from './supersets.js';
 
 function rng(seed) {
   // mulberry32 : même graine = même programme
@@ -141,19 +142,35 @@ export function balance(exos, plan, config, rand) {
   return plan;
 }
 
-// Durée estimée d'un exercice, en minutes : séries × (45 s d'effort + repos) + 2 min de mise en place (charge, réglages).
-const itemMinutes = (it) => (it.sets * (45 + it.rest) + 120) / 60;
-export const sessionMinutes = (items) => Math.round(items.reduce((m, it) => m + (it.sets ? itemMinutes(it) : 0), 0));
+// Durée estimée d'une séance, en minutes. Un exercice : séries × (45 s d'effort + repos) + 2 min de mise en place (charge,
+// réglages) ; un exercice sans série (retiré) ne compte pas. pairs = supersets [[exA, exB]] : un seul repos par tour (supersetSeconds).
+export function sessionMinutes(items, pairs = []) {
+  const live = new Map(items.filter((it) => it.sets > 0).map((it) => [it.ex, it]));
+  let seconds = 0;
+  for (const [a, b] of pairs) {
+    if (!live.has(a) || !live.has(b)) continue;
+    seconds += supersetSeconds(live.get(a), live.get(b));
+    live.delete(a);
+    live.delete(b);
+  }
+  for (const it of live.values()) seconds += it.sets * (EFFORT + it.rest) + SETUP;
+  return Math.round(seconds / 60);
+}
 
-// Séance express : tenir en `minutes`. Les 2 premiers exercices (les plus lourds) restent entiers ; on retire d'abord
-// une série aux suivants (2 minimum), puis les exercices d'isolation en partant de la fin, puis les autres.
-// items = [{ ex, sets, rest }] ; retourne { [ex]: séries gardées } (0 = exercice retiré aujourd'hui).
-export function express(exos, items, minutes) {
+// Séance express : tenir en `minutes`. Les 2 premiers exercices (les plus lourds) restent entiers. D'abord des supersets parmi
+// les suivants (supersets.js : le repos gagné évite de retirer des exercices) ; si ça ne suffit pas, une série de moins aux
+// suivants (2 minimum), puis on retire les exercices d'isolation en partant de la fin, puis les autres. Les paires sont
+// refaites à chaque retrait : un exercice qui perd son partenaire en retrouve un si possible.
+// items = [{ ex, sets, rest, kg? }] ; retourne { cut: { [ex]: séries gardées } (0 = exercice retiré aujourd'hui), pairs: [[exA, exB]] }.
+export function expressPlan(exos, items, minutes) {
   const zone = new Map(exos.map((e) => [e.id, e.zone]));
   const keep = items.map((it) => ({ ...it }));
-  const over = () => sessionMinutes(keep) > minutes;
+  const cut = () => Object.fromEntries(keep.map((it) => [it.ex, it.sets]));
+  if (sessionMinutes(keep) <= minutes) return { cut: cut(), pairs: [] }; // la séance tient déjà : rien à changer
+  const over = () => sessionMinutes(keep, supersets(exos, keep)) > minutes;
   for (const it of keep.slice(2)) if (over() && it.sets > 2) it.sets -= 1;
   const tail = keep.slice(2).reverse();
   for (const it of [...tail.filter((x) => ISOLATION_ZONES.includes(zone.get(x.ex))), ...tail.filter((x) => !ISOLATION_ZONES.includes(zone.get(x.ex)))]) if (over()) it.sets = 0;
-  return Object.fromEntries(keep.map((it) => [it.ex, it.sets]));
+  return { cut: cut(), pairs: supersets(exos, keep) };
 }
+export const express = (exos, items, minutes) => expressPlan(exos, items, minutes).cut;

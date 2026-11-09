@@ -2,7 +2,8 @@
 
 import { EXOS } from './common.js';
 import {
-  daysOff, express, monday, sessionMinutes, exerciseHistory, withoutUndone, comeback, suggest, learned, targetReps, isBodyweight,
+  daysOff, expressPlan, monday, sessionMinutes, exerciseHistory, withoutUndone, comeback, suggest, learned, targetReps, isBodyweight,
+  supersetTurn, supersetRest,
 } from './plan.js';
 import { DAYS, FREE_SESSION, plural } from './labels.js';
 import { byId } from './constants.js';
@@ -21,7 +22,8 @@ import { syncPush } from './push.js';
 import { cloudBackup } from './backup.js';
 import { addExercise } from './add-exercise.js';
 
-// Séance en cours : state.active = { session, day, readiness, off, express?, cut?, paused?, extra?, free? }.
+// Séance en cours : state.active = { session, day, readiness, off, express?, cut?, pairs?, paused?, extra?, free? }.
+// Séance express : cut = { [ex]: séries gardées } (0 = retiré aujourd'hui), pairs = supersets [[exA, exB]].
 // day = index dans state.plan ; séance libre (hors programme) : day null et free true. extra = exercices ajoutés à la volée
 // ([{ slot, ex, sets, reps, rest, added: true }]) : ils ne valent que pour cette séance, le programme ne change pas.
 // Tout l'écran lit la séance par activeSession(), jamais state.plan[state.active.day] directement.
@@ -46,7 +48,10 @@ export async function start(d) {
     state.active = { session: new Date().toISOString(), day: free ? null : d, readiness: fit.level, off: daysOff(journal()), ...(free && { free: true, extra: [] }) };
     if (fit.minutes) {
       state.active.express = fit.minutes;
-      state.active.cut = express(EXOS, state.plan[d].items.map((item) => effective(item, true)), fit.minutes);
+      // Séries gardées et supersets (plan/supersets.js) ; la charge du jour sert à la règle de la barre Smith.
+      const plan = expressPlan(EXOS, state.plan[d].items.map((item) => ({ ...effective(item, true), kg: startKg(exercise(item)) })), fit.minutes);
+      state.active.cut = plan.cut;
+      if (plan.pairs.length) state.active.pairs = plan.pairs;
     }
     // Dans le même geste que « Commencer » : l'écran bascule, le micro s'ouvre (iOS n'autorise le micro qu'après un geste).
     if (state.screen && fit.project !== state.screen.on) {
@@ -97,12 +102,13 @@ async function fitnessCheck(s) {
   return { ...answers, level: score >= 4 ? 'light' : score >= 2 ? 'hold' : 'normal' };
 }
 
-// « Séance express (30 min) : 2 exercices retirés, séries réduites. »
+// « Séance express (30 min) : 1 superset, 2 exercices retirés, séries réduites. »
 function expressText() {
   const items = activeSession().items;
   const dropped = items.filter((it) => state.active.cut?.[it.ex] === 0).length;
   const fewer = items.some((it) => state.active.cut?.[it.ex] > 0 && state.active.cut[it.ex] < it.sets);
-  const parts = [dropped && `${plural(dropped, 'exercice retiré', 'exercices retirés')}`, fewer && 'séries réduites'].filter(Boolean);
+  const paired = activeItems().filter((x) => x.pair?.role === 'A').length;
+  const parts = [paired && plural(paired, 'superset'), dropped && `${plural(dropped, 'exercice retiré', 'exercices retirés')}`, fewer && 'séries réduites'].filter(Boolean);
   return `Séance express (${state.active.express} min)${parts.length ? ` : ${parts.join(', ')}` : ''}. Les mouvements principaux restent entiers.`;
 }
 
@@ -325,7 +331,23 @@ export function segmented(options, value, onPick) {
 
 // Exercices de la séance en cours, sans ceux que la séance express retire ; k = place dans le programme (douleur, Remplacer).
 // Exercice ajouté à la volée : added true et k null (il n'a pas de place dans le programme).
-export const activeItems = () => activeSession().items.map((item, k) => ({ ...exercise(item), k: item.added ? null : k, added: !!item.added })).filter((x) => x.it.sets > 0);
+// Superset (séance express) : les deux exercices se suivent, chacun porte pair = { role: 'A' | 'B', with: l'autre, rest: repos
+// après la paire }. Une paire dont un exercice n'est plus là (remplacé après une douleur) est ignorée.
+export function activeItems() {
+  const items = activeSession().items.map((item, k) => ({ ...exercise(item), k: item.added ? null : k, added: !!item.added })).filter((x) => x.it.sets > 0);
+  for (const [exA, exB] of state.active.pairs || []) {
+    const a = items.find((x) => x.e.id === exA), b = items.find((x) => x.e.id === exB);
+    if (!a || !b || a.pair || b.pair) continue;
+    items.splice(items.indexOf(b), 1);
+    items.splice(items.indexOf(a) + 1, 0, b);
+    const rest = supersetRest(a.it, b.it);
+    a.pair = { role: 'A', with: b, rest };
+    b.pair = { role: 'B', with: a, rest };
+  }
+  return items;
+}
+// Séries faites et prévues d'un exercice, pour le tour de rôle d'un superset (supersetTurn, supersetChain).
+export const tally = (x) => ({ done: x.done.size, sets: x.it.sets });
 
 // Tout ce qu'il faut pour un exercice de la séance en cours : conseil du jour, historique, séries déjà faites.
 export function exercise(item) {
@@ -341,8 +363,14 @@ export function exercise(item) {
 }
 // Prochaine série d'un exercice (la première pas encore validée), null si toutes sont faites.
 export const nextSet = (x) => Array.from({ length: x.it.sets }, (_, k) => k + 1).find((k) => !x.done.has(k)) ?? null;
-// Exercice en cours : le premier qui a encore une série à faire (items.length = tout est fait).
-export const nextItem = (items) => { const i = items.findIndex((x) => nextSet(x) != null); return i < 0 ? items.length : i; };
+// Exercice en cours : le premier qui a encore une série à faire (items.length = tout est fait). Superset : A et B alternent,
+// c'est au second si le premier a une série d'avance.
+export function nextItem(items) {
+  const i = items.findIndex((x) => nextSet(x) != null);
+  if (i < 0) return items.length;
+  const x = items[i];
+  return x.pair?.role === 'A' && supersetTurn(tally(x), tally(x.pair.with)) === 'B' ? i + 1 : i;
+}
 // Charge de départ d'une série : celle de la série précédente du jour, sinon la charge conseillée.
 // Répétitions prévues d'une série de l'exercice x, à la charge kg (null : poids du corps).
 export const plannedReps = (x, kg, n) => targetReps(x.it, x.past, kg, n, x.e.unit);

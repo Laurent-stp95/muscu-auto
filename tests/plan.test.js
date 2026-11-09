@@ -214,14 +214,136 @@ test('Matériel à préparer : Smith avec les disques de la charge la plus lourd
 
 test("Séance express : les 2 premiers exercices restent entiers, l'isolation part d'abord, la durée tient", () => {
   const day = generate(EXOS, { ...base, minutes: 60 })[0].items;
-  const fit20 = P.express(EXOS, day, 20);
+  const { cut: fit20, pairs } = P.expressPlan(EXOS, day, 20);
+  assert.deepStrictEqual(P.express(EXOS, day, 20), fit20);
   assert.deepStrictEqual(day.slice(0, 2).map((it) => fit20[it.ex]), day.slice(0, 2).map((it) => it.sets));
-  assert.ok(P.sessionMinutes(day.map((it) => ({ ...it, sets: fit20[it.ex] }))) <= 20 || day.slice(2).every((it) => fit20[it.ex] === 0));
+  assert.ok(P.sessionMinutes(day.map((it) => ({ ...it, sets: fit20[it.ex] })), pairs) <= 20 || day.slice(2).every((it) => fit20[it.ex] === 0));
   const iso = day.slice(2).filter((it) => P.ISOLATION_ZONES.includes(byId.get(it.ex).zone));
   const other = day.slice(2).filter((it) => !P.ISOLATION_ZONES.includes(byId.get(it.ex).zone));
   if (iso.length && other.some((it) => fit20[it.ex] > 0)) assert.ok(iso.every((it) => fit20[it.ex] === 0));
-  const roomy = P.express(EXOS, day, 999);
-  assert.ok(day.every((it) => roomy[it.ex] === it.sets));
+  const roomy = P.expressPlan(EXOS, day, 999);
+  assert.ok(day.every((it) => roomy.cut[it.ex] === it.sets));
+  assert.deepStrictEqual(roomy.pairs, []); // la séance tient : ni retrait ni superset
+});
+
+// --- Supersets de la séance express ---
+// Séance type : 2 mouvements principaux (4 × 8-10, repos 90 s) puis des accessoires (3 × 10-12, repos 60 s).
+const acc = (ex, extra = {}) => ({ ex, sets: 3, reps: '10-12', rest: 60, ...extra });
+const heavy = (ex) => ({ ex, sets: 4, reps: '8-10', rest: 90 });
+const SQUAT = 1747, BENCH = 73, ROW = 81, LATERAL = 348, CURL = 92, TRICEPS = 1336, RDL = 1652, GOBLET = 203, PLANK = 458, PRESS = 75, SHRUG = 572, CALF = 622, SMITH_SHRUG = 571;
+const names = (pairs) => pairs.map((p) => p.map((id) => byId.get(id).name).join(' + '));
+
+test('Supersets : antagonistes d\'abord (poussée / tirage, biceps / triceps, quadriceps / ischios), jamais les 2 premiers ni un mouvement principal', () => {
+  const day = [heavy(SQUAT), heavy(BENCH), acc(ROW), acc(LATERAL), acc(CURL), acc(TRICEPS)];
+  assert.deepStrictEqual(P.supersets(EXOS, day), [[ROW, LATERAL], [CURL, TRICEPS]], names(P.supersets(EXOS, day)).join(' ; '));
+  assert.deepStrictEqual(P.supersets(EXOS, [heavy(BENCH), heavy(83), acc(GOBLET), acc(RDL)]), [[GOBLET, RDL]]);
+  // Les 2 premiers gardent leur repos entier, même s'ils ne sont pas des mouvements principaux ; un principal placé plus loin aussi.
+  assert.deepStrictEqual(P.supersets(EXOS, [acc(ROW), acc(LATERAL), acc(CURL), acc(TRICEPS)]), [[CURL, TRICEPS]]);
+  assert.deepStrictEqual(P.supersets(EXOS, [heavy(SQUAT), heavy(BENCH), acc(83), acc(LATERAL)]), []); // rowing à la Smith : principal
+  // Le meilleur appariement, pas le premier venu : le curl va avec les triceps (antagonistes) plutôt qu'avec le rowing d'à côté.
+  assert.deepStrictEqual(P.supersets(EXOS, [heavy(SQUAT), heavy(BENCH), acc(RDL), acc(CURL), acc(TRICEPS)]), [[CURL, TRICEPS]]);
+  assert.deepStrictEqual(P.supersets(EXOS, [heavy(SQUAT), heavy(BENCH), acc(CURL), acc(RDL), acc(PLANK), acc(TRICEPS)]), [[CURL, TRICEPS], [RDL, PLANK]]);
+});
+
+test('Supersets : pas deux exercices qui se gênent (même zone, pectoraux puis triceps, dos puis biceps ou trapèzes), exercice retiré ignoré', () => {
+  const score = (a, b) => P.supersetScore({ e: byId.get(a) }, { e: byId.get(b) });
+  assert.strictEqual(score(PRESS, TRICEPS), 0); // le développé travaille déjà les triceps
+  assert.strictEqual(score(ROW, CURL), 0);
+  assert.strictEqual(score(PRESS, LATERAL), 0);
+  assert.strictEqual(score(ROW, SHRUG), 0); // haussements d'épaules : trapèzes, ça tire comme le dos
+  assert.strictEqual(score(CURL, 272), 0);
+  assert.strictEqual(score(1651, RDL), 0); // la fente et le soulevé de terre partagent les fessiers
+  assert.strictEqual(score(PRESS, ROW), 3);
+  assert.strictEqual(score(CURL, TRICEPS), 3);
+  assert.strictEqual(score(GOBLET, RDL), 3);
+  assert.strictEqual(score(LATERAL, RDL), 2); // haut et bas du corps
+  assert.strictEqual(score(CURL, PLANK), 1); // sans recouvrement
+  assert.deepStrictEqual(P.supersets(EXOS, [heavy(SQUAT), heavy(BENCH), acc(CURL), acc(TRICEPS, { sets: 0 })]), []);
+  assert.deepStrictEqual(P.supersets(EXOS, [heavy(SQUAT), heavy(BENCH), acc(PRESS), acc(TRICEPS), acc(LATERAL)]), []);
+});
+
+test('Supersets : même barre Smith seulement à charge égale (pas de changement de disques sans repos)', () => {
+  const day = (a, b) => [heavy(SQUAT), heavy(BENCH), acc(SMITH_SHRUG, a), acc(CALF, b)];
+  assert.deepStrictEqual(P.supersets(EXOS, day({ kg: 59 }, { kg: 59 })), [[SMITH_SHRUG, CALF]]);
+  assert.deepStrictEqual(P.supersets(EXOS, day({ kg: 59 }, { kg: 79 })), []);
+  assert.deepStrictEqual(P.supersets(EXOS, day({ kg: null }, { kg: null })), []); // charges pas encore choisies : on ne parie pas
+  assert.deepStrictEqual(P.supersets(EXOS, day({}, {})), []);
+  // Une seule des deux à la Smith : rien à changer sur la barre entre les deux.
+  assert.deepStrictEqual(P.supersets(EXOS, [heavy(SQUAT), heavy(BENCH), acc(SMITH_SHRUG, { kg: 59 }), acc(1620, { kg: 10 })]), [[SMITH_SHRUG, 1620]]);
+  // Rowing inversé sous la barre (poids du corps, barre à régler) avec un exercice chargé à la Smith : jamais.
+  assert.strictEqual(P.supersetScore({ e: byId.get(1198), kg: null }, { e: byId.get(CALF), kg: 59 }), 0);
+});
+
+test('Supersets : durée (un seul repos par tour, réduit de moitié) et tour de rôle A1, B1, repos, A2, B2…', () => {
+  const a = acc(CURL), b = acc(TRICEPS);
+  assert.strictEqual(P.supersetRest(a, b), 30);
+  assert.strictEqual(P.supersetRest(acc(CURL, { rest: 90 }), b), 45);
+  assert.strictEqual(P.supersetRest(acc(CURL, { rest: 45 }), acc(TRICEPS, { rest: 45 })), 30);
+  // Entre deux de ses séries, chaque exercice garde au moins son repos habituel : l'autre série (45 s) + le repos de la paire.
+  for (const rest of [45, 60, 90]) assert.ok(45 + P.supersetRest({ rest }, { rest }) >= rest);
+  assert.strictEqual(P.supersetSeconds(a, b), 3 * (45 + 10 + 45 + 30) + 240);
+  assert.strictEqual(P.supersetSeconds(acc(CURL, { sets: 2 }), b), 2 * 130 + (45 + 60) + 240); // la 3e série de B se fait seule
+  const alone = P.sessionMinutes([a, b]), paired = P.sessionMinutes([a, b], [[CURL, TRICEPS]]);
+  assert.strictEqual(alone, 15);
+  assert.strictEqual(paired, 11); // 10,5 min
+  assert.strictEqual(P.sessionMinutes([a, { ...b, sets: 0 }], [[CURL, TRICEPS]]), P.sessionMinutes([a])); // partenaire retiré : plus de paire
+  // Déroulé complet, série par série, d'après supersetTurn et supersetChain.
+  const run = (setsA, setsB) => {
+    const A = { done: 0, sets: setsA }, B = { done: 0, sets: setsB }, out = [];
+    for (let role; (role = P.supersetTurn(A, B));) {
+      const me = role === 'A' ? A : B;
+      out.push(`${role}${++me.done}`);
+      if (!P.supersetChain(role, A, B) && P.supersetTurn(A, B)) out.push('repos');
+    }
+    return out.join(' ');
+  };
+  assert.strictEqual(run(3, 3), 'A1 B1 repos A2 B2 repos A3 B3');
+  assert.strictEqual(run(3, 2), 'A1 B1 repos A2 B2 repos A3');
+  assert.strictEqual(run(2, 3), 'A1 B1 repos A2 B2 repos B3');
+  assert.strictEqual(P.supersetTurn({ done: 2, sets: 2 }, { done: 2, sets: 2 }), null);
+  // Série faite dans le désordre (mode liste : B d'abord) : A s'enchaîne, puis repos.
+  assert.strictEqual(P.supersetChain('B', { done: 0, sets: 3 }, { done: 1, sets: 3 }), 'A');
+  assert.strictEqual(P.supersetChain('A', { done: 1, sets: 3 }, { done: 1, sets: 3 }), null);
+});
+
+test('Séance express avec supersets : plus d\'exercices gardés dans le même temps, mouvements principaux entiers, durée tenue', () => {
+  // Avant les supersets : même réduction, sans paires (une série de moins, puis retraits en partant de la fin).
+  const before = (items, minutes) => {
+    const keep = items.map((it) => ({ ...it })), over = () => P.sessionMinutes(keep) > minutes;
+    for (const it of keep.slice(2)) if (over() && it.sets > 2) it.sets -= 1;
+    const iso = (it) => P.ISOLATION_ZONES.includes(byId.get(it.ex).zone), tail = keep.slice(2).reverse();
+    for (const it of [...tail.filter(iso), ...tail.filter((it) => !iso(it))]) if (over()) it.sets = 0;
+    return keep.filter((it) => it.sets > 0).length;
+  };
+  const day = [heavy(SQUAT), heavy(BENCH), acc(ROW), acc(RDL), acc(LATERAL), acc(CURL)];
+  assert.strictEqual(P.sessionMinutes(day), 51);
+  const plan = P.expressPlan(EXOS, day, 30);
+  const kept = day.map((it) => ({ ...it, sets: plan.cut[it.ex] }));
+  assert.deepStrictEqual(plan.pairs, [[ROW, RDL]]);
+  assert.deepStrictEqual(plan.cut, { [SQUAT]: 4, [BENCH]: 4, [ROW]: 2, [RDL]: 2, [LATERAL]: 0, [CURL]: 0 });
+  assert.strictEqual(before(day, 30), 3); // sans superset : un seul accessoire tenait
+  assert.ok(P.sessionMinutes(kept, plan.pairs) <= 30);
+  assert.ok(P.sessionMinutes(kept) > 30); // sans le superset, ces 4 exercices ne tiendraient pas
+  // Sur tous les programmes générés : jamais moins d'exercices ni de séries qu'avant, parfois plus ; toujours dans le temps
+  // (sauf si les 2 mouvements principaux le dépassent à eux seuls) ; paires valides, un exercice par paire au plus.
+  let more = 0, sessions = 0;
+  for (const goal of Object.keys(P.GOALS)) for (const level of Object.keys(P.LEVELS)) for (const minutes of [45, 60, 90]) for (const days of [[0, 2, 4], [5, 0, 3, 1]]) {
+    for (const s of generate(EXOS, { ...base, goal, level, minutes, days })) for (const m of [30, 20]) {
+      const { cut, pairs: ps } = P.expressPlan(EXOS, s.items, m), left = s.items.map((it) => ({ ...it, sets: cut[it.ex] }));
+      const n = left.filter((it) => it.sets > 0).length;
+      sessions++;
+      assert.ok(n >= before(s.items, m), `${goal} ${level} ${minutes} → ${m} : ${n} exercices contre ${before(s.items, m)}`);
+      if (n > before(s.items, m)) more++;
+      assert.deepStrictEqual(s.items.slice(0, 2).map((it) => cut[it.ex]), s.items.slice(0, 2).map((it) => it.sets));
+      assert.ok(P.sessionMinutes(left, ps) <= m || n === 2);
+      assert.strictEqual(new Set(ps.flat()).size, ps.length * 2);
+      for (const [x, y] of ps) {
+        assert.ok(cut[x] > 0 && cut[y] > 0 && !byId.get(x).main && !byId.get(y).main);
+        assert.ok(s.items.findIndex((it) => it.ex === x) >= 2 && s.items.findIndex((it) => it.ex === x) < s.items.findIndex((it) => it.ex === y));
+      }
+    }
+  }
+  assert.ok(more > 0, `${more} séances sur ${sessions} gardent un exercice de plus`);
 });
 
 test("Série annulée : retirée de l'historique et de la reprise, le journal garde tout", () => {

@@ -20,7 +20,7 @@ import { stopEar } from './voice.js';
 import { projectSheet } from './screen.js';
 import { lastCopy, backup } from './backup.js';
 
-const restText = (s) => (s >= 120 ? `${s / 60} min` : `${s} s`);
+export const restText = (s) => (s >= 120 ? `${s / 60} min` : `${s} s`);
 export const unitText = (e) => (e.unit === 's' ? 's' : 'rép.');
 export const cycle = () => cycleWeek(state.cycle);
 // live = séance en cours : un point de forme « basse » l'allège comme une semaine allégée.

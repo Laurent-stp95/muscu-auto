@@ -4,14 +4,14 @@
 // l'écran ne fait qu'afficher et tient seul le chrono du repos (il sonne et annonce même si l'iPhone se verrouille).
 
 import { PUSH, ICE, gathered } from './common.js';
-import { warmup, CUES } from './plan.js';
+import { warmup, CUES, supersetChain } from './plan.js';
 import { DAYS } from './labels.js';
 import { byId } from './constants.js';
 import { toast, chip, h, choose, button } from './ui.js';
 import { state, onSave, save } from './store.js';
 import { ui, render } from './router.js';
 import { weekFrame } from './week.js';
-import { activeItems, nextItem, nextSet, activeMinutes, sessionSets, startKg, plannedReps, activeSession, sessionTitle } from './session.js';
+import { activeItems, nextItem, nextSet, activeMinutes, sessionSets, startKg, plannedReps, activeSession, sessionTitle, tally } from './session.js';
 import { warm } from './warmup.js';
 import { focusTarget, barPlan, setText, kgText, clock } from './focus.js';
 import { rest, restEnd, restTotal, restSay } from './rest.js';
@@ -291,7 +291,12 @@ function live() {
   const last = n && x.past.at(-1)?.sets.find((t) => t.set === n);
   const approach = n === 1 ? warmup(e, kg, state.config.loads) : [];
   const pr = [...logged.values()].filter((t) => t.pr && Date.now() - Date.parse(t.t) < 15000).at(-1);
-  const after = items[i + 1];
+  // Superset : « Ensuite » annonce l'exercice qui s'enchaîne sans repos (ou le premier de la paire, au tour suivant).
+  const other = n && x.pair && nextSet(x.pair.with) != null ? x.pair.with : null;
+  const mine = { ...tally(x), done: x.done.size + 1 };
+  const chain = !!other && !!(x.pair.role === 'A' ? supersetChain('A', mine, tally(other)) : supersetChain('B', tally(other), mine));
+  const after = other && (chain || x.pair.role === 'B') ? other : items[i + (x.pair?.role === 'A' ? 2 : 1)];
+  if (other) base.label = `Superset · série ${n} sur ${it.sets}`;
   return {
     ...base, phase: rest ? 'rest' : 'work', title, progress, say,
     ex: { id: e.id, name: e.name, img: e.img, mus: e.mus, mus2: e.mus2, cam: cameraKind(e), cues: (e.cues || [CUES[e.zone]]).slice(0, 3),
@@ -301,7 +306,7 @@ function live() {
       approach: approach.length ? `Approche : ${approach.map(([w, r]) => `${kgText(w)} × ${r}`).join(' · ')}` : null },
     done: [...x.done.values()].sort((a, b) => a.set - b.set).map((t) => ({ n: t.set, text: setText(e, t.kg, t.reps), t: clock(t.t), record: !!logged.get(`${e.id}-${t.set}`)?.pr })),
     rest: rest ? { end: restEnd, total: restTotal, say: restSay() } : null,
-    next: after ? { name: after.e.name, img: after.e.img, detail: `${after.it.sets} × ${after.it.reps}${after.e.unit === 's' ? ' s' : ''} · ${loadText(after.e, startKg(after))}` } : null,
+    next: after ? { name: after.e.name, img: after.e.img, detail: `${chain ? 'sans repos · ' : ''}${after.it.sets} × ${after.it.reps}${after.e.unit === 's' ? ' s' : ''} · ${loadText(after.e, startKg(after))}` } : null,
     record: pr ? { id: pr.t, text: `Record : ${setText(byId.get(pr.ex), pr.kg, pr.reps)}` } : null,
   };
 }

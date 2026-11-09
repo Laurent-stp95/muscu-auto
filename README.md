@@ -23,8 +23,9 @@ src/                                      l'appli, en modules ES
   voice.js, camera.js, screen.js, push.js, backup.js
                                           micro, caméra qui compte, écran projeté, notifications, sauvegarde
   plan.js                                 logique métier, réexporte plan/
-  plan/                                   catalog.js (tables), generate.js (programme), journal.js (lecture du suivi),
-                                          progression.js (charges), loads.js (barre et disques), recovery.js (récupération)
+  plan/                                   catalog.js (tables), generate.js (programme, séance express), supersets.js (paires de la
+                                          séance express), journal.js (lecture du suivi), progression.js (charges),
+                                          loads.js (barre et disques), recovery.js (récupération)
 common/                                   scripts classiques lus aussi par la page TV ou le service worker
   files.js                                liste unique des fichiers de l'appli (précache, nouvelle version, « Mettre à jour »)
   shared.js                               son, voix, caméra qui compte, WebRTC (ES2018, lu par les TV)

@@ -9,7 +9,7 @@ const FILES = {
     'data/data.js', 'src/common.js', 'src/config.js', 'src/labels.js', 'src/constants.js', 'src/ui.js', 'src/store.js',
     'src/router.js', 'src/onboarding.js', 'src/settings.js', 'src/week.js', 'src/exercise-info.js', 'src/session.js',
     'src/warmup.js', 'src/focus.js', 'src/add-exercise.js', 'src/rest.js', 'src/coach.js', 'src/progress.js', 'src/update.js', 'src/plan.js',
-    'src/plan/catalog.js', 'src/plan/generate.js', 'src/plan/journal.js', 'src/plan/progression.js', 'src/plan/loads.js',
+    'src/plan/catalog.js', 'src/plan/generate.js', 'src/plan/supersets.js', 'src/plan/journal.js', 'src/plan/progression.js', 'src/plan/loads.js',
     'src/plan/recovery.js', 'src/voice.js', 'src/camera.js', 'src/screen.js', 'src/push.js', 'src/backup.js', 'src/main.js',
   ],
   assets: ['manifest.webmanifest', 'assets/icon-180.png', 'assets/icon-192.png', 'assets/icon-512.png',

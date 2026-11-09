@@ -4,7 +4,7 @@
 import { beep } from './common.js';
 import { h, button, toast } from './ui.js';
 import { state } from './store.js';
-import { upNext } from './session.js';
+import { upNext, nextSet } from './session.js';
 import { setSpeech } from './focus.js';
 import { speak } from './coach.js';
 import { hush, micOpen } from './voice.js';
@@ -110,12 +110,14 @@ export function restSay() {
   const u = upNext();
   if (!u) return 'Repos terminé.';
   const seed = u.n + u.x.e.id, last = u.n === u.x.it.sets;
+  // Superset : la série qui vient est celle du premier exercice, le second s'enchaînera sans repos.
+  const then = u.x.pair?.role === 'A' && nextSet(u.x.pair.with) != null ? u.x.pair.with.e.name : null;
   // Micro ouvert : sans aucun nombre (série, répétitions, charge restent affichés sur l'écran).
-  if (micOpen()) return u.n === 1 ? `On enchaîne : ${u.x.e.name}.` : last ? 'Dernière série, à toi.' : vary(["C'est reparti, à toi.", 'Allez, on y retourne.', 'À toi de jouer.'], seed);
+  if (micOpen()) return u.n === 1 ? (then ? `Superset : ${u.x.e.name}, puis ${then} sans repos.` : `On enchaîne : ${u.x.e.name}.`) : last ? 'Dernière série, à toi.' : vary(["C'est reparti, à toi.", 'Allez, on y retourne.', 'À toi de jouer.'], seed);
   const what = setSpeech(u.x.e, u.kg, u.reps);
-  if (u.n === 1) return `${vary(['On enchaîne', 'Nouvel exercice'], seed)} : ${u.x.e.name}. ${what[0].toUpperCase()}${what.slice(1)}.`;
+  if (u.n === 1) return `${then ? 'Superset' : vary(['On enchaîne', 'Nouvel exercice'], seed)} : ${u.x.e.name}. ${what[0].toUpperCase()}${what.slice(1)}.${then ? ` Puis ${then}, sans repos.` : ''}`;
   const which = last ? 'Dernière série' : ORDINALS[u.n - 1] ? `${ORDINALS[u.n - 1]} série` : `Série ${u.n}`;
-  return `${vary(["C'est reparti", 'Allez, on y retourne', 'À toi'], seed)}. ${which}, ${what}.`;
+  return `${vary(["C'est reparti", 'Allez, on y retourne', 'À toi'], seed)}. ${which}, ${what}.${then ? ` Puis ${then}, sans repos.` : ''}`;
 }
 
 export function releaseAwake() {
