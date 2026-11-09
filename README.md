@@ -4,7 +4,7 @@ Anciennement « Muscu auto » (l'adresse /muscu-auto/ est gardée : changer de c
 
 Appli web perso : le programme de musculation se construit tout seul selon le matériel, avec une progression prudente (la technique avant la charge). Faite pour l'iPhone, installable sur l'écran d'accueil, utilisable sans réseau.
 
-Ouvrir `index.html` via un serveur (`python3 -m http.server`), aucune dépendance. Tests : `node tests/test.js`.
+Ouvrir `index.html` via un serveur (`python3 -m http.server`), aucune dépendance. Tests : `npm test` (ou `node --test "tests/*.test.js"`, Node 22, aucune dépendance) et `node push/test.mjs` ; lancés à chaque push et pull request (`.github/workflows/test.yml`).
 
 L'appli est en modules ES (`import` / `export`), sans étape de build : `index.html` charge `src/main.js`, qui importe le reste. Les fichiers lus aussi par la page TV ou le service worker (`common/`, `data/data.js`) restent des scripts classiques ; `src/common.js` les réexporte pour les modules.
 
@@ -14,7 +14,7 @@ L'appli est en modules ES (`import` / `export`), sans étape de build : `index.h
 - `common/` : code commun à l'appli, à la page TV et au service worker. `files.js` (liste unique des fichiers de l'appli : précache, détection de nouvelle version, « Mettre à jour » ; un test échoue si elle diverge de ce que charge `index.html`), `shared.js` (ES2018, lu par les TV), `push-config.js` (adresse du serveur).
 - `data/` : `liste.json` (les exercices retenus : nom français, zone, matériel, consignes), `descriptions-fr.json`, `extract.py` (reconstruit `data/data.js` et `img/` depuis `liste.json` et les données wger), `data.js` (généré, ne pas éditer).
 - `img/`, `muscles/` : images des exercices et schémas des muscles (chemins inscrits dans `data.js`) ; `assets/` : icônes.
-- `tests/` : tests de l'appli.
+- `tests/` : tests de l'appli, en cas nommés (`node:test`) : `plan.test.js` (programme, progression), `shared.test.js` (caméra qui compte, voix), `structure.test.js` (liste des fichiers, scripts classiques), `helpers.js` (jeux d'essai).
 - `tv/` : écran projeté (TV, ordinateur), piloté par l'iPhone (`index.html`, `tv.js`, `tv.css` : scripts classiques ES2018, jamais mis en cache par le service worker) ; `push/` : serveur Cloudflare (notifications, sauvegarde, relais de l'écran). Tests du relais : `node push/screen-test.mjs <url du serveur>`.
 
 ## Sources et licences

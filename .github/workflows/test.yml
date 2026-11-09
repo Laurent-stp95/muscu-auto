@@ -1,0 +1,17 @@
+# Tests de l'appli (node:test, aucune dépendance) et du serveur de notifications, à chaque push et pull request.
+name: Tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Tests de l'appli
+        run: npm test
+      - name: Tests du serveur (push/)
+        run: node push/test.mjs
