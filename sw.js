@@ -1,14 +1,10 @@
 // Hors-ligne : tout est servi depuis le cache puis revérifié auprès du serveur en arrière-plan.
 // Si l'appli a changé, la page est prévenue et propose de recharger.
-importScripts('data/data.js', 'common/push-config.js');
+importScripts('common/files.js', 'data/data.js', 'common/push-config.js');
 
 const CACHE = 'muscu-auto';
-const SHELL = ['./', 'index.html',
-  'src/constants.js', 'src/ui.js', 'src/store.js', 'src/router.js', 'src/onboarding.js', 'src/settings.js', 'src/week.js', 'src/exercise-info.js', 'src/session.js', 'src/warmup.js', 'src/focus.js',
-  'src/rest.js', 'src/coach.js', 'src/progress.js', 'src/update.js', 'src/plan.js', 'data/data.js', 'common/push-config.js', 'common/shared.js', 'src/voice.js', 'src/camera.js', 'src/screen.js', 'src/push.js', 'src/backup.js', 'src/main.js',
-  'manifest.webmanifest', 'assets/icon-180.png', 'assets/icon-192.png', 'assets/icon-512.png',
-  'muscles/muscular_system_front.svg', 'muscles/muscular_system_back.svg'];
-const CODE = /\/(index\.html|(src|common|data)\/[\w-]+\.js)?$/; // fichiers dont un changement = nouvelle version
+const SHELL = ['./', ...FILES.code, ...FILES.assets];
+const CODE = new Set(['./', ...FILES.code].map((f) => new URL(f, location).pathname)); // fichiers dont un changement = nouvelle version
 const files = () => [...new Set([...SHELL, ...EXOS.flatMap((e) => [...e.img,
   ...e.mus.map((m) => `muscles/main/muscle-${m}.svg`), ...e.mus2.map((m) => `muscles/secondary/muscle-${m}.svg`)])])];
 const version = (res) => res.headers.get('etag') || res.headers.get('last-modified');
@@ -35,7 +31,7 @@ self.addEventListener('fetch', (ev) => {
     const fresh = fetch(url.href, { cache: 'no-cache', credentials: 'same-origin' }).then(async (res) => {
       if (!res.ok) return res;
       await cache.put(ev.request, res.clone());
-      if (hit && CODE.test(url.pathname) && version(hit) !== version(res)) await notify();
+      if (hit && CODE.has(url.pathname) && version(hit) !== version(res)) await notify();
       return res;
     });
     if (!hit) return fresh;

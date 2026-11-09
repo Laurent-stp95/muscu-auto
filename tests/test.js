@@ -292,4 +292,17 @@ assert.strictEqual(S.frenchVoice(synth, 'Absente').voiceURI, 'com.apple.voice.pr
 assert.strictEqual(S.frenchVoice(fakeSynth([['Samantha', 'en-US']])), null);
 
 for (const x of plan) console.log(x.day, x.name, x.items.map((it) => byId.get(it.ex).name).join(' | '));
+// Liste des fichiers (common/files.js) : c'est ce qu'index.html charge, dans le même ordre, tout existe, rien n'est oublié.
+{
+  const fs = require('fs'), path = require('path');
+  const FILES = require('../common/files.js'), root = path.join(__dirname, '..');
+  const scripts = [...fs.readFileSync(path.join(root, 'index.html'), 'utf8').matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepStrictEqual(FILES.code, ['index.html', ...scripts]);
+  for (const f of [...FILES.code, ...FILES.assets]) assert.ok(fs.existsSync(path.join(root, f)), `${f} listé mais absent`);
+  const onDisk = ['src', 'common'].flatMap((dir) => fs.readdirSync(path.join(root, dir)).filter((f) => f.endsWith('.js')).map((f) => `${dir}/${f}`));
+  assert.deepStrictEqual(onDisk.filter((f) => !FILES.code.includes(f)), []);
+  const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
+  for (const f of sw.match(/importScripts\(([^)]*)\)/)[1].match(/[\w\/.-]+\.js/g)) assert.ok(FILES.code.includes(f), `${f} importé par sw.js mais pas listé`);
+}
+
 console.log('OK');

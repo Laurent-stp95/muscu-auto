@@ -8,7 +8,7 @@ Ouvrir `index.html` via un serveur (`python3 -m http.server`), aucune dépendanc
 
 - `index.html`, `sw.js` (service worker : sa portée impose la racine), `manifest.webmanifest` : restent à la racine.
 - `src/` : l'appli. `plan.js` : génération des séances et règles de progression ; interface découpée par écran (`ui.js` composants, `store.js` données, `router.js` navigation, `onboarding.js`, `settings.js`, `week.js`, `exercise-info.js`, `session.js`, `warmup.js`, `focus.js`, `rest.js`, `coach.js`, `progress.js`, `update.js`) ; `voice.js`, `camera.js`, `screen.js`, `push.js`, `backup.js` : micro, caméra qui compte, écran projeté, notifications, sauvegarde ; `main.js` : démarrage.
-- `common/` : code commun à l'appli, à la page TV et au service worker. `shared.js` (ES2018, lu par les TV), `push-config.js` (adresse du serveur).
+- `common/` : code commun à l'appli, à la page TV et au service worker. `files.js` (liste unique des fichiers de l'appli : précache, détection de nouvelle version, « Mettre à jour » ; un test échoue si elle diverge d'`index.html`), `shared.js` (ES2018, lu par les TV), `push-config.js` (adresse du serveur).
 - `data/` : `liste.json` (les exercices retenus : nom français, zone, matériel, consignes), `descriptions-fr.json`, `extract.py` (reconstruit `data/data.js` et `img/` depuis `liste.json` et les données wger), `data.js` (généré, ne pas éditer).
 - `img/`, `muscles/` : images des exercices et schémas des muscles (chemins inscrits dans `data.js`) ; `assets/` : icônes.
 - `tests/` : tests de l'appli.

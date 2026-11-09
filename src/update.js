@@ -29,8 +29,7 @@ async function forceUpdate() {
   try {
     await (await navigator.serviceWorker?.getRegistration())?.update();
     const cache = await caches.open('muscu-auto');
-    await Promise.all(['./', 'index.html', 'src/constants.js', 'src/ui.js', 'src/store.js', 'src/router.js', 'src/onboarding.js', 'src/settings.js', 'src/week.js', 'src/exercise-info.js', 'src/session.js', 'src/warmup.js', 'src/focus.js',
-      'src/rest.js', 'src/coach.js', 'src/progress.js', 'src/update.js', 'src/plan.js', 'data/data.js', 'common/shared.js', 'src/voice.js', 'src/camera.js', 'src/screen.js', 'src/push.js', 'src/backup.js', 'src/main.js'].map(async (f) => {
+    await Promise.all(['./', ...FILES.code].map(async (f) => {
       const res = await fetch(f, { cache: 'reload' });
       if (res.ok) await cache.put(f, res);
     }));
