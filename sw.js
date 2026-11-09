@@ -3,10 +3,11 @@
 importScripts('data.js', 'push-config.js');
 
 const CACHE = 'muscu-auto';
-const SHELL = ['./', 'index.html', 'app.js', 'plan.js', 'data.js', 'push-config.js', 'shared.js', 'voice.js', 'camera.js', 'screen.js', 'push.js', 'backup.js', 'main.js',
+const SHELL = ['./', 'index.html', 'constants.js', 'ui.js', 'store.js', 'router.js', 'onboarding.js', 'settings.js', 'week.js', 'exercise-info.js', 'session.js', 'warmup.js', 'focus.js', 'rest.js', 'coach.js', 'progress.js', 'update.js',
+  'plan.js', 'data.js', 'push-config.js', 'shared.js', 'voice.js', 'camera.js', 'screen.js', 'push.js', 'backup.js', 'main.js',
   'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png',
   'muscles/muscular_system_front.svg', 'muscles/muscular_system_back.svg'];
-const CODE = /\/(index\.html|app\.js|plan\.js|data\.js|push-config\.js|shared\.js|voice\.js|camera\.js|screen\.js|push\.js|backup\.js|main\.js)?$/; // fichiers dont un changement = nouvelle version
+const CODE = /\/(index\.html|constants\.js|ui\.js|store\.js|router\.js|onboarding\.js|settings\.js|week\.js|exercise-info\.js|session\.js|warmup\.js|focus\.js|rest\.js|coach\.js|progress\.js|update\.js|plan\.js|data\.js|push-config\.js|shared\.js|voice\.js|camera\.js|screen\.js|push\.js|backup\.js|main\.js)?$/; // fichiers dont un changement = nouvelle version
 const files = () => [...new Set([...SHELL, ...EXOS.flatMap((e) => [...e.img,
   ...e.mus.map((m) => `muscles/main/muscle-${m}.svg`), ...e.mus2.map((m) => `muscles/secondary/muscle-${m}.svg`)])])];
 const version = (res) => res.headers.get('etag') || res.headers.get('last-modified');
