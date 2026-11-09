@@ -4,14 +4,15 @@ import {
   cancelled, monday, isBodyweight, PUSH_ZONES, PULL_ZONES, ZONES, suggest, learned, comeback, daysOff, project, kgLabel, LEVELS,
   gearList,
 } from './plan.js';
-import { byId, DAYS } from './constants.js';
+import { DAYS, plural } from './labels.js';
+import { byId } from './constants.js';
 import { h, icon, button } from './ui.js';
 import { log, state } from './store.js';
 import { show, ui, render } from './router.js';
 import { banner, doneThisWeek, effective, cycle, unitText, weekday } from './week.js';
 import { lazy } from './exercise-info.js';
 import { journal, historyOf, activeMinutes, sessionSets } from './session.js';
-import { plural, setText, kgText } from './focus.js';
+import { setText, kgText } from './focus.js';
 import { lastCopy, backup, exportCsv, copyForClaude, importButton } from './backup.js';
 
 export function progress() {

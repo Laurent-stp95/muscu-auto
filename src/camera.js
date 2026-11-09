@@ -6,8 +6,9 @@
 // latérales, oiseau, haussements d'épaules).
 
 import { poseModel, poseTracker, BONES } from './common.js';
+import { plural } from './labels.js';
 import { h, button, icon } from './ui.js';
-import { validateSet, plural } from './focus.js';
+import { validateSet } from './focus.js';
 import { tick, initAudio, rest } from './rest.js';
 import { voiceOn, speak } from './coach.js';
 import { technique } from './progress.js';

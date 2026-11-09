@@ -5,6 +5,7 @@ import { EXOS } from './common.js';
 import {
   isBodyweight, loadable, warmup, CUES, plateChange, recordKind, kgLabel, plates, rir, swap, ZONES, cancelled, repair,
 } from './plan.js';
+import { plural } from './labels.js';
 import { byId, FEELS, LOAD_HEAD } from './constants.js';
 import { h, icon, button, toast, chip, choose, ask } from './ui.js';
 import { state, record, log, save } from './store.js';
@@ -292,7 +293,6 @@ export function block(item, d, i) {
 }
 
 // « 0 série », « 1 série », « 2 séries » : en français, 0 et 1 restent au singulier.
-export const plural = (n, one, many = `${one}s`) => `${n} ${n > 1 ? many : one}`;
 export const kgText = (kg) => `${kg.toLocaleString('fr-FR')}\u00a0kg`; // espace insécable : « kg » ne part jamais seul à la ligne
 export const clock = (iso) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 

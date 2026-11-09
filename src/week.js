@@ -4,7 +4,8 @@ import { FRONT, EXOS } from './common.js';
 import {
   cycleWeek, monday, cancelled, sessionMinutes, isBodyweight, kgLabel, CYCLE_WEEKS, recovery, swap, generate, renew,
 } from './plan.js';
-import { MUSCLES, byId, DAYS, BACKUP_DAYS } from './constants.js';
+import { DAYS, plural } from './labels.js';
+import { MUSCLES, byId, BACKUP_DAYS } from './constants.js';
 import { h, icon, button, choose, ask, toast } from './ui.js';
 import { state, log, record, save, setLog } from './store.js';
 import { ui, today, render, show } from './router.js';
@@ -12,7 +13,7 @@ import { openSettings } from './settings.js';
 import { lazy, exerciseInfo } from './exercise-info.js';
 import { sessionSets, historyOf, activeMinutes, start, stopSession, journal, closeSession } from './session.js';
 import { cancelWarm } from './warmup.js';
-import { clock, setText, plural } from './focus.js';
+import { clock, setText } from './focus.js';
 import { stopRest } from './rest.js';
 import { tipFor, listNote, preview } from './progress.js';
 import { stopEar } from './voice.js';

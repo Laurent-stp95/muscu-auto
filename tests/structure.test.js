@@ -42,8 +42,12 @@ test('Scripts classiques : ni import ni export dans common/, data/data.js, tv/tv
 // Les modules de l'appli s'importent en rond ; ceux-ci sont utilisés dès le chargement des autres (premier niveau des fichiers) :
 // ils ne doivent importer aucun écran, pour être toujours prêts avant (voir src/main.js).
 test("Modules de base : n'importent aucun écran", () => {
-  const allowed = { 'src/common.js': [], 'src/plan.js': [], 'src/ui.js': [], 'src/constants.js': ['src/common.js'], 'src/store.js': ['src/ui.js'] };
+  const allowed = { 'src/common.js': [], 'src/ui.js': [], 'src/labels.js': [], 'src/config.js': [], 'src/constants.js': ['src/common.js'], 'src/store.js': ['src/ui.js'] };
   for (const [f, deps] of Object.entries(allowed)) {
     assert.deepStrictEqual(imports(f).filter((d) => d.startsWith('src/') && !deps.includes(d)), [], `${f} importe trop`);
+  }
+  // Logique métier : src/plan.js et src/plan/ ne dépendent que d'eux-mêmes (ni interface, ni stockage, ni data.js).
+  for (const f of ['src/plan.js', ...fs.readdirSync(path.join(root, 'src/plan')).map((n) => `src/plan/${n}`)]) {
+    assert.deepStrictEqual(imports(f).filter((d) => !d.startsWith('src/plan/')), [], `${f} sort de src/plan/`);
   }
 });

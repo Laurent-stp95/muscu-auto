@@ -2,7 +2,9 @@
 
 import { EXOS } from './common.js';
 import { LOADED_GEAR, loadable, WEIGHT_LISTS, generate, MAX_DAYS, backToBack, exerciseCount, ZONES, LEVELS, GOALS, TAGS } from './plan.js';
-import { DEFAULTS, PLATES, DAYS, byId } from './constants.js';
+import { DEFAULTS } from './config.js';
+import { DAYS } from './labels.js';
+import { PLATES, byId } from './constants.js';
 import { h, button, icon, chip, toast } from './ui.js';
 import { ui, render } from './router.js';
 import { applyConfig } from './settings.js';

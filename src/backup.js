@@ -2,13 +2,14 @@
 
 import { PUSH, EXOS } from './common.js';
 import { cancelled, LEVELS, GOALS, TAGS, ZONES, generate, monday } from './plan.js';
-import { DAYS, byId, FEELS } from './constants.js';
+import { DAYS, plural } from './labels.js';
+import { byId, FEELS } from './constants.js';
 import { h, toast, ask, button, choose } from './ui.js';
 import { state, log, save, setLog } from './store.js';
 import { render, setUi } from './router.js';
 import { toggle } from './settings.js';
 import { journal } from './session.js';
-import { plural, setText } from './focus.js';
+import { setText } from './focus.js';
 
 // Dernière copie du journal : fichier ou sauvegarde automatique, la plus récente.
 export function lastCopy() { return [state.lastExport, cloudOn() && state.cloud?.t].filter(Boolean).sort().at(-1); }

@@ -1,7 +1,7 @@
 // Démarrage : seul module chargé par index.html, il importe tous les autres ; son code s'exécute en dernier.
 // Les modules s'importent en rond (un écran en appelle un autre) : c'est permis tant que rien n'est utilisé avant d'exister.
-// Règle : au premier niveau d'un fichier (hors fonctions), n'utiliser que ui.js, store.js, constants.js, common.js et plan.js,
-// qui n'importent aucun écran ; tout le reste s'appelle depuis une fonction.
+// Règle : au premier niveau d'un fichier (hors fonctions), n'utiliser que ui.js, store.js, constants.js, labels.js, config.js,
+// common.js et plan.js, qui n'importent aucun écran ; tout le reste s'appelle depuis une fonction.
 
 import { toast } from './ui.js';
 import { state } from './store.js';

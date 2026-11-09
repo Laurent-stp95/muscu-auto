@@ -5,7 +5,8 @@
 
 import { PUSH, ICE, gathered } from './common.js';
 import { warmup, CUES } from './plan.js';
-import { DAYS, byId } from './constants.js';
+import { DAYS } from './labels.js';
+import { byId } from './constants.js';
 import { toast, chip, h, choose, button } from './ui.js';
 import { state, onSave, save } from './store.js';
 import { ui, render } from './router.js';

@@ -4,14 +4,15 @@ import { EXOS } from './common.js';
 import {
   daysOff, express, monday, sessionMinutes, exerciseHistory, withoutUndone, comeback, suggest, learned, targetReps, isBodyweight,
 } from './plan.js';
-import { byId, DAYS } from './constants.js';
+import { DAYS, plural } from './labels.js';
+import { byId } from './constants.js';
 import { ask, chip, h, choose, icon, toast, button } from './ui.js';
 import { state, record, log, save } from './store.js';
 import { ui, show, render, today } from './router.js';
 import { toggle } from './settings.js';
 import { weekFrame, effective, weekday, week, weekProgress, banner, cycle } from './week.js';
 import { cancelWarm, warm, warmCard, warmMinutes, warmButton } from './warmup.js';
-import { plural, setText, clock, block, focusView } from './focus.js';
+import { setText, clock, block, focusView } from './focus.js';
 import { stopRest, releaseAwake } from './rest.js';
 import { summaryData } from './progress.js';
 import { startEar, Recognition, stopEar } from './voice.js';
