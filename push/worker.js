@@ -3,10 +3,9 @@
 // Un Durable Object par iPhone (id aléatoire tiré par l'appli) : abonnement, réglages, prochaine échéance en alarme.
 // Les push partent sans contenu : le service worker de l'appli demande ensuite le message (GET /message), pas de chiffrement à gérer.
 import { nextReminder, missedSessions } from './schedule.js';
+import { DAYS, plural } from '../src/labels.js'; // libellés communs avec l'appli, inclus par wrangler au déploiement
 
 const ORIGIN = 'https://laurent-stp95.github.io';
-const plural = (n, one, many) => `${n} ${n > 1 ? many : one}`;
-const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
 export default {
   async fetch(req, env) {

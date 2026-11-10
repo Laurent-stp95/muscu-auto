@@ -1,10 +1,10 @@
-"""Construit data.js depuis liste.json (exercices choisis par Laurent) + données wger (CC-BY-SA) + médias de l'API wger.de.
+"""Construit data/data.js depuis data/liste.json (exercices choisis par Laurent) + données wger (CC-BY-SA) + médias de l'API wger.de.
 
 liste.json fait foi : nom français, zone, rôle, matériel, consignes, risques. wger fournit muscles, licence, images, vidéos.
-Images copiées dans img/ (appli utilisable hors-ligne). Vidéos laissées sur wger.de : 20 à 60 Mo chacune, trop lourdes.
+Images copiées dans img/, à la racine du dépôt (appli utilisable hors-ligne). Vidéos laissées sur wger.de : 20 à 60 Mo chacune, trop lourdes.
 Descriptions : `desc` de liste.json, sinon descriptions-fr.json ({id: texte}, traduit depuis l'anglais wger).
 
-Usage : python3 extract.py [chemin du clone wger, défaut ~/wger]
+Usage : python3 data/extract.py [chemin du clone wger, défaut ~/wger]
 """
 import json
 import subprocess
@@ -15,8 +15,8 @@ WGER = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.home() / 'wger'
 FIX = WGER / 'wger/exercises/fixtures'
 EN = 2
 
-HERE = Path(__file__).parent
-IMG = HERE / 'img'
+HERE = Path(__file__).parent  # data/ : liste.json, descriptions-fr.json, data.js
+IMG = HERE.parent / 'img'  # chemins « img/… » de data.js, relatifs à index.html
 liste = json.loads((HERE / 'liste.json').read_text())
 descriptions_fr = json.loads((HERE / 'descriptions-fr.json').read_text())
 licenses = {l['pk']: l['fields']['short_name'] for l in json.load(open(WGER / 'wger/core/fixtures/licenses.json'))}
@@ -77,5 +77,5 @@ out = HERE / 'data.js'
 out.write_text(
     '// Généré par extract.py depuis liste.json et wger (https://wger.de), licences par exercice. Ne pas éditer.\n'
     f'const EXOS = {json.dumps(exos, ensure_ascii=False)};\n'
-    "if (typeof module !== 'undefined') module.exports = EXOS;\n")
+    "(typeof self !== 'undefined' ? self : globalThis).EXOS = EXOS; // pour les modules ES (src/common.js) ; le service worker lit la constante\n")
 print(f'{len(exos)} exercices, {len(used)} images, {sum(1 for e in exos if e["vid"])} vidéos -> {out.name}')

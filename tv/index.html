@@ -5,186 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#000000">
 <title>Steady · Écran</title>
-<link rel="icon" href="../icon-192.png">
+<link rel="icon" href="../assets/icon-192.png">
 <style>
-  /* Écran projeté, lu à 3 m (10-foot UI, sombre façon Apple TV). Maquette en rem sur une base 1920 × 1080 :
-     tv.js règle 1rem = 24 px en 1080p, 16 px en 720p, 48 px en 4K. Navigateurs de TV (Chromium 68+) :
-     pas de gap sur flex (grille OK), ni aspect-ratio, inset, :has, color-mix, min()/clamp(). Texte ≥ 4,5:1 sur son fond. */
-  :root { --bg: #000; --card: #1c1c1e; --fill: #2c2c2e; --fg: #f5f5f7; --muted: #98989f; --accent: #c8441d; --accent-ink: #ff8a5c; --ok: #30d158; --ok-bg: #1f7a3a; --warn: #ff9f0a; --r-m: 1rem; --r-l: 1.5rem; color-scheme: dark; }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; overflow: hidden; }
-  body { background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 1.25rem; line-height: 1.3; font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
-  h1, h2, h3, p, ul, ol { margin: 0; }
-  ul, ol { padding: 0; list-style: none; }
-  [hidden] { display: none !important; }
-  .muted { color: var(--muted); }
-  .icon { width: 1em; height: 1em; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -.125em; }
-  @keyframes fade { from { opacity: 0; } }
-  @keyframes ring { from { stroke-dashoffset: 0; } to { stroke-dashoffset: 282.74; } }
-
-  /* Vues plein écran, marges de sécurité TV de 5 %. Changement de vue : fondu court. */
-  .view { position: fixed; top: 0; right: 0; bottom: 0; left: 0; padding: 5vh 5vw; }
-  .view:not([hidden]), .main:not([hidden]) { animation: fade .3s ease-out both; }
-  .center { display: grid; align-content: center; justify-items: center; gap: 2rem; text-align: center; }
-  .headline { font-size: 3rem; font-weight: 700; letter-spacing: -.01em; }
-  .lead { max-width: 64rem; color: var(--muted); font-size: 1.75rem; }
-  .msg { font-size: 2.25rem; font-weight: 600; }
-  .app-icon { width: 7rem; height: 7rem; border-radius: 1.6rem; }
-  .app-icon.small { width: 4.5rem; height: 4.5rem; border-radius: 1rem; }
-
-  /* Accueil : un geste pour débloquer le son. Bouton façon Apple TV : blanc et agrandi quand il a le focus. */
-  /* Son à activer : bandeau en bas, au-dessus de tout, jusqu'au premier geste (les confirmations prennent le haut) */
-  .sound { position: fixed; bottom: 4vh; left: 50%; z-index: 11; display: flex; align-items: center; padding: .75rem 1.5rem; border: 0; border-radius: 2rem; background: var(--fill); color: var(--fg); font: inherit; font-size: 1.25rem; font-weight: 600; cursor: pointer; transform: translateX(-50%); animation: fade .3s 1s both; }
-  .sound .icon { width: 1.5rem; height: 1.5rem; margin-right: .75rem; color: var(--accent-ink); }
-  .btn { min-width: 12rem; padding: 1rem 3rem; border: 0; border-radius: var(--r-m); background: var(--fill); color: var(--fg); font: inherit; font-size: 1.75rem; font-weight: 700; cursor: pointer; transition: transform .15s, background-color .15s, color .15s; }
-  .btn:focus { outline: none; background: var(--fg); color: #000; transform: scale(1.08); }
-
-  /* Appairage */
-  .code { display: grid; grid-auto-flow: column; gap: 1.25rem; transition: opacity .3s; }
-  .code span { display: grid; place-items: center; width: 8rem; height: 10rem; border-radius: var(--r-l); background: var(--card); font-size: 6.5rem; font-weight: 700; }
-  .offline .code { opacity: .4; }
-  /* Hors ligne : affiché après 1,5 s seulement, pour ne pas clignoter à chaque connexion */
-  .net { display: none; }
-  .offline .net { display: block; animation: fade .3s 1.5s both; }
-
-  /* Séance : en-tête, zone principale (une vue à la fois, dans la même case de grille), pied */
-  .session { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; cursor: none; }
-  .top { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 2rem; min-height: 3.5rem; }
-  .title { overflow: hidden; font-size: 1.75rem; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }
-  .top-end { justify-self: end; display: flex; align-items: center; gap: 1.5rem; }
-  .clock { font-size: 1.75rem; font-weight: 600; }
-  .mic { display: flex; align-items: center; padding: .25rem 1rem; border-radius: 2rem; background: var(--fill); font-size: 1.125rem; font-weight: 600; }
-  .mic i { width: .75rem; height: .75rem; margin-right: .5rem; border-radius: 50%; background: var(--ok); animation: beat 1.6s ease-in-out infinite; }
-  @keyframes beat { 50% { opacity: .35; transform: scale(.7); } }
-  .progress { display: grid; justify-items: center; gap: .5rem; }
-  .segs { display: grid; grid-auto-flow: column; grid-auto-columns: 3rem; gap: .375rem; }
-  .segs i { height: .375rem; border-radius: 1rem; background: #48484a; }
-  .segs .on { background: var(--fg); }
-  .segs .now { background: var(--accent-ink); }
-  .small { font-size: 1.125rem; }
-  .pill { padding: .25rem 1rem; border-radius: 2rem; background: var(--fill); font-size: 1.125rem; }
-  .pill:not([hidden]) { animation: fade .3s 1.5s both; }
-  .main { grid-row: 2; grid-column: 1; min-height: 0; }
-  .cols { display: grid; grid-template-columns: 55fr 45fr; gap: 2rem; }
-  .card { min-height: 0; overflow: hidden; padding: 2rem; border-radius: var(--r-l); background: var(--card); }
-
-  /* Exercice : visuel en grand (images et muscles sur fond blanc, comme l'appli), nom, consignes */
-  .ex { display: grid; grid-template-rows: minmax(0, 1fr) auto auto; gap: 1rem; min-height: 0; }
-  .visual { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr); gap: 1.5rem; min-height: 0; padding: 1.5rem; border-radius: var(--r-l); background: #fff; }
-  .shots { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 1rem; min-height: 0; }
-  .shots img { display: block; width: 100%; height: 100%; min-height: 0; object-fit: contain; }
-  .bodies { display: grid; grid-auto-flow: column; gap: .5rem; align-self: end; }
-  .body { position: relative; width: 5rem; height: 9.225rem; }
-  .body img { position: absolute; top: 0; left: 0; width: 100%; }
-  /* Sans image (échauffement) : les silhouettes, en plus grand, au centre */
-  .visual.bare { grid-template-columns: minmax(0, 1fr); }
-  .visual.bare .bodies { align-self: center; justify-self: center; gap: 2rem; }
-  .visual.bare .body { width: 8rem; height: 14.76rem; }
-  .ex-head { display: flex; align-items: center; min-width: 0; }
-  .ex-head h2 { overflow: hidden; font-size: 2.25rem; font-weight: 700; line-height: 1.15; white-space: nowrap; text-overflow: ellipsis; }
-  .badge { flex: none; margin-left: 1rem; padding: .25rem .875rem; border-radius: 2rem; background: rgba(200, 68, 29, .3); color: var(--accent-ink); font-size: 1.125rem; font-weight: 600; white-space: nowrap; }
-  .cues { display: grid; gap: .5rem; color: var(--muted); }
-  .cues li { position: relative; padding-left: 1.25rem; }
-  .cues li::before { content: ""; position: absolute; top: .5em; left: 0; width: .45rem; height: .45rem; border-radius: 50%; background: var(--accent-ink); }
-
-  /* Carte d'état : la série en cours, ou le repos (anneau, puis la série qui suit) */
-  .state { display: grid; align-content: center; justify-items: center; gap: .75rem; text-align: center; }
-  .label { font-size: 1.75rem; font-weight: 600; }
-  .goal { display: grid; font-size: 5rem; font-weight: 700; line-height: 1.05; letter-spacing: -.01em; }
-  #load { color: var(--accent-ink); }
-  .state:not(.resting) #load.long { font-size: 3.25rem; } /* « Élastique 20 kg », « Poids du corps » : sur une ligne */
-  .change { color: var(--accent-ink); font-weight: 600; }
-  .note { max-width: 26rem; padding: .75rem 1rem; border-radius: var(--r-m); background: var(--fill); }
-  .ring { position: relative; width: 17rem; height: 17rem; margin-bottom: .5rem; }
-  .ring svg { display: block; width: 100%; height: 100%; transform: rotate(-90deg); }
-  .ring circle { fill: none; stroke-width: 6; }
-  .track { stroke: var(--fill); }
-  .arc { stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 282.74; }
-  #count { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: grid; place-items: center; font-size: 5rem; font-weight: 600; }
-  .state:not(.resting) .ring { display: none; }
-  .resting .label { color: var(--muted); font-weight: 500; }
-  .resting .goal { display: block; font-size: 2.75rem; }
-  .resting #target:not([hidden]) + #load::before { content: " · "; color: var(--muted); }
-
-  /* Pause : voile sur la zone principale */
-  .veil { z-index: 1; display: grid; align-content: center; justify-items: center; gap: 1rem; border-radius: var(--r-l); background: rgba(0, 0, 0, .82); font-size: 3rem; font-weight: 700; }
-  .veil .icon { width: 5rem; height: 5rem; color: var(--accent-ink); }
-
-  /* Séance à venir */
-  .eyebrow { margin-bottom: 1rem; color: var(--muted); font-size: 1.25rem; font-weight: 600; }
-  .rows li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 1.5rem; padding: .875rem 0; border-top: 1px solid var(--fill); }
-  .rows li:first-child { border-top: 0; }
-  .rows .name { overflow: hidden; font-size: 1.5rem; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
-  .rows .detail { color: var(--muted); }
-  #gear li { display: block; }
-  #idle .card { align-self: start; max-height: 100%; }
-
-  /* Fin de séance */
-  .done-icon { width: 6rem; height: 6rem; color: var(--ok); stroke-width: 1.6; }
-  .stats { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(15rem, auto); gap: 1.5rem; }
-  .stat { display: grid; gap: .25rem; padding: 1.5rem 2rem; border-radius: var(--r-l); background: var(--card); }
-  .stat strong { font-size: 3rem; font-weight: 700; white-space: nowrap; }
-  .stat span { color: var(--muted); }
-  .recs { display: grid; gap: .5rem; }
-  .recs .eyebrow { margin-bottom: .25rem; }
-  .recs li { color: var(--accent-ink); font-size: 1.5rem; font-weight: 600; }
-
-  /* Pied : dernière série faite, exercice suivant */
-  .foot { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 2rem; min-height: 2rem; }
-  .foot p { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .next { grid-column: 2; text-align: right; }
-  .ok { margin-right: .5rem; color: var(--ok); }
-
-  /* Série validée à la voix : bandeau vert 2,5 s */
-  .notice { position: fixed; top: 5vh; left: 50%; z-index: 9; display: flex; align-items: center; width: max-content; max-width: 80vw; padding: 1.25rem 2.5rem 1.25rem 2rem; border-radius: 3rem; background: var(--fill); color: var(--fg); font-size: 2.25rem; font-weight: 700; box-shadow: 0 1rem 3rem rgba(0, 0, 0, .6); opacity: 0; transform: translate(-50%, -2rem); transition: opacity .3s, transform .3s; pointer-events: none; }
-  .notice.show { opacity: 1; transform: translate(-50%, 0); }
-  .notice .icon { flex: none; width: 3rem; height: 3rem; margin-right: 1rem; stroke-width: 2.6; }
-  .notice.ok { background: var(--ok-bg); color: #fff; }
-  .notice.warn { background: var(--warn); color: #000; }
-  .notice .i-warn, .notice.warn .i-ok { display: none; }
-  .notice.warn .i-warn { display: block; }
-  .flash { transform-origin: left center; animation: flash 1.2s ease-out; }
-  @keyframes flash { from { color: var(--ok); transform: scale(1.08); } }
-
-  /* Nouveau record : bandeau 5 s, sous la confirmation de série quand les deux arrivent ensemble */
-  .record { position: fixed; top: 15vh; left: 50%; z-index: 9; display: flex; align-items: center; padding: 1.25rem 2.25rem 1.25rem 1.75rem; border-radius: 2rem; background: var(--accent); color: #fff; box-shadow: 0 1rem 3rem rgba(0, 0, 0, .6); opacity: 0; transform: translate(-50%, -2rem); transition: opacity .3s, transform .3s; pointer-events: none; }
-  .record.show { opacity: 1; transform: translate(-50%, 0); }
-  .record .icon { width: 3rem; height: 3rem; margin-right: 1.25rem; }
-  .record-title { font-size: 2rem; font-weight: 700; }
-
-  /* Miroir (webcam de l'ordinateur) : l'image en miroir à la place du visuel, squelette par-dessus, compte en grand */
-  .mirror { position: relative; min-height: 0; overflow: hidden; border-radius: var(--r-l); background: #000; }
-  .mirror video, .mirror canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-  .mirror.remote video, .mirror.remote canvas { object-fit: contain; } /* caméra de l'iPhone, souvent en portrait : le corps entier */
-  .mirror-count { position: absolute; top: 1rem; right: 1rem; min-width: 5rem; padding: .25rem 1rem; border-radius: var(--r-m); background: rgba(0, 0, 0, .6); font-size: 4rem; font-weight: 700; text-align: center; }
-  .mirror-say { position: absolute; left: 1rem; right: 1rem; bottom: 1rem; padding: .5rem 1rem; border-radius: var(--r-m); background: rgba(0, 0, 0, .6); font-size: 1.5rem; font-weight: 600; text-align: center; }
-  .mirror-say.warn { color: #ffd60a; }
-  .mirroring .visual { display: none; }
-  .ex.mirroring { grid-template-rows: minmax(0, 1fr); }
-  .ex.mirroring .cues { display: none; } /* toute la hauteur pour l'image ; le nom de l'exercice passe dans l'en-tête */
-  .top.mirroring .title { display: none; }
-  .top .ex-head h2 { font-size: 1.75rem; }
-  .top .badge { display: none; } /* pas la place à côté du nom ; « Apprentissage du geste » reste sur l'iPhone */
-  @media (min-aspect-ratio: 4/3) { .cols.mirroring { grid-template-columns: 62fr 38fr; } }
-  .fs2 { right: calc(2vw + 4.5rem); }
-
-  /* Plein écran : bouton rond en bas à droite, visible seulement quand la souris bouge (souris cachée sinon) */
-  .fs { position: fixed; right: 2vw; bottom: 2vh; z-index: 10; display: grid; place-items: center; width: 3.5rem; height: 3.5rem; padding: 0; border: 0; border-radius: 50%; background: var(--fill); color: var(--fg); opacity: 0; cursor: pointer; transition: opacity .3s; }
-  .fs .icon { width: 1.5rem; height: 1.5rem; }
-  .fs .exit, .full .fs .enter { display: none; }
-  .full .fs .exit { display: block; }
-  .pointer .fs, .fs:focus { opacity: 1; }
-  .pointer .session { cursor: auto; }
-
-  /* Fenêtre étroite ou portrait (moins de 4/3) : colonnes empilées, carte d'état en premier, la page défile si besoin */
-  @media not all and (min-aspect-ratio: 4/3) {
-    .view { overflow-y: auto; }
-    .session { grid-template-rows: auto minmax(min-content, 1fr) auto; }
-    .cols { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(min-content, 1fr); }
-    .state { order: -1; }
-    .ex { grid-template-rows: minmax(20rem, 1fr) auto auto; }
-  }
-  @media (prefers-reduced-motion: reduce) { .view, .main, .record, .notice, .pill, .btn, .flash, .mic i { animation: none !important; transition: none !important; } }
+  /* Rien n'est affiché tant que tv.css n'est pas arrivé (chargeur en bas de page). */
+  html { background: #000; }
+  body { visibility: hidden; }
 </style>
 </head>
 <body>
@@ -194,21 +19,21 @@
 </button>
 
 <div id="pair" class="view center">
-  <img class="app-icon small" src="../icon-192.png" alt="">
+  <img class="app-icon small" src="../assets/icon-192.png" alt="">
   <div id="code" class="code" role="img"></div>
   <p class="lead">Sur ton iPhone, dans Steady : touche l'icône de télévision en haut de Ma semaine, puis tape ce code.</p>
   <p class="net muted">Connexion au serveur…</p>
 </div>
 
 <div id="wait" class="view center" hidden>
-  <img class="app-icon small" src="../icon-192.png" alt="">
+  <img class="app-icon small" src="../assets/icon-192.png" alt="">
   <p class="msg">Lance une séance sur ton iPhone.</p>
   <p class="net muted">Connexion au serveur…</p>
   <button class="btn repair" type="button">Nouveau code d'association</button>
 </div>
 
 <div id="stopped" class="view center" hidden>
-  <img class="app-icon small" src="../icon-192.png" alt="">
+  <img class="app-icon small" src="../assets/icon-192.png" alt="">
   <p class="msg">Rien n'est projeté pour l'instant</p>
   <p class="lead">Pour afficher ta séance ici, touche Projeter dans Steady sur ton iPhone.</p>
   <button class="btn repair" type="button">Nouveau code d'association</button>
@@ -306,8 +131,33 @@
   <svg class="icon exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
 </button>
 
-<script src="../push-config.js"></script>
-<script src="../shared.js?v=6"></script> <!-- v à changer avec shared.js -->
-<script src="tv.js?v=20"></script> <!-- v à changer avec tv.js -->
+<script>
+  // Chargeur, à la place des « ?v= » à changer à la main : chaque fichier est revalidé auprès du serveur (cache: 'no-cache',
+  // un simple 304 s'il n'a pas changé), puis chargé normalement depuis le cache du navigateur, ainsi à jour. Jamais une
+  // ancienne version de tv.js avec une nouvelle de shared.js. ES2018 au plus (Chromium 68).
+  (function () {
+    var fresh = function (url) {
+      var done = function () { return url; }; // hors ligne ou refusé : on charge quand même ce que le navigateur a
+      if (!window.fetch) return Promise.resolve(url);
+      return fetch(url, { cache: 'no-cache' }).then(function (res) { return res.text(); }).then(done, done);
+    };
+    var show = function () { document.body.style.visibility = 'visible'; };
+    fresh('tv.css').then(function (url) {
+      var link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = url;
+      link.onload = link.onerror = show;
+      document.head.appendChild(link);
+    });
+    Promise.all(['../common/push-config.js', '../common/shared.js', 'tv.js'].map(fresh)).then(function (urls) {
+      urls.forEach(function (url) {
+        var script = document.createElement('script');
+        script.src = url;
+        script.async = false; // exécutés dans cet ordre
+        document.body.appendChild(script);
+      });
+    });
+  })();
+</script>
 </body>
 </html>

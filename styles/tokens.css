@@ -1,0 +1,23 @@
+/* Système de design de l'appli. Toute valeur d'app.css vient d'un jeton ci-dessous : espacements sur une grille de 4 px,
+   4 rayons, zones tactiles de 44 pt minimum (Apple), échelle de texte iOS, texte ≥ 4,5:1 sur son fond. */
+:root {
+  --bg: #f2f2f7; --card: #fff; --fg: #1c1c1e; --muted: #636366; --line: #d1d1d6; --fill: rgb(120 120 128 / .12); --seg-on: #fff;
+  --accent: #c8441d; --accent-ink: #a83a17; --accent-soft: color-mix(in srgb, #c8441d 12%, transparent);
+  --ok: #1e7d46; --ok-ink: #18703e; --warn-ink: #8a5a00; --ok-soft: color-mix(in srgb, #1e7d46 14%, transparent); --danger: #b3261e; --danger-ink: #b3261e; --danger-soft: color-mix(in srgb, #b3261e 12%, transparent);
+  --shadow: 0 4px 20px rgb(0 0 0 / .18);
+  --muscle-main: #fc0000; --muscle-second: #f57900; /* couleurs des schémas de muscles (images wger) */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+  --r-s: 8px; --r-m: 12px; --r-l: 16px; --r-full: 999px;
+  --tap: 44px; --tap-l: 50px; --tabbar: 50px;
+  /* Caption 12, Footnote 13, Subhead 15, Body 17, Title3 20, Title1 28, Large Title 34, Display 56 (chiffres du mode focus) : suit la taille de texte de l'iPhone */
+  --t-caption: .706rem; --t-footnote: .765rem; --t-subhead: .882rem; --t-body: 1rem; --t-title3: 1.176rem; --t-title1: 1.647rem; --t-large: 2rem; --t-display: 3.294rem;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #000; --card: #1c1c1e; --fg: #fff; --muted: #a1a1a6; --line: #38383a; --fill: rgb(120 120 128 / .24); --seg-on: #636366;
+    --accent-ink: #ff8a5c; --accent-soft: color-mix(in srgb, #c8441d 26%, transparent);
+    --ok-ink: #4cd964; --ok-soft: color-mix(in srgb, #1e7d46 30%, transparent); --warn-ink: #ffd60a;
+    --body-dim: brightness(.82); --danger-ink: #ff6961; --danger-soft: color-mix(in srgb, #ff6961 18%, transparent); --shadow: 0 4px 20px rgb(0 0 0 / .6); }
+}
+/* La page TV (tv/tv.css) a ses propres jetons : sombre seulement, en rem pour être lue à 3 m, sans color-mix (Chromium 68).
+   Seule la couleur d'accent est commune. */

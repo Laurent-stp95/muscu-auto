@@ -1,24 +1,43 @@
 // --- Caméra qui compte (prototype) ---
-// L'iPhone posé de côté suit ton corps (MediaPipe, calcul sur l'appareil, aucune image envoyée), compte les répétitions
-// et vérifie l'amplitude et la vitesse de descente : genou pour les squats et fentes, coude pour les développés.
-// Modèle, constantes et compteur partagés avec l'écran projeté : shared.js.
-// Mouvements où le coude ou le genou se plie peu, ou où l'on avance : pas de comptage (fentes marchées, écarté, élévations
-// latérales, oiseau, haussements d'épaules).
-const NO_COUNT = new Set([206, 238, 348, 828, 571, 572]);
-const cameraKind = (e) => (NO_COUNT.has(e.id) ? null : e.zone === 'quad' ? 'knee' : ['chest', 'shoulders'].includes(e.zone) ? 'elbow' : null);
+// L'iPhone posé à 2 ou 3 m suit ton corps (MediaPipe, calcul sur l'appareil, aucune image envoyée), compte les répétitions
+// et vérifie l'amplitude et la vitesse de la phase excentrique : genou pour les squats et fentes, coude pour les développés
+// et les pompes, hanche pour les soulevés de terre et le swing (de profil), épaule pour les élévations latérales (de face).
+// Modèle, seuils, compteur, choix de l'articulation par exercice (camKind) et textes partagés avec l'écran projeté : shared.js.
+// Pas de comptage quand le suivi ne serait pas fiable : on avance (fentes marchées), l'angle change peu (écarté, haussements),
+// on est allongé au sol ou caché par la barre (pont fessier, hip thrust), gainage… (CAM_OFF dans shared.js).
 
-// Consigne écrite seulement : la voix ne dit que le numéro (repCounted).
-function repFeedback(kind, ev) {
-  if (!ev.full) return kind === 'knee' ? "Amplitude incomplète : descends jusqu'aux cuisses parallèles." : 'Amplitude incomplète : descends plus bas.';
-  if (ev.down < 1000) return 'Descente trop rapide : contrôle-la sur 2 à 3 secondes.';
-  return `Répétition ${ev.rep} : bonne amplitude, descente contrôlée.`;
+import { poseModel, poseTracker, BONES, camKind, counterFor, tempoCoach, CAM_TEXT } from './common.js';
+import { plural } from './labels.js';
+import { h, button, icon } from './ui.js';
+import { validateSet } from './focus.js';
+import { tick, initAudio, rest } from './rest.js';
+import { voiceOn, speak } from './coach.js';
+import { technique } from './progress.js';
+import { micOpen } from './voice.js';
+
+export const cameraKind = (e) => camKind(e.id);
+
+// Où poser l'iPhone, selon l'articulation suivie.
+const PLACE = {
+  knee: "iPhone debout, de côté, à 2 ou 3 m : de la tête aux pieds dans l'image.",
+  elbow: "iPhone de côté : épaules, bras et mains dans l'image.",
+  hip: "iPhone debout, de côté, à 2 ou 3 m : tu es de profil, de la tête aux genoux dans l'image.",
+  shoulder: "iPhone debout, face à toi, à 2 m environ : de la tête aux hanches, les bras dans l'image quand ils montent.",
+};
+
+// Consigne écrite. slow = rappel du tempo (tempoCoach) : pas à chaque répétition.
+function repFeedback(kind, ev, slow) {
+  if (!ev.full) return CAM_TEXT[kind].short;
+  if (slow) return CAM_TEXT[kind].fast;
+  return `Répétition ${ev.rep} : bonne amplitude.`;
 }
 // Le numéro à voix haute ; micro ouvert : un bip court à la place (un nombre dit serait pris pour ta réponse). Coach vocal coupé : rien.
-function repCounted(n) {
-  if (micOpen()) { if (voiceOn()) tick(1320); } else speak(String(n), true);
+// cue : rappel court dit après le numéro (tempo), une seule fois par série.
+function repCounted(n, cue) {
+  if (micOpen()) { if (voiceOn()) tick(1320); } else speak(cue ? `${n}. ${cue}` : String(n), true);
 }
 
-async function cameraCoach(f) {
+export async function cameraCoach(f) {
   if (!f) return;
   const kind = cameraKind(f.x.e);
   const video = h('video', { playsInline: true, muted: true, autoplay: true, className: 'cam-video' });
@@ -30,7 +49,7 @@ async function cameraCoach(f) {
   const dialog = h('dialog', { className: 'sheet camera' }, h('div', { className: 'sheet-body' },
     h('div', { className: 'cam-view' }, video, canvas, count),
     h('div', { className: 'cam-panel' }, hint,
-      h('p', { className: 'caption' }, kind === 'knee' ? "iPhone debout, de côté, à 2 ou 3 m : de la tête aux pieds dans l'image." : "iPhone de côté : épaules, bras et mains dans l'image."),
+      h('p', { className: 'caption' }, PLACE[kind]),
       ok, quit)));
   let stream = null, closed = false, reps = 0;
   const data = []; // { depth, down, full } par répétition, gardé avec la série (suivi de la technique)
@@ -44,7 +63,7 @@ async function cameraCoach(f) {
   dialog.addEventListener('cancel', (ev) => { ev.preventDefault(); close(false); });
   document.body.append(dialog);
   dialog.showModal();
-  audio ||= new (window.AudioContext || window.webkitAudioContext)();
+  initAudio();
   let model;
   try {
     [stream, model] = await Promise.all([navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', aspectRatio: { ideal: 3 / 4 }, height: { ideal: 1280 } }, audio: false }), poseModel()]);
@@ -60,19 +79,20 @@ async function cameraCoach(f) {
   if (closed) return stream.getTracks().forEach((track) => track.stop());
   video.srcObject = stream;
   await video.play().catch(() => {});
-  // Image en paysage : rognée seulement si l'iPhone est tenu en portrait (.cam-view.wide, index.html). Recalculé quand l'iPhone tourne.
+  // Image en paysage : rognée seulement si l'iPhone est tenu en portrait (.cam-view.wide, styles/app.css). Recalculé quand l'iPhone tourne.
   const fit = () => video.parentElement.classList.toggle('wide', video.videoWidth > video.videoHeight);
   fit();
   video.addEventListener('resize', fit);
   const tracker = poseTracker(kind, f.x.e.id); // bonne personne, entière, sur place, même côté : voir shared.js
+  const tempo = tempoCoach(counterFor(kind, f.x.e.id).fast);
   const ctx = canvas.getContext('2d');
   const before = technique(f.x.e).at(-1);
-  let off = 0, said = `Vas-y : je compte.${before ? ` La dernière fois : ${before.depth}° au point bas, descente ${(before.down / 1000).toFixed(1).replace('.', ',')} s.` : ''}`;
+  let off = 0, said = `Vas-y : je compte.${before ? ` La dernière fois : ${before.depth}° ${CAM_TEXT[kind].point}, descente ${(before.down / 1000).toFixed(1).replace('.', ',')} s.` : ''}`;
   const tell = (text, warn = false) => { hint.textContent = text; hint.classList.toggle('warn', warn); };
   const HOLD = { none: 'Je ne te vois pas : place-toi face à l\'iPhone.', moving: 'Reste sur place pour que je compte.',
     switch: 'Quelqu\'un passe : comptage suspendu.', paused: 'Repos en cours : je compte à la série suivante.',
     hands: 'Mains sur la barre ou la charge pour que je compte.',
-    partial: kind === 'knee' ? 'Recule un peu : la tête et les pieds doivent être dans l\'image.' : 'Recule un peu : épaules et mains doivent être dans l\'image.' };
+    partial: `Recule un peu : ${CAM_TEXT[kind].need} doivent être dans l'image.` };
   const frame = () => {
     if (closed) return;
     if (video.readyState >= 2 && video.videoWidth) {
@@ -91,16 +111,18 @@ async function cameraCoach(f) {
         r.side?.forEach((k) => { const q = at(k); ctx.beginPath(); ctx.arc(q.x, q.y, 7, 0, 2 * Math.PI); ctx.fill(); });
       }
       const ev = r.ev;
-      if (ev?.partial) tell('Pas assez bas : répétition non comptée.', true);
+      if (ev?.partial) tell(CAM_TEXT[kind].low, true);
       else if (ev) {
         reps = ev.rep;
         data.push({ depth: ev.depth, down: ev.down, full: ev.full });
         count.textContent = String(reps);
         ok.disabled = false;
         ok.lastChild.textContent = `Valider ${plural(reps, 'répétition')}`;
-        said = repFeedback(kind, ev);
-        tell(said);
-        repCounted(reps);
+        // Tempo : deux répétitions trop rapides d'affilée = un rappel écrit, dit une seule fois par série (« Freine la descente »).
+        const slow = tempo.push(ev);
+        said = repFeedback(kind, ev, slow);
+        tell(said, !ev.full || !!slow);
+        repCounted(reps, slow?.first ? 'Freine la descente.' : null);
       }
     }
     requestAnimationFrame(frame);

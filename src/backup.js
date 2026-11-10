@@ -1,7 +1,18 @@
 // Sauvegarde et export du journal : fichier JSON, CSV, texte pour Claude, sauvegarde automatique sur le serveur et restauration.
 
+import { PUSH, EXOS } from './common.js';
+import { cancelled, freeSessions, LEVELS, GOALS, TAGS, ZONES, generate, monday } from './plan.js';
+import { DAYS, FREE_SESSION, plural } from './labels.js';
+import { byId, FEELS } from './constants.js';
+import { h, toast, ask, button, choose } from './ui.js';
+import { state, log, save, setLog } from './store.js';
+import { render, setUi } from './router.js';
+import { toggle } from './settings.js';
+import { journal } from './session.js';
+import { setText } from './focus.js';
+
 // Dernière copie du journal : fichier ou sauvegarde automatique, la plus récente.
-function lastCopy() { return [state.lastExport, cloudOn() && state.cloud?.t].filter(Boolean).sort().at(-1); }
+export function lastCopy() { return [state.lastExport, cloudOn() && state.cloud?.t].filter(Boolean).sort().at(-1); }
 
 function download(name, type, text) {
   const a = h('a', { href: URL.createObjectURL(new Blob([text], { type })), download: name });
@@ -12,7 +23,7 @@ function download(name, type, text) {
 const stamp = () => new Date().toISOString().slice(0, 10);
 
 // Sauvegarde : feuille de partage iOS (Fichiers, iCloud Drive, AirDrop) quand elle accepte les fichiers, sinon téléchargement.
-async function backup() {
+export async function backup() {
   const name = `muscu-auto-${stamp()}.json`;
   const text = JSON.stringify({ exported: new Date().toISOString(), config: state.config, log }, null, 1);
   const file = new File([text], name, { type: 'application/json' });
@@ -29,9 +40,10 @@ async function backup() {
   toast('Journal sauvegardé', 'success');
 }
 
-function exportCsv() {
+export function exportCsv() {
   const dayOf = new Map(log.filter((x) => x.type === 'start').map((x) => [x.session, x.day]));
-  const cols = [['horodatage', (x) => x.t], ['type', (x) => x.type], ['seance', (x) => x.session], ['jour', (x) => DAYS[x.day ?? dayOf.get(x.session)]],
+  const free = freeSessions(log); // séance libre : pas de jour du programme, la colonne le dit
+  const cols = [['horodatage', (x) => x.t], ['type', (x) => x.type], ['seance', (x) => x.session], ['jour', (x) => (free.has(x.session) ? FREE_SESSION : DAYS[x.day ?? dayOf.get(x.session)])],
     ['exercice_id', (x) => x.ex], ['exercice', (x) => byId.get(x.ex)?.name], ['serie', (x) => x.set], ['kg', (x) => x.kg],
     ['repetitions', (x) => x.reps], ['mode', (x) => x.mode], ['technique_ok', (x) => x.ok], ['ressenti', (x) => x.feel]];
   const cell = (v) => `"${String(v ?? '').replaceAll('"', '""')}"`;
@@ -39,7 +51,7 @@ function exportCsv() {
   download(`muscu-auto-${stamp()}.csv`, 'text/csv;charset=utf-8', `﻿${[cols.map(([name]) => name).join(';'), ...rows].join('\n')}`);
 }
 
-function importButton() {
+export function importButton() {
   const input = h('input', { type: 'file', accept: 'application/json,.json', hidden: true });
   input.onchange = async () => {
     try {
@@ -47,7 +59,7 @@ function importButton() {
       const entries = Array.isArray(data) ? data : data.log;
       if (!Array.isArray(entries) || !entries.every((x) => typeof x?.t === 'string' && typeof x?.type === 'string')) throw new Error();
       if (await ask({ title: 'Remplacer ton historique ?', text: `Ton historique (${plural(log.length, 'saisie')}) sera remplacé par celui du fichier (${plural(entries.length, 'saisie')}).`, confirm: 'Remplacer', danger: true })) {
-        log = entries;
+        setLog(entries);
         save();
         render();
         cloudBackup();
@@ -91,7 +103,7 @@ function claudeText() {
   return lines.filter((l) => l != null).join('\n').replace(/ /g, ' ');
 }
 
-async function copyForClaude() {
+export async function copyForClaude() {
   try {
     await navigator.clipboard.writeText(claudeText());
     toast('Copié : colle-le dans une conversation avec Claude.', 'success');
@@ -108,7 +120,7 @@ const cloudOn = () => state.cloud?.on !== false;
 const deviceId = () => (state.push = { ...state.push, id: state.push?.id || crypto.randomUUID() }).id;
 const dateTime = (iso) => new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
 
-async function cloudBackup(force = false) {
+export async function cloudBackup(force = false) {
   // En développement (localhost), on n'écrit jamais sur le serveur réel.
   if (!location.hostname.endsWith('github.io') || !cloudOn() || !navigator.onLine || (!force && state.cloud?.n === log.length) || !log.length) return;
   try {
@@ -122,7 +134,7 @@ async function cloudBackup(force = false) {
   }
 }
 
-function cloudEditor() {
+export function cloudEditor() {
   const code = state.push?.id;
   const copy = async () => {
     try { await navigator.clipboard.writeText(code); toast('Code copié', 'success'); } catch { toast('Copie impossible : sélectionne le code à la main.', 'warning'); }
@@ -148,7 +160,7 @@ function cloudEditor() {
   ];
 }
 
-async function restoreFlow() {
+export async function restoreFlow() {
   const input = h('input', { className: 'input', type: 'text', placeholder: 'Code de récupération', autocapitalize: 'off', autocomplete: 'off', spellcheck: false, ariaLabel: 'Code de récupération' });
   const go = await choose({ title: 'Restaurer ton suivi', text: 'Colle le code affiché dans Réglages, section Sauvegarde, sur ton ancien iPhone.', extra: input,
     actions: [{ label: 'Restaurer', value: true, variant: 'primary' }, { label: 'Annuler', value: null }] });
@@ -167,14 +179,14 @@ async function restoreFlow() {
   }
   if (!Array.isArray(data?.log) || !data.config?.days) return toast('Sauvegarde illisible.', 'error');
   if (log.length && !await ask({ title: 'Remplacer ton suivi actuel ?', text: `Ton historique (${plural(log.length, 'saisie')}) sera remplacé par celui du ${dateTime(t)} (${plural(data.log.length, 'saisie')}).`, confirm: 'Remplacer', danger: true })) return;
-  log = data.log;
+  setLog(data.log);
   state.config = data.config;
   state.plan = generate(EXOS, state.config);
   state.cycle = { start: monday(new Date()).toISOString() };
   state.active = null;
   state.push = { id: code, on: false }; // les notifications se réactivent sur cet iPhone
   state.cloud = { on: true, t: new Date(t).toISOString(), n: log.length };
-  ui = { view: 'week', step: 0, draft: null };
+  setUi({ view: 'week', step: 0, draft: null });
   save();
   render();
   toast(`Suivi restauré : ${plural(new Set(log.filter((x) => x.type === 'set').map((x) => x.session)).size, 'séance')}`, 'success');
