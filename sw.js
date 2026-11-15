@@ -7,7 +7,19 @@ const SHELL = ['./', ...FILES.code, ...FILES.assets];
 const CODE = new Set(['./', ...FILES.code].map((f) => new URL(f, location).pathname)); // fichiers dont un changement = nouvelle version
 const files = () => [...new Set([...SHELL, ...EXOS.flatMap((e) => [...e.img,
   ...e.mus.map((m) => `muscles/main/muscle-${m}.svg`), ...e.mus2.map((m) => `muscles/secondary/muscle-${m}.svg`)])])];
-const version = (res) => res.headers.get('etag') || res.headers.get('last-modified');
+// Même contenu, octet par octet. Pas les en-têtes : GitHub Pages renvoie un ETag différent selon la compression
+// (W/"…" en gzip, "…" sans) et en change à chaque publication, même pour un fichier identique.
+async function same(a, b) {
+  const [x, y] = await Promise.all([a.arrayBuffer(), b.arrayBuffer()]).then((bufs) => bufs.map((buf) => new Uint8Array(buf)));
+  return x.length === y.length && x.every((v, i) => v === y[i]);
+}
+// Code servi sans durée de fraîcheur : sinon le navigateur le garde en mémoire (max-age de 10 min sur GitHub Pages) et, après
+// « Recharger », réexécute l'ancienne version sans même repasser par ici.
+function revalidate(res) {
+  const headers = new Headers(res.headers);
+  headers.set('Cache-Control', 'no-cache');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
 const notify = () => self.clients.matchAll().then((clients) => clients.forEach((c) => c.postMessage('update')));
 
 // cache: 'reload' : sans ça, le cache HTTP du navigateur (10 min sur GitHub Pages) resservirait l'ancienne version.
@@ -25,18 +37,22 @@ self.addEventListener('fetch', (ev) => {
   // Page TV (autre appareil, toujours en ligne) et fichiers qu'elle demande (../shared.js…) : réseau seulement,
   // pour ne jamais mélanger une ancienne et une nouvelle version.
   if (url.pathname.includes('/tv/') || ev.request.referrer.includes('/tv/')) return;
+  // Mise à jour demandée par l'appli (src/update.js, paramètre fresh) : réseau seulement, sinon le cache resservirait l'ancienne version.
+  if (url.searchParams.has('fresh')) return;
   ev.respondWith(caches.open(CACHE).then(async (cache) => {
     const hit = await cache.match(ev.request, { ignoreSearch: true });
+    const code = CODE.has(url.pathname), served = code && hit ? hit.clone() : null; // ce que la page a reçu
     // Par l'URL : une requête de navigation ne peut pas être recopiée avec d'autres options.
     const fresh = fetch(url.href, { cache: 'no-cache', credentials: 'same-origin' }).then(async (res) => {
       if (!res.ok) return res;
       await cache.put(ev.request, res.clone());
-      if (hit && CODE.has(url.pathname) && version(hit) !== version(res)) await notify();
+      // Nouvelle version seulement si le fichier servi à la page diffère vraiment de celui du serveur.
+      if (served && !(await same(served, res.clone()))) await notify();
       return res;
     });
-    if (!hit) return fresh;
+    if (!hit) return code ? fresh.then((res) => (res.ok ? revalidate(res) : res)) : fresh;
     ev.waitUntil(fresh.catch(() => {}));
-    return hit;
+    return code ? revalidate(hit) : hit;
   }));
 });
 

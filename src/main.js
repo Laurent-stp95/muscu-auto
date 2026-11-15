@@ -41,8 +41,6 @@ if (pushOn()) subscribePush(state.config).catch(() => {});
 connectScreen();
 if (updated) toast(`Appli à jour : version du ${new Date(document.lastModified).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`, 'success');
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  const controlled = !!navigator.serviceWorker.controller; // au tout premier lancement, l'installation n'est pas une mise à jour
   navigator.serviceWorker.register('sw.js').catch(() => {});
   navigator.serviceWorker.addEventListener('message', (ev) => { if (ev.data === 'update') showUpdate(); if (ev.data === 'bilan' && state.plan) show('progress'); });
-  navigator.serviceWorker.addEventListener('controllerchange', () => { if (controlled) showUpdate(); });
 }

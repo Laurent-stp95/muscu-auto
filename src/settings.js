@@ -7,7 +7,7 @@ import { state, log, record, save } from './store.js';
 import { ui, show, setUi, render } from './router.js';
 import { pills, chips, loadsEditor, planningEditor, zonesEditor } from './onboarding.js';
 import { resetLog } from './week.js';
-import { forceUpdate } from './update.js';
+import { versionLine } from './update.js';
 import { forgetScreen } from './screen.js';
 import { notifyEditor, syncPush } from './push.js';
 import { cloudEditor } from './backup.js';
@@ -48,9 +48,7 @@ export function settings() {
     section('Appli',
       // La doc s'ouvre hors de l'appli (feuille Safari sur iPhone) : on y revient d'un geste.
       h('a', { className: 'line doc-link', href: 'https://laurent-stp95.github.io/steady-docs/', target: '_blank', rel: 'noopener' }, h('span', {}, 'Aide et documentation'), icon('chevron', 'chev')),
-      h('div', { className: 'line' },
-        h('span', { className: 'meta' }, `Version du ${new Date(document.lastModified).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`),
-        button('Mettre à jour', forceUpdate, { size: 'compact' })),
+      versionLine(),
       log.length > 0 && h('div', { className: 'line' }, h('span', {}, 'Séances et séries'), button('Réinitialiser', resetLog, { variant: 'plain', className: 'btn plain destructive' }))));
 }
 

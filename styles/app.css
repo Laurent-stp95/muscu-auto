@@ -275,6 +275,7 @@ body.projecting .screen-btn { color: var(--ok-ink); }
 .offline { display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s4); border-radius: var(--r-l); background: var(--card); }
 .offline > .icon { width: 24px; height: 24px; color: var(--warn-ink); }
 .update { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s2) var(--s2) var(--s2) var(--s4); border-radius: var(--r-l); background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.update-line strong { color: var(--accent-ink); }
 
 /* Feuille de confirmation (bas d'écran, façon iOS) */
 dialog.sheet { width: min(100% - 2 * var(--s2), 560px); max-height: calc(100dvh - 2 * var(--s6)); margin: auto auto calc(var(--s2) + env(safe-area-inset-bottom)); padding: var(--s5) var(--s4) var(--s4); border: 0; border-radius: var(--r-l); background: var(--card); color: var(--fg); box-shadow: var(--shadow); }
